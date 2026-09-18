@@ -1,0 +1,27 @@
+{
+  "name": "ccs",
+  "version": "0.1.0",
+  "private": true,
+  "description": "ccs: multi-client host for long-lived Claude Code sessions",
+  "license": "UNLICENSED",
+  "engines": {
+    "node": "22.22.2"
+  },
+  "scripts": {
+    "build:native": "node-gyp rebuild --directory=native/ttyctl --nodedir=/data3/users/user/.nvm/versions/node/v22.22.2",
+    "test": "node --test \"test/unit/**/*.test.js\" \"test/golden/**/*.test.js\" \"test/integration/**/*.test.js\"",
+    "test:unit": "node --test \"test/unit/**/*.test.js\"",
+    "test:golden": "node --test \"test/golden/**/*.test.js\"",
+    "test:integration": "node --test \"test/integration/**/*.test.js\"",
+    "test:live": "node --test \"test/live/**/*.test.js\""
+  },
+  "dependencies": {
+    "@xterm/addon-serialize": "0.14.0",
+    "@xterm/addon-unicode11": "0.9.0",
+    "@xterm/headless": "6.0.0",
+    "node-pty": "1.1.0"
+  },
+  "devDependencies": {
+    "xterm-cursor": "npm:@xterm/headless@6.1.0-beta.291"
+  }
+}
