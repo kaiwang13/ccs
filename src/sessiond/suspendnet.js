@@ -67,7 +67,14 @@ class SuspendNet extends EventEmitter {
   _evaluate() {
     const l = this.lflag;
     if (!l) return;
-    if (!l.fgIsClaude) { this.rawSeen = false; this._clear('unconfirmedTimer'); return; }
+    if (!l.fgIsClaude) {
+      this.rawSeen = false;
+      this._clear('unconfirmedTimer');
+      this._clear('stuckTimer');
+      this.suspended = false;
+      this.sigcontSent = false;
+      return;
+    }
     if (!this.rawSeen || !l.icanon || this.tracker.alt) return;
     if (this.bannerSeen && !this.sigcontSent) {
       this.suspended = true;

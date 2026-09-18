@@ -80,6 +80,29 @@ test('a child owning the terminal (fgIsClaude false) never gates, never SIGCONTs
   assert.deepEqual(s.signals, []);
 });
 
+test('child takes over the terminal after a confirmed suspend but before the stuck timer fires: gate leaves SUSPENDED, stuck notice never fires, no RUNNING lifecycle', () => {
+  const s = setup();
+  s.n.onLflag(s.raw);
+  s.n.onText('has been suspended');
+  s.n.onLflag(s.cooked);                                  // confirmed suspend: one SIGCONT, gate SUSPENDED, stuckTimer armed
+  assert.deepEqual(s.signals, ['SIGCONT']);
+  assert.equal(s.n.gate, 'SUSPENDED');
+  assert.deepEqual(s.lifecycle, ['SUSPENDED']);
+  s.clock.tick(4000);                                     // 1 s short of the 5 s stuck timer
+  s.n.onLflag({ ...s.cooked, fgIsClaude: false });         // an editor takes the terminal, still cooked, before the timer fires
+  assert.equal(s.n.gate, 'COOKED', 'a child owning the terminal must never gate as SUSPENDED');
+  s.clock.tick(10000);                                     // well past the original 5 s stuck deadline
+  assert.ok(!s.notices.includes('SUSPEND_STUCK'), 'the stuck timer must be cleared, not just gated on icanon');
+  assert.deepEqual(s.signals, ['SIGCONT'], 'never a second SIGCONT');
+  assert.deepEqual(s.lifecycle, ['SUSPENDED'], 'no RUNNING lifecycle: Claude did not resume, a child took the terminal');
+  // sigcontSent/suspended are un-latched: a later genuine suspend (fgIsClaude true again) can SIGCONT again.
+  s.n.onLflag(s.raw);
+  s.n.onText('has been suspended');
+  s.n.onLflag(s.cooked);
+  assert.deepEqual(s.signals, ['SIGCONT', 'SIGCONT']);
+  assert.equal(s.n.gate, 'SUSPENDED');
+});
+
 test('cooked at startup (before Claude enters raw mode) is COOKED but never a suspend', () => {
   const s = setup();
   s.n.onLflag(s.cooked);
