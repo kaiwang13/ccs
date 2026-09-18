@@ -1,0 +1,3 @@
+#!/data3/users/user/.nvm/versions/node/v22.22.2/bin/node
+'use strict';
+require('./fakeclaude.js');
