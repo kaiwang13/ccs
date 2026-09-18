@@ -1,0 +1,402 @@
+{
+ "schema": "ccs.census-baseline/1",
+ "claudeVersion": "2.1.267",
+ "captures": {
+  "spike-size/runs/static-120x40": {
+   "bytes": 265551,
+   "reads": 1005,
+   "census": {
+    "absolute": 0,
+    "ed2": 0,
+    "ed3": 0,
+    "ris": 0,
+    "decstbm": 0,
+    "su": 0,
+    "sd": 0,
+    "alt47": 0,
+    "bareHome": 0,
+    "resetMismatch": 0,
+    "unknownStatus": 0
+   },
+   "resets": {
+    "count": 1,
+    "nEqualsPtyRows": 1,
+    "nRecentOther": 0
+   }
+  },
+  "spike-size/runs/static-120x15": {
+   "bytes": 250570,
+   "reads": 1118,
+   "census": {
+    "absolute": 0,
+    "ed2": 0,
+    "ed3": 0,
+    "ris": 0,
+    "decstbm": 0,
+    "su": 0,
+    "sd": 0,
+    "alt47": 0,
+    "bareHome": 0,
+    "resetMismatch": 0,
+    "unknownStatus": 0
+   },
+   "resets": {
+    "count": 1,
+    "nEqualsPtyRows": 1,
+    "nRecentOther": 0
+   }
+  },
+  "spike-size/runs/static-50x30": {
+   "bytes": 191390,
+   "reads": 810,
+   "census": {
+    "absolute": 0,
+    "ed2": 0,
+    "ed3": 0,
+    "ris": 0,
+    "decstbm": 0,
+    "su": 0,
+    "sd": 0,
+    "alt47": 0,
+    "bareHome": 0,
+    "resetMismatch": 0,
+    "unknownStatus": 0
+   },
+   "resets": {
+    "count": 1,
+    "nEqualsPtyRows": 1,
+    "nRecentOther": 0
+   }
+  },
+  "spike-size/runs/policy-P1": {
+   "bytes": 157360,
+   "reads": 332,
+   "census": {
+    "absolute": 0,
+    "ed2": 0,
+    "ed3": 0,
+    "ris": 0,
+    "decstbm": 0,
+    "su": 0,
+    "sd": 0,
+    "alt47": 0,
+    "bareHome": 0,
+    "resetMismatch": 0,
+    "unknownStatus": 0
+   },
+   "resets": {
+    "count": 7,
+    "nEqualsPtyRows": 7,
+    "nRecentOther": 0
+   }
+  },
+  "spike-size/runs/policy-P2": {
+   "bytes": 198014,
+   "reads": 467,
+   "census": {
+    "absolute": 0,
+    "ed2": 0,
+    "ed3": 0,
+    "ris": 0,
+    "decstbm": 0,
+    "su": 0,
+    "sd": 0,
+    "alt47": 0,
+    "bareHome": 0,
+    "resetMismatch": 0,
+    "unknownStatus": 0
+   },
+   "resets": {
+    "count": 7,
+    "nEqualsPtyRows": 7,
+    "nRecentOther": 0
+   }
+  },
+  "spike-size/runs/policy-P3": {
+   "bytes": 185488,
+   "reads": 566,
+   "census": {
+    "absolute": 0,
+    "ed2": 0,
+    "ed3": 0,
+    "ris": 0,
+    "decstbm": 0,
+    "su": 0,
+    "sd": 0,
+    "alt47": 0,
+    "bareHome": 0,
+    "resetMismatch": 0,
+    "unknownStatus": 0
+   },
+   "resets": {
+    "count": 7,
+    "nEqualsPtyRows": 7,
+    "nRecentOther": 0
+   }
+  },
+  "spike-size/runs/phone": {
+   "bytes": 192490,
+   "reads": 426,
+   "census": {
+    "absolute": 0,
+    "ed2": 0,
+    "ed3": 0,
+    "ris": 0,
+    "decstbm": 0,
+    "su": 0,
+    "sd": 0,
+    "alt47": 0,
+    "bareHome": 0,
+    "resetMismatch": 0,
+    "unknownStatus": 0
+   },
+   "resets": {
+    "count": 5,
+    "nEqualsPtyRows": 5,
+    "nRecentOther": 0
+   }
+  },
+  "spike-size/runs/debounce": {
+   "bytes": 242347,
+   "reads": 246,
+   "census": {
+    "absolute": 0,
+    "ed2": 0,
+    "ed3": 0,
+    "ris": 0,
+    "decstbm": 0,
+    "su": 0,
+    "sd": 0,
+    "alt47": 0,
+    "bareHome": 0,
+    "resetMismatch": 0,
+    "unknownStatus": 0
+   },
+   "resets": {
+    "count": 37,
+    "nEqualsPtyRows": 36,
+    "nRecentOther": 1
+   }
+  },
+  "spike-size/runs/mini-80x10": {
+   "bytes": 105239,
+   "reads": 497,
+   "census": {
+    "absolute": 0,
+    "ed2": 0,
+    "ed3": 0,
+    "ris": 0,
+    "decstbm": 0,
+    "su": 0,
+    "sd": 0,
+    "alt47": 0,
+    "bareHome": 0,
+    "resetMismatch": 0,
+    "unknownStatus": 0
+   },
+   "resets": {
+    "count": 2,
+    "nEqualsPtyRows": 2,
+    "nRecentOther": 0
+   }
+  },
+  "verify-spike-tall-live-area-size-policy/runs/vsz2": {
+   "bytes": 510838,
+   "reads": 714,
+   "census": {
+    "absolute": 0,
+    "ed2": 0,
+    "ed3": 0,
+    "ris": 0,
+    "decstbm": 0,
+    "su": 0,
+    "sd": 0,
+    "alt47": 0,
+    "bareHome": 0,
+    "resetMismatch": 0,
+    "unknownStatus": 0
+   },
+   "resets": {
+    "count": 97,
+    "nEqualsPtyRows": 84,
+    "nRecentOther": 13
+   }
+  },
+  "spike-flows/run": {
+   "bytes": 299567,
+   "reads": 1,
+   "census": {
+    "absolute": 0,
+    "ed2": 0,
+    "ed3": 0,
+    "ris": 0,
+    "decstbm": 0,
+    "su": 0,
+    "sd": 0,
+    "alt47": 0,
+    "bareHome": 0,
+    "resetMismatch": 0,
+    "unknownStatus": 0
+   },
+   "resets": {
+    "count": 7,
+    "nEqualsPtyRows": 7,
+    "nRecentOther": 0
+   }
+  },
+  "spike-flows/runlong": {
+   "bytes": 80426,
+   "reads": 1,
+   "census": {
+    "absolute": 0,
+    "ed2": 0,
+    "ed3": 0,
+    "ris": 0,
+    "decstbm": 0,
+    "su": 0,
+    "sd": 0,
+    "alt47": 0,
+    "bareHome": 0,
+    "resetMismatch": 0,
+    "unknownStatus": 0
+   },
+   "resets": {
+    "count": 0,
+    "nEqualsPtyRows": 0,
+    "nRecentOther": 0
+   }
+  },
+  "verify-spike-renderer-flows/live1": {
+   "bytes": 324695,
+   "reads": 1,
+   "census": {
+    "absolute": 0,
+    "ed2": 0,
+    "ed3": 0,
+    "ris": 0,
+    "decstbm": 0,
+    "su": 0,
+    "sd": 0,
+    "alt47": 0,
+    "bareHome": 0,
+    "resetMismatch": 0,
+    "unknownStatus": 0
+   },
+   "resets": {
+    "count": 8,
+    "nEqualsPtyRows": 8,
+    "nRecentOther": 0
+   }
+  },
+  "spike-env/runs/A-ans": {
+   "bytes": 19828,
+   "reads": 1,
+   "census": {
+    "absolute": 0,
+    "ed2": 0,
+    "ed3": 0,
+    "ris": 0,
+    "decstbm": 0,
+    "su": 0,
+    "sd": 0,
+    "alt47": 0,
+    "bareHome": 0,
+    "resetMismatch": 0,
+    "unknownStatus": 0
+   },
+   "resets": {
+    "count": 0,
+    "nEqualsPtyRows": 0,
+    "nRecentOther": 0
+   }
+  },
+  "spike-env/runs/A-ans-misordered": {
+   "bytes": 17585,
+   "reads": 1,
+   "census": {
+    "absolute": 0,
+    "ed2": 0,
+    "ed3": 0,
+    "ris": 0,
+    "decstbm": 0,
+    "su": 0,
+    "sd": 0,
+    "alt47": 0,
+    "bareHome": 0,
+    "resetMismatch": 0,
+    "unknownStatus": 0
+   },
+   "resets": {
+    "count": 0,
+    "nEqualsPtyRows": 0,
+    "nRecentOther": 0
+   }
+  },
+  "spike-env/runs/B-ans": {
+   "bytes": 14091,
+   "reads": 1,
+   "census": {
+    "absolute": 0,
+    "ed2": 0,
+    "ed3": 0,
+    "ris": 0,
+    "decstbm": 0,
+    "su": 0,
+    "sd": 0,
+    "alt47": 0,
+    "bareHome": 0,
+    "resetMismatch": 0,
+    "unknownStatus": 0
+   },
+   "resets": {
+    "count": 0,
+    "nEqualsPtyRows": 0,
+    "nRecentOther": 0
+   }
+  },
+  "spike-env/runs/B-nolinks": {
+   "bytes": 11110,
+   "reads": 1,
+   "census": {
+    "absolute": 0,
+    "ed2": 0,
+    "ed3": 0,
+    "ris": 0,
+    "decstbm": 0,
+    "su": 0,
+    "sd": 0,
+    "alt47": 0,
+    "bareHome": 0,
+    "resetMismatch": 0,
+    "unknownStatus": 0
+   },
+   "resets": {
+    "count": 0,
+    "nEqualsPtyRows": 0,
+    "nRecentOther": 0
+   }
+  },
+  "spike-env/runs/D-dup": {
+   "bytes": 11145,
+   "reads": 1,
+   "census": {
+    "absolute": 0,
+    "ed2": 0,
+    "ed3": 0,
+    "ris": 0,
+    "decstbm": 0,
+    "su": 0,
+    "sd": 0,
+    "alt47": 0,
+    "bareHome": 0,
+    "resetMismatch": 0,
+    "unknownStatus": 0
+   },
+   "resets": {
+    "count": 0,
+    "nEqualsPtyRows": 0,
+    "nRecentOther": 0
+   }
+  }
+ }
+}
