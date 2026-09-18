@@ -400,10 +400,10 @@ async function runHolder(specPath) {
   function finish() {
     if (finishing) return;
     finishing = true;
+    try { server.close(); } catch { /* already closed */ }
     for (const t of [pingTimer, lflagTimer, procTimer, graceTimer, noConnTimer, orphanTimer, stuckTimer, watchTimer]) if (t !== null) clock.clearTimeout(t);
     closeSlave();
     const end = () => {
-      try { server.close(); } catch { /* closed */ }
       try { fs.unlinkSync(sockPath); } catch { /* gone */ }
       if (!exitMsg) { try { term.destroy(); } catch { /* closed */ } }
       lock.release();

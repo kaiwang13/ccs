@@ -153,6 +153,40 @@ test('CLOSE_MASTER ends claude (EIO/SIGHUP); EXIT is sent; RELEASE ends the hold
   assert.equal(await h.exited, 0);
 });
 
+test('finish() closes pty.sock synchronously: connections raced in right after RELEASE are refused, never given a full H_HELLO handshake then dropped', { timeout: 60000 }, async (t) => {
+  const h = await startHolder(t);
+  const c = await rawConn(h.sock);
+  await c.waitControl('H_HELLO');
+  c.send({ t: 'ATTACH', fromOffset: 0, pid: process.pid });
+  await waitFor(() => /❯/.test(c.text()), { what: 'prompt' });
+  c.send({ t: 'CLOSE_MASTER' });
+  await c.waitControl('EXIT');
+  /** Dials one fresh raw connection to h.sock; resolves once it errors or closes, reporting whether H_HELLO ever arrived. */
+  const attempt = () => new Promise((resolve) => {
+    const sock = net.connect(h.sock);
+    const fsock = new FramedSocket(sock);
+    let gotHello = false;
+    let settled = false;
+    const settle = (/** @type {object} */ outcome) => { if (settled) return; settled = true; clearTimeout(guard); resolve(outcome); };
+    fsock.on('error', () => {});
+    fsock.on('frame', (/** @type {any} */ f) => { if (f.type === T.CONTROL && f.payload && f.payload.t === 'H_HELLO') gotHello = true; });
+    sock.once('error', (/** @type {any} */ e) => settle({ refused: true, code: e.code, gotHello }));
+    fsock.on('close', () => settle({ refused: false, gotHello }));
+    const guard = setTimeout(() => { settle({ refused: false, gotHello, timedOut: true }); sock.destroy(); }, 500);
+  });
+  const t0 = Date.now();
+  c.send({ t: 'RELEASE' });
+  // the reported race: a second connection dialed 5-40 ms after RELEASE used to be accepted, get a
+  // full H_HELLO + re-sent EXIT + LFLAG, then be severed abruptly ~50-300 ms later as the holder exited.
+  for (const targetMs of [5, 10, 20, 30, 40]) {
+    const wait = t0 + targetMs - Date.now();
+    if (wait > 0) await sleep(wait);
+    const r = await attempt();
+    assert.equal(r.gotHello, false, `connection ~${targetMs} ms after RELEASE must never receive H_HELLO (${JSON.stringify(r)})`);
+  }
+  assert.equal(await h.exited, 0);
+});
+
 test('I13 sub-case: claude killed with SIGTERM while a TIOCINQ watch is outstanding → EXIT within 500 ms', { timeout: 60000 }, async (t) => {
   const h = await startHolder(t);
   const c = await rawConn(h.sock);
