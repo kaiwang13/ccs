@@ -82,6 +82,37 @@ test('RESIZE below the floor pauses the client (boundary line + NOTICE); growing
   await waitFor(() => a.snapshots === 2, { timeoutMs: 5000, what: 'rejoin snapshot' });
 });
 
+test('a below-floor RESIZE followed immediately by an above-floor RESIZE, while the original join may still be in flight, never starts a second concurrent join (task-14 fix)', { timeout: 60000 }, async (t) => {
+  const e = await startTestSession(t);
+  const sock = net.connect(e.sockPath);
+  const raw = new FramedSocket(sock);
+  t.after(() => raw.destroy());
+  let snapshotBegins = 0;
+  let snapshotEnds = 0;
+  let live = false;
+  raw.on('frame', (/** @type {{type: number, payload: any}} */ f) => {
+    if (f.type !== T.CONTROL) return;
+    if (f.payload.t === 'SNAPSHOT_BEGIN') snapshotBegins += 1;
+    if (f.payload.t === 'SNAPSHOT_END') { snapshotEnds += 1; live = true; }
+  });
+  await new Promise((r) => sock.once('connect', r));
+  // Three ordinary frames, back to back, no waiting in between — the reviewer's exact reproduction: HELLO above the
+  // floor, then a RESIZE below it (pauses the still-JOINING client), then a RESIZE back above it (would previously
+  // fire a second, fully independent join() while the first was still mid-flight).
+  raw.sendControl({ t: 'HELLO', proto: 1, role: 'attach', cols: 100, rows: 30, cursorRow: 1, focus: true, tty: 't', pid: 0, label: 'race', termProgram: 't', flags: {} });
+  raw.sendControl({ t: 'RESIZE', cols: 30, rows: 30 });   // below the 50-col floor
+  raw.sendControl({ t: 'RESIZE', cols: 100, rows: 30 });  // immediately back above it
+  await waitFor(() => live, { timeoutMs: 10000, what: 'SNAPSHOT_END (join reaching live)' });
+  // Give an errant second join (pre-fix behaviour) time to complete and deliver its own SNAPSHOT_BEGIN/END pair.
+  await new Promise((r) => setTimeout(r, 1000));
+  assert.equal(snapshotBegins, 1, 'exactly one SNAPSHOT_BEGIN');
+  assert.equal(snapshotEnds, 1, 'exactly one SNAPSHOT_END');
+  const c = e.s.registry.clients.find((x) => x.label === 'race');
+  assert.ok(c, 'client still registered');
+  assert.equal(c.adapter.phase, 'LIVE');
+  assert.equal(c.joining, false, 'no join left running');
+});
+
 test('the holder spec carries sessiondCmd = the argv that started sessiond, with --recover appended once', { timeout: 60000 }, async (t) => {
   const e = await startTestSession(t);
   const holderSpec = JSON.parse(require('node:fs').readFileSync(e.s.paths.holderSpec('sess01', 1), 'utf8'));

@@ -8,7 +8,7 @@ const { buildJoinBytes, sendSnapshot, joinGeometry } = require('./snapshot');
 /**
  * @typedef {{id: string, fsock: import('../common/proto').FramedSocket, sock: import('node:net').Socket, hello: any, label: string,
  *   adapter: ClientAdapter, flags: {shrink: boolean, allowSetup: boolean}, lastPongAt: number, pingSeq: number, pingTimer: any,
- *   closed: boolean, lastInputAt: number}} Client
+ *   closed: boolean, lastInputAt: number, joining: boolean}} Client
  */
 
 /**
@@ -72,7 +72,7 @@ class ClientRegistry extends EventEmitter {
   add(fsock, sock, hello, id) {
     const flags = { shrink: !!(hello.flags && hello.flags.shrink), allowSetup: !!(hello.flags && hello.flags.allowSetup) };
     /** @type {Client} */
-    const c = /** @type {any} */ ({ id, fsock, sock, hello, label: String(hello.label || id), flags, lastPongAt: this.clock.now(), pingSeq: 0, pingTimer: null, closed: false, lastInputAt: 0 });
+    const c = /** @type {any} */ ({ id, fsock, sock, hello, label: String(hello.label || id), flags, lastPongAt: this.clock.now(), pingSeq: 0, pingTimer: null, closed: false, lastInputAt: 0, joining: false });
     c.adapter = new ClientAdapter({ id, cols: hello.cols, rows: hello.rows, flags, label: c.label, config: this.config, tracker: this.sup.tracker, clock: this.clock,
       send: (type, payload) => { fsock.send(type, payload); }, writableLength: () => fsock.writableLength,
       onDrop: (reason) => { this.log.info('client.bye', { client: id, reason }); this._close(c); } });
@@ -84,8 +84,25 @@ class ClientRegistry extends EventEmitter {
     fsock.on('error', () => {});
     this._armPing(c);
     this.broadcastState();
-    this.join(c).catch((e) => { this.log.error('join.failed', { client: id, error: String(e && e.message) }); this.bye(c, 'SESSION_ENDING', true, 'join failed'); });
+    this._startJoin(c);
     return c;
+  }
+
+  /**
+   * Starts a join for `c`, unless one is already running for it (never two concurrent joins for the same client —
+   * task-14 fix). `_resize()` mutates `a.cols`/`a.rows` unconditionally, before any phase check, so an in-flight
+   * join always reads the client's CURRENT geometry once it reaches `buildJoinBytes` (spec §3.5's "build at S"):
+   * a second join requested while one is already running would only re-deliver the same (or, at best, a
+   * marginally fresher) snapshot, so it is simply dropped rather than queued — see the task-14 fix report for the
+   * reasoning and the case that ruled out queuing a follow-up join.
+   * @param {Client} c
+   */
+  _startJoin(c) {
+    if (c.closed || c.joining) return;
+    c.joining = true;
+    this.join(c)
+      .catch((e) => { this.log.error('join.failed', { client: c.id, error: String(e && e.message) }); this.bye(c, 'SESSION_ENDING', true, 'join failed'); })
+      .finally(() => { c.joining = false; });
   }
 
   /**
@@ -174,7 +191,7 @@ class ClientRegistry extends EventEmitter {
         c.fsock.sendControl({ t: 'NOTICE', level: 'warn', code: 'PAUSED', text: `paused below the ${floorC}x${size.floorRows} floor` });
       }
     } else if (a.phase === 'PAUSED') {
-      this.join(c).catch((e) => this.log.error('rejoin.failed', { error: String(e && e.message) }));   // growing back: full snapshot
+      this._startJoin(c);                                                           // growing back: full snapshot (no-op if one is already in flight — see _startJoin)
       this.broadcastState();
       return;
     }
