@@ -1,0 +1,205 @@
+{
+ "name": "policy-P1",
+ "outdir": "/tmp/claude-1000/-data3-users-user-projects-cnv-gene-claude-code-server/f03a2ae3-656c-449f-88c4-4e51f0df71f6/scratchpad/spike-size/runs/policy-P1",
+ "cwd": "/tmp/claude-1000/-data3-users-user-projects-cnv-gene-claude-code-server/f03a2ae3-656c-449f-88c4-4e51f0df71f6/scratchpad/spike-size/work/policy-P1",
+ "cols": 120,
+ "rows": 40,
+ "sessionId": "ff9c6fb6-09c3-438c-83a5-fabe2a330ae0",
+ "cmd": "/home/user/.local/bin/claude",
+ "args": [
+  "--model",
+  "haiku",
+  "--settings",
+  "{\"tui\":\"default\"}",
+  "--permission-mode",
+  "default",
+  "--debug-file",
+  "/tmp/claude-1000/-data3-users-user-projects-cnv-gene-claude-code-server/f03a2ae3-656c-449f-88c4-4e51f0df71f6/scratchpad/spike-size/runs/policy-P1/debug.log",
+  "-n",
+  "ccs-test-policy-P1",
+  "--session-id",
+  "ff9c6fb6-09c3-438c-83a5-fabe2a330ae0",
+  "--strict-mcp-config",
+  "--no-chrome"
+ ],
+ "env": {
+  "CLAUDE_CODE_DEBUG_REPAINTS": "1"
+ },
+ "steps": [
+  {
+   "do": "waitText",
+   "re": "❯",
+   "where": "screen",
+   "timeout": 60000,
+   "required": true
+  },
+  {
+   "do": "waitQuiet",
+   "quiet": 2500,
+   "max": 30000
+  },
+  {
+   "do": "mark",
+   "name": "ready"
+  },
+  {
+   "do": "mark",
+   "name": "S1-start"
+  },
+  {
+   "do": "keys",
+   "data": "Read data.txt, then make exactly ONE Edit tool call on data.txt whose old_string is the 60 consecutive lines line-070 through line-129 and whose new_string is the same 60 lines with the word alpha replaced by OMEGA. Do not make any other edits and do not use Bash. After the edit reply with just: EDIT-DONE",
+   "gap": 800
+  },
+  {
+   "do": "keys",
+   "data": "<CR>",
+   "gap": 500
+  },
+  {
+   "do": "sleep",
+   "ms": 3000
+  },
+  {
+   "do": "attach",
+   "id": "B",
+   "cols": 100,
+   "rows": 15
+  },
+  {
+   "do": "mark",
+   "name": "S1-Bjoined"
+  },
+  {
+   "do": "waitText",
+   "re": "Do you want to make this edit|Esc to cancel",
+   "where": "screen",
+   "timeout": 180000,
+   "required": true
+  },
+  {
+   "do": "waitQuiet",
+   "quiet": 2000,
+   "max": 20000
+  },
+  {
+   "do": "mark",
+   "name": "S1-dialog-withB"
+  },
+  {
+   "do": "detach",
+   "id": "B"
+  },
+  {
+   "do": "waitQuiet",
+   "quiet": 2000,
+   "max": 20000
+  },
+  {
+   "do": "mark",
+   "name": "S1-dialog-afterB"
+  },
+  {
+   "do": "drain",
+   "name": "S1",
+   "quiet": 3000,
+   "max": 240000
+  },
+  {
+   "do": "mark",
+   "name": "S1-end"
+  },
+  {
+   "do": "mark",
+   "name": "S2-start"
+  },
+  {
+   "do": "keys",
+   "data": "Now reply with ONLY a fenced python code block of exactly 100 lines, no prose before or after. Line k (k = 1..100, zero-padded to 3 digits) must be: print(\"row-KKK stream check\")",
+   "gap": 800
+  },
+  {
+   "do": "keys",
+   "data": "<CR>",
+   "gap": 500
+  },
+  {
+   "do": "sleep",
+   "ms": 1500
+  },
+  {
+   "do": "attach",
+   "id": "C",
+   "cols": 100,
+   "rows": 60
+  },
+  {
+   "do": "mark",
+   "name": "S2-Cjoined"
+  },
+  {
+   "do": "waitText",
+   "re": "row-040",
+   "where": "all",
+   "timeout": 120000
+  },
+  {
+   "do": "detach",
+   "id": "C"
+  },
+  {
+   "do": "mark",
+   "name": "S2-Cleft"
+  },
+  {
+   "do": "waitText",
+   "re": "row-070",
+   "where": "all",
+   "timeout": 120000
+  },
+  {
+   "do": "attach",
+   "id": "B",
+   "cols": 100,
+   "rows": 15
+  },
+  {
+   "do": "mark",
+   "name": "S2-Bjoined"
+  },
+  {
+   "do": "drain",
+   "name": "S2",
+   "quiet": 5000,
+   "max": 240000
+  },
+  {
+   "do": "mark",
+   "name": "S2-end"
+  },
+  {
+   "do": "detach",
+   "id": "B"
+  },
+  {
+   "do": "waitQuiet",
+   "quiet": 2500,
+   "max": 20000
+  },
+  {
+   "do": "mark",
+   "name": "S2-Bleft"
+  }
+ ],
+ "policy": {
+  "cols": "min",
+  "rows": "min"
+ },
+ "clients": [
+  {
+   "id": "A",
+   "cols": 120,
+   "rows": 40
+  }
+ ]
+}

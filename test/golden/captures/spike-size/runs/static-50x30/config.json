@@ -1,0 +1,142 @@
+{
+ "name": "static-50x30",
+ "outdir": "/tmp/claude-1000/-data3-users-user-projects-cnv-gene-claude-code-server/f03a2ae3-656c-449f-88c4-4e51f0df71f6/scratchpad/spike-size/runs/static-50x30",
+ "cwd": "/tmp/claude-1000/-data3-users-user-projects-cnv-gene-claude-code-server/f03a2ae3-656c-449f-88c4-4e51f0df71f6/scratchpad/spike-size/work/static-50x30",
+ "cols": 50,
+ "rows": 30,
+ "sessionId": "d8fbd6c1-ae2a-4912-b080-cc396dfca2c9",
+ "cmd": "/home/user/.local/bin/claude",
+ "args": [
+  "--model",
+  "haiku",
+  "--settings",
+  "{\"tui\":\"default\"}",
+  "--permission-mode",
+  "default",
+  "--debug-file",
+  "/tmp/claude-1000/-data3-users-user-projects-cnv-gene-claude-code-server/f03a2ae3-656c-449f-88c4-4e51f0df71f6/scratchpad/spike-size/runs/static-50x30/debug.log",
+  "-n",
+  "ccs-test-static-50x30",
+  "--session-id",
+  "d8fbd6c1-ae2a-4912-b080-cc396dfca2c9",
+  "--strict-mcp-config",
+  "--no-chrome"
+ ],
+ "env": {
+  "CLAUDE_CODE_DEBUG_REPAINTS": "1"
+ },
+ "steps": [
+  {
+   "do": "waitText",
+   "re": "❯",
+   "where": "screen",
+   "timeout": 60000,
+   "required": true
+  },
+  {
+   "do": "waitQuiet",
+   "quiet": 2500,
+   "max": 30000
+  },
+  {
+   "do": "mark",
+   "name": "ready"
+  },
+  {
+   "do": "mark",
+   "name": "S1-start"
+  },
+  {
+   "do": "keys",
+   "data": "Read data.txt, then make exactly ONE Edit tool call on data.txt whose old_string is the 60 consecutive lines line-070 through line-129 and whose new_string is the same 60 lines with the word alpha replaced by OMEGA. Do not make any other edits and do not use Bash. After the edit reply with just: EDIT-DONE",
+   "gap": 800
+  },
+  {
+   "do": "keys",
+   "data": "<CR>",
+   "gap": 500
+  },
+  {
+   "do": "drain",
+   "name": "S1",
+   "quiet": 4000,
+   "max": 240000
+  },
+  {
+   "do": "mark",
+   "name": "S1-end"
+  },
+  {
+   "do": "mark",
+   "name": "S2-start"
+  },
+  {
+   "do": "keys",
+   "data": "Now reply with ONLY a fenced python code block of exactly 100 lines, no prose before or after. Line k (k = 1..100, zero-padded to 3 digits) must be: print(\"row-KKK stream check\")",
+   "gap": 800
+  },
+  {
+   "do": "keys",
+   "data": "<CR>",
+   "gap": 500
+  },
+  {
+   "do": "drain",
+   "name": "S2",
+   "quiet": 5000,
+   "max": 240000
+  },
+  {
+   "do": "mark",
+   "name": "S2-end"
+  },
+  {
+   "do": "mark",
+   "name": "S3-start"
+  },
+  {
+   "do": "keys",
+   "data": "Now use the Agent tool (a.k.a. Task tool) to launch exactly 3 subagents in parallel in ONE message (subagent_type general-purpose, model haiku). Subagent 1 prompt: \"Read data.txt and reply with only the full text of line-050.\" Subagent 2: the same but for line-150. Subagent 3: the same but for line-190. When all three finish, reply with exactly: SUBAGENTS-DONE",
+   "gap": 800
+  },
+  {
+   "do": "keys",
+   "data": "<CR>",
+   "gap": 500
+  },
+  {
+   "do": "drain",
+   "name": "S3",
+   "quiet": 6000,
+   "max": 300000
+  },
+  {
+   "do": "mark",
+   "name": "S3-end"
+  },
+  {
+   "do": "mark",
+   "name": "S4-start"
+  },
+  {
+   "do": "keys",
+   "data": "Now create a todo list with exactly 20 items using your todo/task tool (TodoWrite or TaskCreate): item N is \"TODO-NN verify size policy step N\" (NN zero-padded to 2 digits). Then mark TODO-01 as in progress. Do not do anything else. Finally reply with exactly: TODOS-DONE",
+   "gap": 800
+  },
+  {
+   "do": "keys",
+   "data": "<CR>",
+   "gap": 500
+  },
+  {
+   "do": "drain",
+   "name": "S4",
+   "quiet": 6000,
+   "max": 300000
+  },
+  {
+   "do": "mark",
+   "name": "S4-end"
+  }
+ ]
+}

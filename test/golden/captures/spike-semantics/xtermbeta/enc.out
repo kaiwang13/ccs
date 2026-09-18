@@ -1,0 +1,9 @@
+Ctrl+Z         {"legacy":"^Z","kitty_flags1":"ESC[122;5u","kitty_flags5":"ESC[122;5u","kitty_flags31":"ESC[122;5u","kitty_flags3_release":"ESC[122;5:3u","win32":"ESC[90;44;26;1;8;1_"}
+Ctrl+Shift+Z   {"kitty_flags1":"ESC[122;6u","kitty_flags5":"ESC[122:90;6u","kitty_flags31":"ESC[122:90;6u","kitty_flags3_release":"ESC[122;6:3u","win32":"ESC[90;44;26;1;24;1_"}
+Ctrl+C         {"legacy":"^C","kitty_flags1":"ESC[99;5u","kitty_flags5":"ESC[99;5u","kitty_flags31":"ESC[99;5u","kitty_flags3_release":"ESC[99;5:3u","win32":"ESC[67;46;3;1;8;1_"}
+Ctrl+D         {"legacy":"^D","kitty_flags1":"ESC[100;5u","kitty_flags5":"ESC[100;5u","kitty_flags31":"ESC[100;5u","kitty_flags3_release":"ESC[100;5:3u","win32":"ESC[68;32;4;1;8;1_"}
+Ctrl+\         {"legacy":"^\\","kitty_flags1":"ESC[92;5u","kitty_flags5":"ESC[92;5u","kitty_flags31":"ESC[92;5u","kitty_flags3_release":"ESC[92;5:3u","win32":"ESC[220;43;92;1;8;1_"}
+Ctrl+]         {"legacy":"^]","kitty_flags1":"ESC[93;5u","kitty_flags5":"ESC[93;5u","kitty_flags31":"ESC[93;5u","kitty_flags3_release":"ESC[93;5:3u","win32":"ESC[221;27;93;1;8;1_"}
+Escape         {"legacy":"ESC","kitty_flags1":"ESC[27u","kitty_flags5":"ESC[27u","kitty_flags31":"ESC[27u","kitty_flags3_release":"ESC[27;1:3u","win32":"ESC[27;1;27;1;0;1_"}
+z              {"legacy":"z","kitty_flags1":"z","kitty_flags5":"z","kitty_flags31":"ESC[122;;122u","kitty_flags3_release":"ESC[122;1:3u","win32":"ESC[90;44;122;1;0;1_"}
+Alt+z          {"legacy":"ESCz","kitty_flags1":"ESC[122;3u","kitty_flags5":"ESC[122;3u","kitty_flags31":"ESC[122;3;122u","kitty_flags3_release":"ESC[122;3:3u","win32":"ESC[90;44;122;1;2;1_"}

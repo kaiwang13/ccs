@@ -1,0 +1,12 @@
+{
+ "queries": {
+  "DA1": 1,
+  "XTVERSION": 1
+ },
+ "bytes": 191390,
+ "exited": {
+  "exitCode": 0,
+  "signal": 0
+ },
+ "durationMs": 114480
+}

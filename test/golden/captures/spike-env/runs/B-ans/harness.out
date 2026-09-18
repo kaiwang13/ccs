@@ -1,0 +1,5 @@
+phase start      action=wait   start=0.0 bytes=2034 alive=True t=7.7
+phase prompt     action=keys   start=7.7 bytes=9001 alive=True t=23.5
+phase inject     action=inject start=23.5 bytes=4 alive=True t=27.5
+phase exit       action=keys   start=27.5 bytes=3052 alive=False t=29.2
+child exited status 0

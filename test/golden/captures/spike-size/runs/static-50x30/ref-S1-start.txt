@@ -1,0 +1,29 @@
+ ▐▛███▛█   Claude Code v2.1.267
+▝▜██████▀  Haiku 4.5 · Claude Max
+  ▝▝ ▝▝    /…/spike-size/work/static-50x30
+
+▎ Debug mode enabled · logging to /tmp/claude-1000
+▎ /-data3-users-user-projects-cnv-gene-claude-code
+▎ -server/f03a2ae3-656c-449f-88c4-4e51f0df71f6/scr
+▎ atchpad/spike-size/runs/static-50x30/debug.log
+
+────────────────────────── ccs-test-static-50x30 ─
+❯ 
+──────────────────────────────────────────────────
+  ⏸ manual mode on · ← for agents
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

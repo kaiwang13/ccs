@@ -1,0 +1,39 @@
+ ▐▛███▛█   Claude Code v2.1.267
+▝▜██████▀  Haiku 4.5 · Claude Max
+  ▝▝ ▝▝    /…/f03a2ae3-656c-449f-88c4-4e51f0df71f6/scratchpad/spike-size/work/policy-P3
+
+▎ Debug mode enabled · logging to /tmp/claude-1000/-data3-users-user-projects-cnv-gene-claude-code-server/f03a2ae3-656c-
+▎ 449f-88c4-4e51f0df71f6/scratchpad/spike-size/runs/policy-P3/debug.log
+
+─────────────────────────────────────────────────────────────────────────────────────────────────── ccs-test-policy-P3 ─
+❯ 
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  ⏸ manual mode on · ← for agents
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

@@ -1,0 +1,20 @@
+7[r8[?25h[?25l[?2004h[?2031h[?1004h]0;✳ ccs-test-env-A-ans[38;2;215;119;87m ▐[48;2;0;0;0m▛███▛█[12G[39m[49m[1mClaude[19GCode[24G[22m[38;2;102;102;102mv2.1.267[39m
+[38;2;215;119;87m▝▜[48;2;0;0;0m█████[49m█▀[12G[38;2;102;102;102mHaiku[18G4.5[22G·[24GClaude[31GMax[39m
+[38;2;215;119;87m [3G▝▝[6G▝▝[12G[38;2;102;102;102m/…/f03a2ae3-656c-449f-88c4-4e51f0df71f6/scratchpad/spike-env/work[39m
+
+[2m▎[3G[22m[38;2;102;102;102mDebug[9Gmode[14Genabled[22G·[24Glogging[32Gto[35G/tmp/claude-1000/-data3-users-user-projects-cnv-gene-claude-code-server/f03a2ae3-656c-[39m
+[2m▎[3G[22m[38;2;102;102;102m449f-88c4-4e51f0df71f6/scratchpad/spike-env/runs/A-ans/debug.log[39m
+
+[38;2;153;153;153m───────────────────────────────────────────────────────────────────────────────────────────────────[101Gccs-test-env-A-ans[120G─[39m
+❯ [2mTry[7G"fix[12Glint[17Gerrors"[22m
+[38;2;153;153;153m────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────[39m
+[3G[38;2;150;108;30m⏵⏵[6Gauto[11Gmode[16Gon[38;2;102;102;102m (shift+tab[30Gto[33Gcycle)[40G·[42G←[44Gfor[48Gagents[39m
+[2C[3A[?25h[>0q[c[?25l[2D[3B[2C[3A[K
+
+
+[2C[3A[?25h[?25l[2D[3B[2C[1A[38;2;102;102;102m⏸ manual mode on · ← for agents[39m                    [83G[38;2;150;108;30mauto mode unavailable for this model[39m
+[2C[3A[?25h[?25l[2D[3B[2C[1A[32m[1muser@devhost[22m[38;2;102;102;102m:[34m[1m/tmp/claude-1000/-data3-users-user-projects-cnv-gene-claude-code-server/f03a2ae3-656c-449f-88c4-4e51f0…[22m[39m
+[3G[38;2;102;102;102m[2m╰[22m [1m$29.00[22m [14G[2m·[22m [18G5-hour[25G[31m[1m1789566600%[22m[38;2;102;102;102m [2m·[22m 0m[42Gleft[49G[2m·[22m [53Gweekly[60G[31m[1m1789776000%[22m[39m
+[3G[38;2;102;102;102m⏸[5Gmanual[12Gmode[17Gon[20G·[22G←[24Gfor[28Gagents[39m
+[83G[38;2;150;108;30mauto[88Gmode[93Gunavailable[105Gfor[109Gthis[114Gmodel[39m
+[2C[6A[?25h

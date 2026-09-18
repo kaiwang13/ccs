@@ -1,0 +1,86 @@
+ ▐▛███▛█   Claude Code v2.1.267
+▝▜██████▀  Haiku 4.5 · Claude Max
+  ▝▝ ▝▝    /…/f03a2ae3-656c-449f-88c4-4e51f0df71f6/scratchpad/spike-size/work/debounce
+
+▎ Debug mode enabled · logging to /tmp/claude-1000/-data3-users-user-projects-cnv-gene-claude-code-server/f03a2ae3-656c-
+▎ 449f-88c4-4e51f0df71f6/scratchpad/spike-size/runs/debounce/debug.log
+
+❯ Reply with ONLY a fenced text code block of exactly 60 lines; line k is: FILL-KK debounce filler line (KK             
+  zero-padded).                                                                                                         
+  
+● FILL-01 debounce filler line
+  FILL-02 debounce filler line
+  FILL-03 debounce filler line
+  FILL-04 debounce filler line
+  FILL-05 debounce filler line
+  FILL-06 debounce filler line
+  FILL-07 debounce filler line
+  FILL-08 debounce filler line
+  FILL-09 debounce filler line
+  FILL-10 debounce filler line
+  FILL-11 debounce filler line
+  FILL-12 debounce filler line
+  FILL-13 debounce filler line
+  FILL-14 debounce filler line
+  FILL-15 debounce filler line
+  FILL-16 debounce filler line
+  FILL-17 debounce filler line
+  FILL-18 debounce filler line
+  FILL-19 debounce filler line
+  FILL-20 debounce filler line
+  FILL-21 debounce filler line
+  FILL-22 debounce filler line
+  FILL-23 debounce filler line
+  FILL-24 debounce filler line
+  FILL-25 debounce filler line
+  FILL-26 debounce filler line
+  FILL-27 debounce filler line
+  FILL-28 debounce filler line
+  FILL-29 debounce filler line
+  FILL-30 debounce filler line
+  FILL-31 debounce filler line
+  FILL-32 debounce filler line
+  FILL-31 debounce filler line
+  FILL-32 debounce filler line
+  FILL-31 debounce filler line
+  FILL-32 debounce filler line
+  FILL-31 debounce filler line
+  FILL-31 debounce filler line
+  FILL-32 debounce filler line
+  FILL-33 debounce filler line
+  FILL-34 debounce filler line
+  FILL-35 debounce filler line
+  FILL-36 debounce filler line
+  FILL-37 debounce filler line
+  FILL-38 debounce filler line
+  FILL-39 debounce filler line
+  FILL-40 debounce filler line
+  FILL-41 debounce filler line
+  FILL-42 debounce filler line
+  FILL-43 debounce filler line
+  FILL-44 debounce filler line
+  FILL-45 debounce filler line
+  FILL-46 debounce filler line
+  FILL-47 debounce filler line
+  FILL-48 debounce filler line
+  FILL-49 debounce filler line
+  FILL-50 debounce filler line
+  FILL-51 debounce filler line
+  FILL-52 debounce filler line
+  FILL-53 debounce filler line
+  FILL-54 debounce filler line
+  FILL-55 debounce filler line
+  FILL-56 debounce filler line
+  FILL-57 debounce filler line
+  FILL-58 debounce filler line
+  FILL-59 debounce filler line
+  FILL-60 debounce filler line
+
+✻ Worked for 7s · done 12:52 PM
+
+──────────────────────────────────────────────────────────────────────────────────────────────────── ccs-test-debounce ─
+❯ 
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  user@devhost:/tmp/claude-1000/-data3-users-user-projects-cnv-gene-claude-code-server/f03a2ae3-656c-449f-88c4-4e51f0…
+  ╰ $0.02   ·   5-hour 30% · 57m left   ·   weekly 35% · 2d 11h left
+  ⏸ manual mode on · ← for agents

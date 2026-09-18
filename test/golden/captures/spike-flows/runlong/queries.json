@@ -1,0 +1,12 @@
+{
+ "startup": {
+  "DA1:ESC[c": 1,
+  "XTVERSION:ESC[>0q": 1
+ },
+ "L1_ctrlG": {
+  "DA2:ESC[>c": 1,
+  "DSR-CPR:ESC[6n": 2,
+  "OSC11-bg:ESC]11;?\u0007": 1,
+  "OSC10-fg:ESC]10;?\u0007": 1
+ }
+}

@@ -1,0 +1,545 @@
+{
+ "name": "debounce",
+ "outdir": "/tmp/claude-1000/-data3-users-user-projects-cnv-gene-claude-code-server/f03a2ae3-656c-449f-88c4-4e51f0df71f6/scratchpad/spike-size/runs/debounce",
+ "cwd": "/tmp/claude-1000/-data3-users-user-projects-cnv-gene-claude-code-server/f03a2ae3-656c-449f-88c4-4e51f0df71f6/scratchpad/spike-size/work/debounce",
+ "cols": 120,
+ "rows": 40,
+ "sessionId": "017e0d2a-98f3-4342-b35a-7c4f79855895",
+ "cmd": "/home/user/.local/bin/claude",
+ "args": [
+  "--model",
+  "haiku",
+  "--settings",
+  "{\"tui\":\"default\"}",
+  "--permission-mode",
+  "default",
+  "--debug-file",
+  "/tmp/claude-1000/-data3-users-user-projects-cnv-gene-claude-code-server/f03a2ae3-656c-449f-88c4-4e51f0df71f6/scratchpad/spike-size/runs/debounce/debug.log",
+  "-n",
+  "ccs-test-debounce",
+  "--session-id",
+  "017e0d2a-98f3-4342-b35a-7c4f79855895",
+  "--strict-mcp-config",
+  "--no-chrome"
+ ],
+ "env": {
+  "CLAUDE_CODE_DEBUG_REPAINTS": "1"
+ },
+ "steps": [
+  {
+   "do": "waitText",
+   "re": "❯",
+   "where": "screen",
+   "timeout": 60000,
+   "required": true
+  },
+  {
+   "do": "waitQuiet",
+   "quiet": 2500,
+   "max": 30000
+  },
+  {
+   "do": "mark",
+   "name": "ready"
+  },
+  {
+   "do": "mark",
+   "name": "FILL-start"
+  },
+  {
+   "do": "keys",
+   "data": "Reply with ONLY a fenced text code block of exactly 60 lines; line k is: FILL-KK debounce filler line (KK zero-padded).",
+   "gap": 800
+  },
+  {
+   "do": "keys",
+   "data": "<CR>",
+   "gap": 500
+  },
+  {
+   "do": "drain",
+   "name": "FILL",
+   "quiet": 4000,
+   "max": 120000
+  },
+  {
+   "do": "mark",
+   "name": "filled"
+  },
+  {
+   "do": "mark",
+   "name": "wb-0"
+  },
+  {
+   "do": "burst",
+   "sizes": [
+    [
+     100,
+     40
+    ],
+    [
+     120,
+     40
+    ]
+   ],
+   "gap": 0
+  },
+  {
+   "do": "waitQuiet",
+   "quiet": 2000,
+   "max": 20000
+  },
+  {
+   "do": "mark",
+   "name": "wa-0"
+  },
+  {
+   "do": "mark",
+   "name": "wb-5"
+  },
+  {
+   "do": "burst",
+   "sizes": [
+    [
+     100,
+     40
+    ],
+    [
+     120,
+     40
+    ]
+   ],
+   "gap": 5
+  },
+  {
+   "do": "waitQuiet",
+   "quiet": 2000,
+   "max": 20000
+  },
+  {
+   "do": "mark",
+   "name": "wa-5"
+  },
+  {
+   "do": "mark",
+   "name": "wb-16"
+  },
+  {
+   "do": "burst",
+   "sizes": [
+    [
+     100,
+     40
+    ],
+    [
+     120,
+     40
+    ]
+   ],
+   "gap": 16
+  },
+  {
+   "do": "waitQuiet",
+   "quiet": 2000,
+   "max": 20000
+  },
+  {
+   "do": "mark",
+   "name": "wa-16"
+  },
+  {
+   "do": "mark",
+   "name": "wb-33"
+  },
+  {
+   "do": "burst",
+   "sizes": [
+    [
+     100,
+     40
+    ],
+    [
+     120,
+     40
+    ]
+   ],
+   "gap": 33
+  },
+  {
+   "do": "waitQuiet",
+   "quiet": 2000,
+   "max": 20000
+  },
+  {
+   "do": "mark",
+   "name": "wa-33"
+  },
+  {
+   "do": "mark",
+   "name": "wb-50"
+  },
+  {
+   "do": "burst",
+   "sizes": [
+    [
+     100,
+     40
+    ],
+    [
+     120,
+     40
+    ]
+   ],
+   "gap": 50
+  },
+  {
+   "do": "waitQuiet",
+   "quiet": 2000,
+   "max": 20000
+  },
+  {
+   "do": "mark",
+   "name": "wa-50"
+  },
+  {
+   "do": "mark",
+   "name": "wb-100"
+  },
+  {
+   "do": "burst",
+   "sizes": [
+    [
+     100,
+     40
+    ],
+    [
+     120,
+     40
+    ]
+   ],
+   "gap": 100
+  },
+  {
+   "do": "waitQuiet",
+   "quiet": 2000,
+   "max": 20000
+  },
+  {
+   "do": "mark",
+   "name": "wa-100"
+  },
+  {
+   "do": "mark",
+   "name": "wb-250"
+  },
+  {
+   "do": "burst",
+   "sizes": [
+    [
+     100,
+     40
+    ],
+    [
+     120,
+     40
+    ]
+   ],
+   "gap": 250
+  },
+  {
+   "do": "waitQuiet",
+   "quiet": 2000,
+   "max": 20000
+  },
+  {
+   "do": "mark",
+   "name": "wa-250"
+  },
+  {
+   "do": "mark",
+   "name": "wb-500"
+  },
+  {
+   "do": "burst",
+   "sizes": [
+    [
+     100,
+     40
+    ],
+    [
+     120,
+     40
+    ]
+   ],
+   "gap": 500
+  },
+  {
+   "do": "waitQuiet",
+   "quiet": 2000,
+   "max": 20000
+  },
+  {
+   "do": "mark",
+   "name": "wa-500"
+  },
+  {
+   "do": "mark",
+   "name": "wb-1000"
+  },
+  {
+   "do": "burst",
+   "sizes": [
+    [
+     100,
+     40
+    ],
+    [
+     120,
+     40
+    ]
+   ],
+   "gap": 1000
+  },
+  {
+   "do": "waitQuiet",
+   "quiet": 2000,
+   "max": 20000
+  },
+  {
+   "do": "mark",
+   "name": "wa-1000"
+  },
+  {
+   "do": "mark",
+   "name": "rb-0"
+  },
+  {
+   "do": "burst",
+   "sizes": [
+    [
+     120,
+     30
+    ],
+    [
+     120,
+     40
+    ]
+   ],
+   "gap": 0
+  },
+  {
+   "do": "waitQuiet",
+   "quiet": 2000,
+   "max": 20000
+  },
+  {
+   "do": "mark",
+   "name": "ra-0"
+  },
+  {
+   "do": "mark",
+   "name": "rb-50"
+  },
+  {
+   "do": "burst",
+   "sizes": [
+    [
+     120,
+     30
+    ],
+    [
+     120,
+     40
+    ]
+   ],
+   "gap": 50
+  },
+  {
+   "do": "waitQuiet",
+   "quiet": 2000,
+   "max": 20000
+  },
+  {
+   "do": "mark",
+   "name": "ra-50"
+  },
+  {
+   "do": "mark",
+   "name": "rb-250"
+  },
+  {
+   "do": "burst",
+   "sizes": [
+    [
+     120,
+     30
+    ],
+    [
+     120,
+     40
+    ]
+   ],
+   "gap": 250
+  },
+  {
+   "do": "waitQuiet",
+   "quiet": 2000,
+   "max": 20000
+  },
+  {
+   "do": "mark",
+   "name": "ra-250"
+  },
+  {
+   "do": "mark",
+   "name": "storm-b"
+  },
+  {
+   "do": "burst",
+   "sizes": [
+    [
+     110,
+     40
+    ],
+    [
+     100,
+     40
+    ],
+    [
+     110,
+     40
+    ],
+    [
+     100,
+     40
+    ],
+    [
+     110,
+     40
+    ],
+    [
+     100,
+     40
+    ],
+    [
+     110,
+     40
+    ],
+    [
+     100,
+     40
+    ],
+    [
+     110,
+     40
+    ],
+    [
+     100,
+     40
+    ],
+    [
+     120,
+     40
+    ]
+   ],
+   "gap": 30
+  },
+  {
+   "do": "waitQuiet",
+   "quiet": 2000,
+   "max": 20000
+  },
+  {
+   "do": "mark",
+   "name": "storm-a"
+  },
+  {
+   "do": "mark",
+   "name": "grow-b"
+  },
+  {
+   "do": "burst",
+   "sizes": [
+    [
+     120,
+     50
+    ]
+   ],
+   "gap": 0
+  },
+  {
+   "do": "waitQuiet",
+   "quiet": 2000,
+   "max": 20000
+  },
+  {
+   "do": "mark",
+   "name": "grow-a"
+  },
+  {
+   "do": "burst",
+   "sizes": [
+    [
+     120,
+     40
+    ]
+   ],
+   "gap": 0
+  },
+  {
+   "do": "waitQuiet",
+   "quiet": 2000,
+   "max": 20000
+  },
+  {
+   "do": "mark",
+   "name": "shrink-a"
+  },
+  {
+   "do": "mark",
+   "name": "S2-start"
+  },
+  {
+   "do": "keys",
+   "data": "Now reply with ONLY a fenced python code block of exactly 100 lines, no prose before or after. Line k (k = 1..100, zero-padded to 3 digits) must be: print(\"row-KKK stream check\")",
+   "gap": 800
+  },
+  {
+   "do": "keys",
+   "data": "<CR>",
+   "gap": 500
+  },
+  {
+   "do": "sleep",
+   "ms": 2500
+  },
+  {
+   "do": "mark",
+   "name": "sb"
+  },
+  {
+   "do": "burst",
+   "sizes": [
+    [
+     100,
+     40
+    ],
+    [
+     120,
+     40
+    ]
+   ],
+   "gap": 100
+  },
+  {
+   "do": "drain",
+   "name": "S2",
+   "quiet": 5000,
+   "max": 240000
+  },
+  {
+   "do": "mark",
+   "name": "S2-end"
+  }
+ ]
+}

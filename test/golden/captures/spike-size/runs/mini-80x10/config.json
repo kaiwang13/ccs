@@ -1,0 +1,94 @@
+{
+ "name": "mini-80x10",
+ "outdir": "/tmp/claude-1000/-data3-users-user-projects-cnv-gene-claude-code-server/f03a2ae3-656c-449f-88c4-4e51f0df71f6/scratchpad/spike-size/runs/mini-80x10",
+ "cwd": "/tmp/claude-1000/-data3-users-user-projects-cnv-gene-claude-code-server/f03a2ae3-656c-449f-88c4-4e51f0df71f6/scratchpad/spike-size/work/mini-80x10",
+ "cols": 80,
+ "rows": 10,
+ "sessionId": "759c4633-8aea-49f2-a1ce-44f67970f897",
+ "cmd": "/home/user/.local/bin/claude",
+ "args": [
+  "--model",
+  "haiku",
+  "--settings",
+  "{\"tui\":\"default\"}",
+  "--permission-mode",
+  "default",
+  "--debug-file",
+  "/tmp/claude-1000/-data3-users-user-projects-cnv-gene-claude-code-server/f03a2ae3-656c-449f-88c4-4e51f0df71f6/scratchpad/spike-size/runs/mini-80x10/debug.log",
+  "-n",
+  "ccs-test-mini-80x10",
+  "--session-id",
+  "759c4633-8aea-49f2-a1ce-44f67970f897",
+  "--strict-mcp-config",
+  "--no-chrome"
+ ],
+ "env": {
+  "CLAUDE_CODE_DEBUG_REPAINTS": "1"
+ },
+ "steps": [
+  {
+   "do": "waitText",
+   "re": "❯",
+   "where": "screen",
+   "timeout": 60000,
+   "required": true
+  },
+  {
+   "do": "waitQuiet",
+   "quiet": 2500,
+   "max": 30000
+  },
+  {
+   "do": "mark",
+   "name": "ready"
+  },
+  {
+   "do": "mark",
+   "name": "S1-start"
+  },
+  {
+   "do": "keys",
+   "data": "Read data.txt, then make exactly ONE Edit tool call on data.txt whose old_string is the 60 consecutive lines line-070 through line-129 and whose new_string is the same 60 lines with the word alpha replaced by OMEGA. Do not make any other edits and do not use Bash. After the edit reply with just: EDIT-DONE",
+   "gap": 800
+  },
+  {
+   "do": "keys",
+   "data": "<CR>",
+   "gap": 500
+  },
+  {
+   "do": "drain",
+   "name": "S1",
+   "quiet": 4000,
+   "max": 240000
+  },
+  {
+   "do": "mark",
+   "name": "S1-end"
+  },
+  {
+   "do": "mark",
+   "name": "S4-start"
+  },
+  {
+   "do": "keys",
+   "data": "Now create a todo list with exactly 20 items using your todo/task tool (TodoWrite or TaskCreate): item N is \"TODO-NN verify size policy step N\" (NN zero-padded to 2 digits). Then mark TODO-01 as in progress. Do not do anything else. Finally reply with exactly: TODOS-DONE",
+   "gap": 800
+  },
+  {
+   "do": "keys",
+   "data": "<CR>",
+   "gap": 500
+  },
+  {
+   "do": "drain",
+   "name": "S4",
+   "quiet": 6000,
+   "max": 300000
+  },
+  {
+   "do": "mark",
+   "name": "S4-end"
+  }
+ ]
+}

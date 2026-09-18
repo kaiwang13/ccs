@@ -1,0 +1,217 @@
+{
+ "name": "phone",
+ "outdir": "/tmp/claude-1000/-data3-users-user-projects-cnv-gene-claude-code-server/f03a2ae3-656c-449f-88c4-4e51f0df71f6/scratchpad/spike-size/runs/phone",
+ "cwd": "/tmp/claude-1000/-data3-users-user-projects-cnv-gene-claude-code-server/f03a2ae3-656c-449f-88c4-4e51f0df71f6/scratchpad/spike-size/work/phone",
+ "cols": 160,
+ "rows": 45,
+ "sessionId": "94f0f116-6d80-4fe5-a9c1-70e435ae2922",
+ "cmd": "/home/user/.local/bin/claude",
+ "args": [
+  "--model",
+  "haiku",
+  "--settings",
+  "{\"tui\":\"default\"}",
+  "--permission-mode",
+  "default",
+  "--debug-file",
+  "/tmp/claude-1000/-data3-users-user-projects-cnv-gene-claude-code-server/f03a2ae3-656c-449f-88c4-4e51f0df71f6/scratchpad/spike-size/runs/phone/debug.log",
+  "-n",
+  "ccs-test-phone",
+  "--session-id",
+  "94f0f116-6d80-4fe5-a9c1-70e435ae2922",
+  "--strict-mcp-config",
+  "--no-chrome"
+ ],
+ "env": {
+  "CLAUDE_CODE_DEBUG_REPAINTS": "1"
+ },
+ "steps": [
+  {
+   "do": "waitText",
+   "re": "❯",
+   "where": "screen",
+   "timeout": 60000,
+   "required": true
+  },
+  {
+   "do": "waitQuiet",
+   "quiet": 2500,
+   "max": 30000
+  },
+  {
+   "do": "mark",
+   "name": "ready"
+  },
+  {
+   "do": "mark",
+   "name": "S2-start"
+  },
+  {
+   "do": "keys",
+   "data": "Now reply with ONLY a fenced python code block of exactly 100 lines, no prose before or after. Line k (k = 1..100, zero-padded to 3 digits) must be: print(\"row-KKK stream check\")",
+   "gap": 800
+  },
+  {
+   "do": "keys",
+   "data": "<CR>",
+   "gap": 500
+  },
+  {
+   "do": "drain",
+   "name": "S2",
+   "quiet": 5000,
+   "max": 240000
+  },
+  {
+   "do": "mark",
+   "name": "S2-end"
+  },
+  {
+   "do": "attach",
+   "id": "P",
+   "cols": 50,
+   "rows": 30
+  },
+  {
+   "do": "waitQuiet",
+   "quiet": 2500,
+   "max": 20000
+  },
+  {
+   "do": "mark",
+   "name": "P-joined"
+  },
+  {
+   "do": "mark",
+   "name": "S1-start"
+  },
+  {
+   "do": "keys",
+   "data": "Read data.txt, then make exactly ONE Edit tool call on data.txt whose old_string is the 60 consecutive lines line-070 through line-129 and whose new_string is the same 60 lines with the word alpha replaced by OMEGA. Do not make any other edits and do not use Bash. After the edit reply with just: EDIT-DONE",
+   "gap": 800
+  },
+  {
+   "do": "keys",
+   "data": "<CR>",
+   "gap": 500
+  },
+  {
+   "do": "drain",
+   "name": "S1",
+   "quiet": 4000,
+   "max": 240000
+  },
+  {
+   "do": "mark",
+   "name": "S1-end"
+  },
+  {
+   "do": "mark",
+   "name": "TBL-start"
+  },
+  {
+   "do": "keys",
+   "data": "Reply with a markdown table with columns name, colour, note for 5 fruits, then one short sentence ending with TABLE-DONE.",
+   "gap": 800
+  },
+  {
+   "do": "keys",
+   "data": "<CR>",
+   "gap": 500
+  },
+  {
+   "do": "drain",
+   "name": "TBL",
+   "quiet": 4000,
+   "max": 120000
+  },
+  {
+   "do": "mark",
+   "name": "TBL-end"
+  },
+  {
+   "do": "detach",
+   "id": "P"
+  },
+  {
+   "do": "waitQuiet",
+   "quiet": 2500,
+   "max": 20000
+  },
+  {
+   "do": "mark",
+   "name": "P-left"
+  },
+  {
+   "do": "setPolicy",
+   "policy": {
+    "cols": "min",
+    "rows": "min",
+    "floorCols": 80
+   }
+  },
+  {
+   "do": "attach",
+   "id": "P",
+   "cols": 50,
+   "rows": 30
+  },
+  {
+   "do": "waitQuiet",
+   "quiet": 2500,
+   "max": 20000
+  },
+  {
+   "do": "mark",
+   "name": "P-joined-floor80"
+  },
+  {
+   "do": "mark",
+   "name": "LST-start"
+  },
+  {
+   "do": "keys",
+   "data": "Reply with a numbered list of 15 one-line fruit facts; each line must start with FACT-NN (NN = 01..15).",
+   "gap": 800
+  },
+  {
+   "do": "keys",
+   "data": "<CR>",
+   "gap": 500
+  },
+  {
+   "do": "drain",
+   "name": "LST",
+   "quiet": 4000,
+   "max": 120000
+  },
+  {
+   "do": "mark",
+   "name": "LST-end"
+  },
+  {
+   "do": "detach",
+   "id": "P"
+  },
+  {
+   "do": "waitQuiet",
+   "quiet": 2500,
+   "max": 20000
+  },
+  {
+   "do": "mark",
+   "name": "P-left2"
+  }
+ ],
+ "policy": {
+  "cols": "min",
+  "rows": "min"
+ },
+ "clients": [
+  {
+   "id": "A",
+   "cols": 160,
+   "rows": 45
+  }
+ ]
+}

@@ -1,0 +1,22 @@
+[?2026h[?25l[2D[5B[2C[5A[38;2;87;105;247m/exit[2C[2B/[1mexit[22m                                           [1mExit[22m the CLI[39m[K[2C[1B[38;2;102;102;102m/context[13G [17G      [24G   [28G [30G   [34G    [41G [45G      Visualize[61Gcurrent context usage as a colored grid[2C[1B/design [12G    [17G  [20G [22G [24G   [28G                       Create a design canvas - a multi-artboard visual design published as[39m
+[51G[38;2;102;102;102man[54GArtifact[63Gthat[68Gruns[73GClaude[80GDesign's[89Gcanvas[96Geditor[103G(an[107Gearly[113Gprevi…[39m
+[3G[38;2;102;102;102m/usage-credits[51GConfigure[61Gusage[67Gcredits[75Gor[78Grequest[86Gthem[91Gfrom[96Gyour[101Gadmin[107Gwhen[112Gyou[116Ghit[39m
+[51G[38;2;102;102;102ma[53Glimit[39m
+[3G[38;2;102;102;102m/skill-creator:skill-creator[51G(skill-creator)[67GCreate[74Gnew[78Gskills,[86Gmodify[93Gand[97Gimprove[105Gexisting[39m
+[51G[38;2;102;102;102mskills,[59Gand[63Gmeasure[71Gskill[77Gperformance.[90GUse[94Gwhen[99Gusers[105Gwant[110Gto[113Gcreat…[39m
+[3G[38;2;102;102;102m/doctor[51GHealth-check[64Gthe[68Guser's[75GClaude[82GCode[87Gsetup[93Gand[97Gfix[101Gissues:[109Gdiagnose[39m
+[51G[38;2;102;102;102minstallation[64Ghealth[71G—[73Gwhat[78Gthe[82G`claude[90Gdoctor`[98Gterminal[107Gdiagnostics…[39m
+[3G[38;2;102;102;102m/find-skills[51GHelps[57Gusers[63Gdiscover[72Gand[76Ginstall[84Gagent[90Gskills[97Gwhen[102Gthey[107Gask[39m
+[51G[38;2;102;102;102mquestions[61Glike[66G"how[71Gdo[74GI[76Gdo[79GX",[83G"find[89Ga[91Gskill[97Gfor[101GX",[105G"is[109Gthere[115Ga[117Gs…[39m
+[3G[38;2;102;102;102m/superpowers:writing-skills[51G(superpowers)[65GUse[69Gwhen[74Gcreating[83Gnew[87Gskills,[95Gediting[103Gexisting[112Gskills,[39m
+[51G[38;2;102;102;102mor[54Gverifying[64Gskills[71Gwork[76Gbefore[83Gdeployment[39m
+[3G[38;2;102;102;102m/claude-in-chrome[51GAutomates[61Gyour[66GChrome[73Gbrowser[81Gto[84Ginteract[93Gwith[98Gweb[102Gpages[108G-[110Gclicking[39m
+[51G[38;2;102;102;102melements,[61Gfilling[69Gforms,[76Gcapturing[86Gscreenshots,[99Greading[107Gconsole[115Glog…[39m
+[3G[38;2;102;102;102m/xgboost-prediction-pipeline[51GMethodology[63G+[65Gvisualization[79Gblueprint[89Gfor[93Gbuilding[102Gan[105GXGBoost[39m
+[51G[38;2;102;102;102mbinary-classification[73Gpipeline[82Gwith[87Gpatient-level[101G(or[105Gsample-level)…[39m
+[3G[38;2;102;102;102m/lovstudio-bp[51GOrchestrate[63Ga[65Gcomplete[74Ginvestor[83GBP[86Gworkflow[95Gor[98Groute[104Gto[107Gone[111Gfocused[39m
+[51G[38;2;102;102;102mmodule:[59Gsource-backed[73Goutline,[82GPPTX/PDF[91Gproduction,[103Gor[106Gevidence/con…[39m
+[7C[22A[?25h[?2026l[?1006l[?1003l[?1002l[?1000l[7D[22B(B[>4m[<u[?1004l[?2031l[?2004l[?25h7[r8]0;[2m[22m
+[2mResume this session with:[22m
+[2mclaude --resume "ccs-test-env-A-ans"[22m
+[2m[22m

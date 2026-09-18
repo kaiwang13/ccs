@@ -1,0 +1,21 @@
+{
+ "sid": "50b4c021-77c4-473a-b102-8f3674bb5e95",
+ "cmd": [
+  "/home/user/.local/bin/claude",
+  "--model",
+  "haiku",
+  "--settings",
+  "{\"tui\":\"default\"}",
+  "--permission-mode",
+  "default",
+  "--debug-file",
+  "runs/vsz2/debug.log",
+  "-n",
+  "ccs-test-vsz2",
+  "--session-id",
+  "50b4c021-77c4-473a-b102-8f3674bb5e95",
+  "--strict-mcp-config",
+  "--no-chrome"
+ ],
+ "cwd": "/tmp/claude-1000/-data3-users-user-projects-cnv-gene-claude-code-server/f03a2ae3-656c-449f-88c4-4e51f0df71f6/scratchpad/verify-spike-tall-live-area-size-policy/work/vsz2"
+}

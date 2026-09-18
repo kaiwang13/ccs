@@ -1,0 +1,4 @@
+{"t": 0.708, "phase": "start", "q": "XTVERSION", "raw": "ESC[>0q", "answered": "ESCP>|xterm.js(6.0.0)ESC\\"}
+{"t": 0.708, "phase": "start", "q": "DA1", "raw": "ESC[c", "answered": "ESC[?1;2c"}
+{"t": 0.719, "phase": "start", "q": "DECRQM", "raw": "ESC[?2026$p", "answered": "ESC[?2026;2$y"}
+{"t": 0.719, "phase": "start", "q": "DA1", "raw": "ESC[c", "answered": "ESC[?1;2c"}
