@@ -1,0 +1,47 @@
+'use strict';
+const test = require('node:test');
+const assert = require('node:assert/strict');
+const path = require('node:path');
+const { makeTempRoot, writeConfig } = require('../helpers/tmp');
+const { makeSessionSpec, spawnSessiond } = require('../helpers/spawn');
+const { connectVirtualClient, reconnectVirtualClient } = require('../helpers/vclient');
+const { waitFor } = require('../helpers/waitfor');
+const { resolvePaths } = require('../../src/common/paths');
+
+test('I2: SIGTERM sessiond mid-stream → the holder respawns it with --recover; same claude pid; clients rejoin ≤ 10 s; the rebuilt emulator lost nothing', { timeout: 90000 }, async (t) => {
+  const tmp = makeTempRoot(t);
+  const configFile = writeConfig(path.join(tmp.root, 'config.json'), { stop: { exitWaitMs: 3000, hangupWaitMs: 2000, termWaitMs: 2000 } });
+  const spec = makeSessionSpec(tmp, { configFile });
+  const first = spawnSessiond(tmp, spec);
+  const sockPath = resolvePaths({ ...process.env, CCS_RUNTIME_DIR: tmp.root }).ctlSock(spec.ccsId);
+  const a = await waitFor(() => connectVirtualClient({ sockPath, cols: 120, rows: 40, label: 'A' }).catch(() => null), { timeoutMs: 15000, what: 'first attach' });
+  tmp.defer(() => a.close());
+  await a.waitForText(/❯/, 10000);
+  const ctl1 = await connectVirtualClient({ sockPath, cols: 0, rows: 0, role: 'control' });
+  const before = (await ctl1.request('STATUS')).data.claude.pid;
+  ctl1.close();
+  a.send('!lines 3000 100\r');
+  await a.waitForText(/line-000200/, 10000);
+  const t0 = Date.now();
+  first.child.kill('SIGTERM');                                                // mid-stream
+  const bye = await a.waitForBye(5000);
+  assert.deepEqual([bye.reason, bye.autoRejoin], ['SESSION_ENDING', true]);
+  assert.equal((await first.exited).code, 0);
+  const b = await reconnectVirtualClient({ sockPath, cols: 120, rows: 40, label: 'A-again' }, { maxMs: 15000 });
+  tmp.defer(() => b.close());
+  const rejoinMs = Date.now() - t0;
+  assert.ok(rejoinMs <= 10000, `rejoined after ${rejoinMs} ms`);
+  const ctl2 = await connectVirtualClient({ sockPath, cols: 0, rows: 0, role: 'control' });
+  tmp.defer(() => ctl2.close());
+  const status = (await ctl2.request('STATUS')).data;
+  assert.equal(status.claude.pid, before, 'claude was never restarted');
+  await b.waitForText(/line-003000/, 10000);
+  const lines = b.allText().split('\n');
+  const sep = lines.findIndex((l) => l.startsWith('── ccs · '));
+  const markers = lines.slice(sep + 1).map((l) => /^line-(\d{6}) /.exec(l)).filter(Boolean).map((m) => Number(/** @type {RegExpExecArray} */ (m)[1]));
+  assert.deepEqual(markers, Array.from({ length: 3000 }, (_, i) => i + 1), 'rebuilt from the ring: every line once, in order');
+  b.send('after recovery\r');
+  await b.waitForText(/echo: after recovery/, 5000);
+  const stop = await ctl2.request('STOP', {}, 20000);
+  assert.equal(stop.data.lifecycle, 'STOPPED');
+});
