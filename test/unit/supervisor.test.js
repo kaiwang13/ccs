@@ -300,3 +300,41 @@ test('an async stateWriter replaces the local write; writes never overlap and th
   assert.equal(fs.existsSync(path.join(s.dir, 'state.json')), false, 'the default synchronous writer was not used');
   s.sup.dispose();
 });
+
+test('dispose() flushes its own queued final snapshot once an in-flight async write settles, instead of dropping it', async (t) => {
+  /** @type {Array<{file: string, st: any}>} */
+  const calls = [];
+  /** @type {Array<() => void>} */
+  const pending = [];
+  const s = setup(t, {
+    stateWriter: (file, st) => {
+      calls.push({ file, st });
+      return new Promise((resolve) => pending.push(resolve));
+    },
+  });
+  await s.sup.start();                                      // _adopt's final _writeState(true) starts a write and leaves it in flight
+  assert.equal(calls.length, 1, 'the first write is in flight');
+  assert.equal(calls[0].st.lifecycle, 'STARTING');
+  assert.equal(s.sup.stateInFlight, true);
+
+  s.sessionJson();
+  await s.tickAndSettle(1000);                              // STARTING -> RUNNING; that _setLifecycle's _writeState(true) coalesces into pendingState
+  assert.equal(calls.length, 1, 'still only one write in flight; the RUNNING snapshot was coalesced, not sent');
+  assert.equal(s.sup.lifecycle, 'RUNNING');
+
+  s.sup.dispose();                                          // dispose()'s own _writeState(true) races the in-flight write: it also queues into pendingState
+  assert.equal(s.sup.disposed, true);
+  assert.ok(s.sup.pendingState, 'dispose queued its final snapshot instead of writing it directly');
+  assert.equal(s.sup.pendingState.lifecycle, 'RUNNING', 'the queued snapshot is dispose-time state, not stale');
+  assert.equal(calls.length, 1, 'the writer has not been invoked a second time yet');
+
+  pending.shift()();                                        // settle the original in-flight write
+  await s.settle();
+
+  assert.equal(calls.length, 2, 'the writer WAS invoked again with the queued dispose-time snapshot, not silently dropped');
+  assert.equal(calls[1].st.lifecycle, 'RUNNING', "the flushed snapshot reflects dispose-time state, not the original in-flight write's");
+  assert.equal(s.sup.pendingState, null);
+
+  for (let i = 0; i < 50 && pending.length; i++) { pending.shift()(); await s.settle(); }
+  assert.equal(calls.length, 2, 'no further writes were scheduled after disposal');
+});

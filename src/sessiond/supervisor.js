@@ -579,7 +579,11 @@ class Supervisor extends EventEmitter {
         this.stateInFlight = false;
         const next = this.pendingState;
         this.pendingState = null;
-        if (next && !this.disposed) this._emitState(next);
+        // Flush a snapshot queued before dispose() (including dispose()'s own final write) even though we're now
+        // disposed: `_writeState()` already refuses to *schedule* any new write cycle once disposed, so this can't
+        // reopen the door to new writes — it only lets an already-queued snapshot reach the writer instead of being
+        // silently dropped.
+        if (next) this._emitState(next);
       });
   }
 
