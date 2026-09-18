@@ -94,6 +94,38 @@ test('payload buffers are copies, independent of the input chunk', () => {
   assert.equal(/** @type {Buffer} */ (f.payload).toString(), 'abc');
 });
 
+test('mutating the caller\'s buffer after a partial push does not corrupt decoder state (reviewer repro)', () => {
+  // Reviewer repro: a chunk large enough to contain the full 5-byte header but
+  // not the whole frame is pushed, then the caller reuses/zeroes that same
+  // buffer object (as a native-addon PTY read path plausibly would between
+  // reads), then the remaining bytes are pushed. The decoder must not have
+  // retained a live reference into that buffer for its already-buffered
+  // header/payload bytes.
+  const payload = Buffer.from('hello world'); // frame = 4(len) + 1(type) + 11 = 16 bytes
+  const frame = encodeFrame(0x03, payload);
+  assert.equal(frame.length, 16);
+  const d = new FrameDecoder();
+  const firstChunk = frame.subarray(0, 14); // full header + 9 of 11 payload bytes; frame incomplete
+  assert.deepEqual(d.push(firstChunk), []);
+  firstChunk.fill(0); // simulate caller reusing/zeroing its read buffer
+  const got = d.push(frame.subarray(14));
+  assert.deepEqual(got, [{ type: 3, payload }]);
+});
+
+test('mutating either input chunk after a split frame is decoded does not affect the returned payload', () => {
+  const payload = Buffer.from('the payload data crosses a chunk boundary nicely, on purpose');
+  const frame = encodeFrame(0x10, payload);
+  const d = new FrameDecoder();
+  const splitAt = 10; // well inside the header/payload, arbitrary
+  const chunkA = frame.subarray(0, splitAt);
+  const chunkB = frame.subarray(splitAt);
+  assert.deepEqual(d.push(chunkA), []);
+  const [got] = d.push(chunkB);
+  chunkA.fill(0);
+  chunkB.fill(0);
+  assert.deepEqual(got.payload, payload);
+});
+
 test('a 1 MiB frame delivered in 1 KiB chunks decodes in linear time', () => {
   const frame = encodeFrame(0x10, Buffer.alloc(MAX_FRAME - 1, 7));
   const d = new FrameDecoder();

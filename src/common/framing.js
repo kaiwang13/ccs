@@ -61,7 +61,12 @@ class FrameDecoder {
   push(chunk) {
     if (this.failed) throw new ProtocolError('PROTO', 'decoder already failed');
     if (chunk.length) {
-      this.chunks.push(chunk);
+      // Defensive copy: never retain a live reference into caller-owned memory.
+      // Without this, a caller that reuses/zeroes its read buffer between
+      // pushes (e.g. a native-addon PTY read path) can corrupt already-buffered
+      // header/payload bytes out from under us. Frames are capped at
+      // MAX_FRAME (1 MiB), so copying unconditionally is cheap.
+      this.chunks.push(Buffer.from(chunk));
       this.buffered += chunk.length;
     }
     /** @type {Array<{type: number, payload: Buffer|object}>} */
