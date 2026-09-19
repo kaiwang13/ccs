@@ -101,23 +101,51 @@ test('ccs new \'\' (explicit empty name) is rejected like any other invalid name
   assert.equal(after.length, 0, `expected zero orphan registry entries, found: ${JSON.stringify(after.map((rec) => rec.intent.nameAtCreate))}`);
 });
 
-test('bare extra-arg notice: fires and names the offending token when a bare word trails an allowed flag+value; silent for a plain flag+value pair', async (t) => {
-  // Regression for Finding 2 / Fix 4 (task-9-review.md): validateExtraArgs only polices dash-prefixed
-  // tokens, so `ccs new -- --model sonnet do the thing` would silently start a background session whose
-  // trailing bare words become claude's initial prompt, unattended. This is a notice only (Fix 2 was ruled
-  // against arity-aware blocking, since several allowlisted flags are variadic) — exit code must not change.
+test('bare extra-arg notice (--no-attach only): names every bare token, including the single-token boolean-flag injection case; an honest false positive on legitimate variadic flag values is tolerated there', async (t) => {
+  // Fix round 2 (task-9-review.md Finding 2 / Fix 4, revised): the harm is a session starting work on
+  // smuggled prompt text with nobody attached. Attaching (the default) shows the user claude starting
+  // immediately, so there is nothing to warn about — the notice is scoped to --no-attach, and there it names
+  // every bare token in `rest` rather than trying to guess which ones are "somebody's flag value".
   const ctx = makeCcsEnv(t);
-  const quiet = await runCcs(ctx, ['new', 'quiet', '--no-attach', '--', '--model', 'sonnet']);
-  assert.equal(quiet.code, 0, quiet.stderr);
-  assert.doesNotMatch(quiet.stderr, /will be passed to claude as extra arguments/);
 
-  const noisy = await runCcs(ctx, ['new', 'noisy', '--no-attach', '--', '--model', 'sonnet', 'do the thing']);
-  assert.equal(noisy.code, 0, noisy.stderr);
-  assert.match(noisy.stderr, /'do the thing' will be passed to claude as extra arguments/);
-  assert.match(noisy.stderr, /initial prompt/);
-  assert.match(noisy.stderr, /unattended/);
-  // 'sonnet' is --model's own value and must not itself be named as offending.
-  assert.doesNotMatch(noisy.stderr, /'sonnet' will be passed/);
+  // Note: under --no-attach the rule is "name every bare token", full stop — no attempt to guess that
+  // 'sonnet' is --model's own value. So a plain `--model sonnet` under --no-attach now also gets named; that
+  // is this design's cost on the rare, scripted --no-attach path, paid in exchange for zero false positives
+  // on the common attached path (see the next test) and for catching the boolean-flag case below.
+
+  const trailing = await runCcs(ctx, ['new', 'trailing', '--no-attach', '--', '--model', 'sonnet', 'do the thing']);
+  assert.equal(trailing.code, 0, trailing.stderr);
+  assert.match(trailing.stderr, /'do the thing' will be passed to claude as extra arguments/);
+  assert.match(trailing.stderr, /initial prompt/);
+  assert.match(trailing.stderr, /unattended/);
+
+  // The regression that matters (this is what the old "immediately follows a flag" heuristic missed): a
+  // single bare token after a zero-arity (boolean) flag like --strict-mcp-config. The old rule treated it as
+  // "the flag's own value" and stayed silent — exactly the case used to demonstrate the defect.
+  const boolFlag = await runCcs(ctx, ['new', 'boolflag', '--no-attach', '--', '--strict-mcp-config', 'INJECTED PROMPT']);
+  assert.equal(boolFlag.code, 0, boolFlag.stderr);
+  assert.match(boolFlag.stderr, /'INJECTED PROMPT' will be passed to claude as extra arguments/);
+
+  // A fully legitimate, allowlisted variadic flag (--add-dir takes multiple directories) also triggers the
+  // notice under --no-attach — an intentional, disclosed false positive. --no-attach is the rare, deliberately
+  // scripted path, so naming the values there is an honest low-cost disclosure, unlike the common attached
+  // path (see the next test), where firing on correct everyday usage would just train users to ignore it.
+  const variadic = await runCcs(ctx, ['new', 'variadic', '--no-attach', '--', '--add-dir', '/a', '/b', '/c']);
+  assert.equal(variadic.code, 0, variadic.stderr);
+  assert.match(variadic.stderr, /'\/a' '\/b' '\/c' will be passed to claude as extra arguments/);
+});
+
+test('bare extra-arg notice never fires on the default attached path', async (t) => {
+  // Same trailing-bare-word shape as the --no-attach 'trailing' case above, but without --no-attach: the
+  // user is attaching and will see claude start on it immediately, so the notice must stay silent.
+  const ctx = makeCcsEnv(t);
+  const term = spawnInTerminal({ file: process.execPath, args: [CCS, 'new', 'attached', '--', '--model', 'sonnet', 'do the thing'], env: ctx.env, cwd: ctx.work, cols: 100, rows: 30 });
+  t.after(() => term.kill());
+  await term.waitText(/history line 40/, 30000);
+  const seen = (await term.lines()).join('\n');
+  assert.doesNotMatch(seen, /will be passed to claude as extra arguments/);
+  term.write('\x1c');
+  assert.equal((await term.exited).exitCode, 0);
 });
 
 test('an unhealthy ~/.claude.json blocks the start with a message naming the fix', async (t) => {
