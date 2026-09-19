@@ -81,9 +81,9 @@ function checkDecoder(bin, timeoutMs = 60000) {
   let sha = null;
   try { sha = JSON.parse(r.stdout).sha256; } catch { /* reported below */ }
   const baseline = loadDecoderBaseline()[bin.version];
-  if (!baseline) return { level: 'fail', label: 'decoder', detail: `${bin.version} is untested: no committed decoder baseline (extracted sha256 ${String(sha).slice(0, 12)}…); run the decoder differential test before adding it to testedVersions` };
+  if (!baseline) return { level: 'fail', label: 'decoder', detail: `${bin.version} is untested: no committed decoder baseline (extracted sha256 ${String(sha).slice(0, 12)}…); run 'node --test test/golden/decoder-diff.test.js' before adding it to testedVersions` };
   if (sha === baseline.sha256) return { level: 'ok', label: 'decoder', detail: `sha256 ${String(sha).slice(0, 12)}… matches the ${bin.version} baseline` };
-  return { level: 'fail', label: 'decoder', detail: `sha256 ${String(sha).slice(0, 12)}… differs from the ${bin.version} baseline ${baseline.sha256.slice(0, 12)}… — the key decoder changed; run the decoder differential test` };
+  return { level: 'fail', label: 'decoder', detail: `sha256 ${String(sha).slice(0, 12)}… differs from the ${bin.version} baseline ${baseline.sha256.slice(0, 12)}… — the key decoder changed; run 'node --test test/golden/decoder-diff.test.js'` };
 }
 
 /** @param {any} paths @param {any} config @returns {Check} */
