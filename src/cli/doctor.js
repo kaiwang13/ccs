@@ -57,13 +57,24 @@ function checkDecoder(bin, timeoutMs = 60000) {
   const script = `const x=require(${JSON.stringify(EXTRACTOR)});const ex=x.extract(process.argv[1]);x.selfCheck(x.load(ex));process.stdout.write(JSON.stringify({sha256:ex.sha256}));`;
   const r = cp.spawnSync(process.execPath, ['-e', script, bin.path], { encoding: 'utf8', timeout: timeoutMs, killSignal: 'SIGTERM' });
   if (r.error || r.status !== 0) {
-    // A child that dies with an uncaught exception has Node append its own runtime-version banner
-    // after the stack trace, so the *last* stderr line is never the fault — it is always "Node.js
-    // vX.Y.Z". Drop that banner and any stack frame lines, and prefer a line that actually looks like
-    // an error message; fall back to the exit status when nothing usable is left.
-    const lines = String(r.stderr || '').trim().split('\n').map((s) => s.trim()).filter(Boolean)
-      .filter((s) => !/^Node\.js v/.test(s) && !/^at\s/.test(s));
-    const why = (r.error && r.error.message) || lines.find((s) => /error/i.test(s)) || lines[0] || `exit ${r.status}`;
+    // A child that dies with an uncaught exception prints, in order: a `file:line` header, the
+    // indented source excerpt of the throw site, a `^` caret marker, a blank line, the canonical
+    // `<ErrorClass>: <message>` line, indented `at ...` stack frames, a blank line, then Node's own
+    // "Node.js vX.Y.Z" runtime banner. Only the canonical line is the fault. The source excerpt is
+    // NOT merely noise to drop — for a plain `throw new Error(...)` statement it contains the
+    // *literal text* "Error(" and often the message string too, so a naive "line matching /error/i"
+    // scan finds it before it ever reaches the real "Error: <message>" line below it (this is the
+    // exact defect this comment now guards against: a FAIL used to read the throw-site source code
+    // as its reason instead of the actual message). Filter out the header/excerpt/caret/frames/
+    // banner, prefer a line that has the canonical "<Identifier>: message" shape, then any line that
+    // merely mentions "error", then the exit status.
+    const lines = String(r.stderr || '').trim().split(/\r?\n/).map((s) => s.trim()).filter(Boolean)
+      .filter((s) => !/^Node\.js v/.test(s) && !/^at\s/.test(s) && !/^\^+$/.test(s) && !/^\S+:\d+$/.test(s) && !/throw\s+new\s/.test(s));
+    let why = (r.error && r.error.message)
+      || lines.find((s) => /^[A-Za-z_$][\w$]*(?:\s*\[[^\]]*\])?:\s/.test(s))
+      || lines.find((s) => /error/i.test(s))
+      || lines[0] || `exit ${r.status}`;
+    if (why.length > 200) why = `${why.slice(0, 200)}…`; // a pathological single-line stderr must not make the detail unbounded
     return { level: 'fail', label: 'decoder', detail: `${bin.version}: the key decoder could not be extracted/loaded (${why}) — this version is untested; use a tested claude version` };
   }
   /** @type {string|null} */
@@ -90,7 +101,14 @@ async function checkClaudeJsonHealth(paths, nfsTimeoutMs) {
   const backup = g.newestBackup ? `newest backup ${tildify(g.newestBackup)}` : 'no backup yet (the first start takes one)';
   if (g.ok) return [{ level: 'ok', label: '~/.claude.json', detail: `${g.keys} keys, ${g.projects} projects, onboarding complete; ${backup}` }];
   const vs = g.baselineKeys != null ? ` (baseline ${g.baselineKeys} keys, ${g.baselineProjects} projects)` : '';
-  return [{ level: 'fail', label: '~/.claude.json', detail: `${g.reason}: ${g.keys} keys, ${g.projects} projects${vs}; ${backup}. Restore from the backup, or if the current file is right: ccs doctor --accept-config` }];
+  // MISSING/UNPARSEABLE happen inside claudeJsonGuard before checkClaudeJson ever runs — there is no
+  // parsed object at all, so `ccs doctor --accept-config` cannot do anything with it (it would just
+  // report the same MISSING/UNPARSEABLE reason back). The only real remedy for those two reasons is
+  // restoring the file itself from a backup, when one exists.
+  const remedy = (g.reason === 'MISSING' || g.reason === 'UNPARSEABLE')
+    ? (g.newestBackup ? `Copy ${tildify(g.newestBackup)} over ${tildify(g.file)} to restore it.` : 'No backup exists yet to restore it from.')
+    : 'Restore from the backup, or if the current file is right: ccs doctor --accept-config';
+  return [{ level: 'fail', label: '~/.claude.json', detail: `${g.reason}: ${g.keys} keys, ${g.projects} projects${vs}; ${backup}. ${remedy}` }];
 }
 
 /** @param {any} paths @returns {Check} */

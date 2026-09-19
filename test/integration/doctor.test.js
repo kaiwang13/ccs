@@ -4,7 +4,7 @@ const assert = require('node:assert/strict');
 const fs = require('fs');
 const path = require('path');
 const { closeNfsWorker } = require('../../src/common/nfsworker.js');
-const { checkRuntimeDir, checkDecoder } = require('../../src/cli/doctor.js');
+const { checkRuntimeDir, checkDecoder, checkClaudeJsonHealth } = require('../../src/cli/doctor.js');
 const { claudeJsonFixture } = require('../helpers/claudejson.js');
 const { makeCcsEnv, runCcs } = require('../helpers/ccsenv.js');
 
@@ -55,10 +55,54 @@ test('decoder check (R12): an extraction failure on a real versions binary is FA
   const c = checkDecoder({ path: bin, version: '9.9.9', source: 'versions' }, 30000);
   assert.equal(c.level, 'fail');
   assert.match(c.detail, /^9\.9\.9: the key decoder could not be extracted\/loaded .* this version is untested/);
-  // Regression: the reason must name the real fault (the extractor's own uncaught error, "decoder not
-  // found"), never Node's runtime-version banner that trails an uncaught-exception stack trace.
-  assert.match(c.detail, /decoder not found/);
+  // Regression (round 1): the reason must name the real fault, never Node's runtime-version banner
+  // that trails an uncaught-exception stack trace.
   assert.doesNotMatch(c.detail, /Node\.js v/);
+  // Regression (round 2): the reason must be the canonical `Error: <message>` line, never the
+  // indented throw-site source excerpt Node prints just above it — that excerpt contains the
+  // substring "decoder not found" too (it literally reads `throw new Error('decoder not found')`),
+  // so a loose "detail contains decoder not found" assertion is satisfied by either the right or the
+  // wrong answer. The negative assertion on "throw new" is the one that actually distinguishes them.
+  assert.match(c.detail, /Error: decoder not found/);
+  assert.doesNotMatch(c.detail, /throw new/);
+});
+
+test('decoder failure reason: a real child process that throws from a file (not node -e) still picks the canonical Error line', (t) => {
+  const root = fs.mkdtempSync('/tmp/ccst-');
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const script = path.join(root, 'throws.js');
+  fs.writeFileSync(script, "throw new Error('decoder not found');\n");
+  const realCp = require('child_process');
+  const real = realCp.spawnSync(process.execPath, [script], { encoding: 'utf8' });
+  assert.notEqual(real.status, 0, 'sanity: the script must actually have died');
+  assert.match(real.stderr, /throw new Error/, 'sanity: this really is the -e-free, file-based layout');
+
+  const original = realCp.spawnSync;
+  t.after(() => { realCp.spawnSync = original; });
+  realCp.spawnSync = () => real; // feed checkDecoder the real, non--e stderr captured above
+  const c = checkDecoder({ path: '/does/not/matter', version: '9.9.9', source: 'versions' }, 1000);
+  assert.equal(c.level, 'fail');
+  assert.match(c.detail, /Error: decoder not found/);
+  assert.doesNotMatch(c.detail, /throw new/);
+  assert.doesNotMatch(c.detail, /Node\.js v/);
+});
+
+test('decoder failure reason: a message that legitimately mentions a Node.js version survives the banner filter', (t) => {
+  const root = fs.mkdtempSync('/tmp/ccst-');
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const script = path.join(root, 'throws-nodever.js');
+  fs.writeFileSync(script, "throw new Error('incompatible with Node.js v22');\n");
+  const realCp = require('child_process');
+  const real = realCp.spawnSync(process.execPath, [script], { encoding: 'utf8' });
+  assert.notEqual(real.status, 0);
+
+  const original = realCp.spawnSync;
+  t.after(() => { realCp.spawnSync = original; });
+  realCp.spawnSync = () => real;
+  const c = checkDecoder({ path: '/does/not/matter', version: '9.9.9', source: 'versions' }, 1000);
+  assert.equal(c.level, 'fail');
+  // The genuine message must survive intact — only Node's own trailing banner line is filtered.
+  assert.match(c.detail, /Error: incompatible with Node\.js v22\)/);
 });
 
 test('decoder failure reason: empty stderr falls back to the exit status, and stack-frames-only stderr never yields an empty reason', (t) => {
@@ -84,6 +128,29 @@ test('decoder failure reason: empty stderr falls back to the exit status, and st
   assert.doesNotMatch(stackOnly.detail, /Node\.js v/);
   assert.doesNotMatch(stackOnly.detail, /\(\)/); // never an empty parenthetical
   assert.match(stackOnly.detail, /exit 1/);
+});
+
+test('~/.claude.json MISSING: the remedy does not point at a dead end (no --accept-config offered)', async (t) => {
+  const ctx = makeCcsEnv(t, { claudeJson: null });
+  const [c] = await checkClaudeJsonHealth(ctx.paths, 5000);
+  assert.equal(c.level, 'fail');
+  assert.match(c.detail, /^MISSING: /);
+  // --accept-config is a dead end here: there is no parsed object to accept (runDoctorLite's
+  // acceptConfig branch just echoes "cannot accept ...: MISSING" back at the operator).
+  assert.doesNotMatch(c.detail, /--accept-config/);
+  assert.match(c.detail, /no backup exists yet/i);
+});
+
+test('~/.claude.json UNPARSEABLE with a backup present: the remedy names the backup to restore from, not --accept-config', async (t) => {
+  const ctx = makeCcsEnv(t, {
+    claudeJson: 'not valid json{',
+    backups: [['20260916T100000.000Z-testhost.json', claudeJsonFixture({ projects: 5 })]],
+  });
+  const [c] = await checkClaudeJsonHealth(ctx.paths, 5000);
+  assert.equal(c.level, 'fail');
+  assert.match(c.detail, /^UNPARSEABLE: /);
+  assert.doesNotMatch(c.detail, /--accept-config/);
+  assert.match(c.detail, /copy .*20260916T100000\.000Z-testhost\.json.*over/i);
 });
 
 test('runtime dir check: missing, wrong mode, symlink', (t) => {
