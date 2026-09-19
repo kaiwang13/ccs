@@ -60,6 +60,26 @@ ln -sfn ~/.local/share/ccs/releases/<previous> ~/.local/share/ccs/current
 A running session holds the native addon mapped from its release directory, which is why an in-place
 `git pull` on a live install breaks it — and why updates go through a new directory instead.
 
+### A rule this project keeps
+
+**Installing, updating or uninstalling never touches your session records.** Your sessions are your work.
+An update may stop and restart them; it is never allowed to lose, rewrite or orphan a record. This holds
+for every future feature too — new session kinds, new state files, new registry fields.
+
+It is enforced by a test rather than a promise: `test/e2e/install-e2e.sh` fingerprints the registry (every
+file's path, size and content hash), runs a full install → update → uninstall in a throwaway prefix, and
+asserts the tree is byte-identical afterwards. It also plants a session record and checks it survives
+uninstall unchanged.
+
+```bash
+sh test/e2e/install-e2e.sh                      # against the published main branch
+CCS_E2E_REPO=$PWD sh test/e2e/install-e2e.sh    # against your working copy
+```
+
+An install is **self-contained**: everything lands under `$HOME`, nothing needs `sudo`, and setting
+`CCS_HOME`, `CCS_BIN_DIR` and `CCS_STATE_DIR` gives you a fully isolated second install that cannot see or
+stop the sessions of the one you use — which is what makes that test safe to run on a live machine.
+
 ### Uninstall
 
 ```bash
