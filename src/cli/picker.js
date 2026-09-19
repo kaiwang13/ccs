@@ -12,7 +12,7 @@ const { InputTokenizer } = require('../common/vt/inputtok.js');
 const { decodeInputToken } = require('../common/vt/keys.js');
 const { realClock } = require('../common/clock.js');
 const { recordName } = require('../common/registry.js');
-const { resolveClaudeBin } = require('../sessiond/launcher.js');
+const { getAgent } = require('../agents/index.js');
 const { collectSessions, formatAge, tildify } = require('./ls.js');
 const { stopAndWait, stopTimeoutMs, isLive } = require('./lifecycle.js');
 
@@ -75,7 +75,7 @@ class Picker {
     /** @type {any} */ this.confirmRow = null;
     this.refreshing = false;
     this.closed = false;
-    const bin = resolveClaudeBin(ctx.paths, ctx.config);
+    const bin = getAgent('claude').resolveBin(ctx.paths, ctx.config);
     this.version = bin ? bin.version : '?';
     this.keyState = { highSurrogate: '' };
     this.tokenizer = new InputTokenizer({ clock: realClock, escFlushMs: ctx.config.input.escFlushMs, pasteIdleCloseMs: ctx.config.input.pasteIdleCloseMs, onTimerTokens: (t) => this.onTokens(t) });

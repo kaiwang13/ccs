@@ -9,7 +9,7 @@
 const cp = require('child_process');
 const fs = require('fs');
 const path = require('path');
-const { resolveClaudeBin } = require('../sessiond/launcher.js');
+const { getAgent } = require('../agents/index.js');
 const { claudeJsonGuard, checkClaudeJson, backupClaudeJson } = require('../sessiond/preflight.js');
 const { loadDecoderBaseline } = require('../claude/tested.js');
 const { tildify } = require('./ls.js');
@@ -104,7 +104,7 @@ function checkDecoder(bin, timeoutMs = 60000) {
 
 /** @param {any} paths @param {any} config @returns {Check} */
 function checkClaude(paths, config) {
-  const bin = resolveClaudeBin(paths, config);
+  const bin = getAgent('claude').resolveBin(paths, config);
   if (!bin) return { level: 'fail', label: 'claude', detail: 'no claude binary found (CCS_CLAUDE_BIN, config.claude.binary, ~/.local/share/claude/versions, ~/.local/bin/claude)' };
   const real = realOrSelf(bin.path);
   if (!bin.tested) return { level: 'warn', label: 'claude', detail: `${real} version ${bin.version} is not in testedVersions (${config.claude.testedVersions.join(', ')}) — UNTESTED_CLAUDE_VERSION` };
@@ -165,7 +165,7 @@ async function runDoctorLite({ paths, config, out, acceptConfig = false, nfsTime
   /** @type {Check[]} */
   const checks = [checkNode(), ...checkNative()];
   checks.push(checkClaude(paths, config));
-  const bin = resolveClaudeBin(paths, config);
+  const bin = getAgent('claude').resolveBin(paths, config);
   if (bin) checks.push(checkDecoder(bin, decoderTimeoutMs));
   checks.push(...(await checkClaudeJsonHealth(paths, nfsTimeoutMs)));
   checks.push(checkRuntimeDir(paths));

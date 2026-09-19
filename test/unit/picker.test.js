@@ -120,3 +120,9 @@ test('NAME truncation holds at nameW, nameW+1, the 40-char NAME_RE max, and the 
   nameField = lines[3].slice(5, 5 + 4); // 'xyz' padded to width 4
   assert.equal(nameField, 'xyz ');
 });
+
+test('the picker resolves the claude binary through the agent, not a direct import', () => {
+  const src = require('node:fs').readFileSync(require.resolve('../../src/cli/picker.js'), 'utf8');
+  assert.ok(!/require\(['"]\.\.\/sessiond\/launcher\.js['"]\)/.test(src),
+    'picker must not import launcher.js directly — go through src/agents/');
+});
