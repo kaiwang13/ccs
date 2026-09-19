@@ -127,6 +127,21 @@ test('host.json naming another machine refuses to operate', async (t) => {
   await assert.rejects(reg.list(), (e) => e.code === 'HOST_MISMATCH');
 });
 
+test('host.json naming another machine refuses updateIntent/readState/writeState/remove too', async (t) => {
+  const { paths } = env(t);
+  const reg = createRegistry(paths);
+  const a = await reg.create({ name: 'x', cwd: '/x' });
+  // Corrupt host.json to belong to a foreign machine, then exercise each of the four
+  // uncovered entry points on a FRESH registry instance so hostVerified starts false
+  // (a reused instance would already have it cached true from the create() above,
+  // which is exactly the trap that let this bug through).
+  fs.writeFileSync(path.join(paths.hostDir, 'host.json'), JSON.stringify({ hostname: 'testhost', machineId: 'ffffffffffffffffffffffffffffffff' }));
+  await assert.rejects(createRegistry(paths).updateIntent(a.id, (i) => { i.desired = 'stopped'; }), (e) => e.code === 'HOST_MISMATCH');
+  await assert.rejects(createRegistry(paths).readState(a.id), (e) => e.code === 'HOST_MISMATCH');
+  await assert.rejects(createRegistry(paths).writeState(a.id, { lifecycle: 'RUNNING' }), (e) => e.code === 'HOST_MISMATCH');
+  await assert.rejects(createRegistry(paths).remove(a.id), (e) => e.code === 'HOST_MISMATCH');
+});
+
 test('remove deletes the registry directory', async (t) => {
   const { paths } = env(t);
   const reg = createRegistry(paths);

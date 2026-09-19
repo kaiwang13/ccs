@@ -212,6 +212,7 @@ function createRegistry(paths, opts = {}) {
    */
   async function updateIntent(id, mutator) {
     return withLock(async () => {
+      await checkHost(false);
       const cur = await op('readJson', paths.intentFile(id), { retries: 1, retryDelayMs: 50 });
       if (!cur) throw new RegistryError('NOT_FOUND', `no session ${id}`);
       const draft = JSON.parse(JSON.stringify(cur));
@@ -228,12 +229,14 @@ function createRegistry(paths, opts = {}) {
 
   /** @param {string} id */
   async function readState(id) {
+    await checkHost(false);
     return op('readJson', paths.stateFile(id), { retries: 1, retryDelayMs: 50 });
   }
 
   /** sessiond only (it holds sessiond.lock, so it is the file's single writer).
    *  @param {string} id @param {any} state */
   async function writeState(id, state) {
+    await checkHost(false);
     const next = { ...state, schema: 'ccs.state/1', ccsId: id, host: hostInfo(), gen: (state.gen || 0) + 1, updatedAt: iso() };
     await op('mkdirp', sessionDirOf(id), 0o700);
     await op('writeAtomic', paths.stateFile(id), next, { mode: 0o600 });
@@ -249,6 +252,7 @@ function createRegistry(paths, opts = {}) {
   async function remove(id) {
     if (!ID_RE.test(String(id))) throw new RegistryError('NOT_FOUND', `no session ${id}`);
     return withLock(async () => {
+      await checkHost(false);
       const grave = path.join(paths.sessionsStateDir, `.rm-${id}-${crypto.randomBytes(3).toString('hex')}`);
       await op('rename', sessionDirOf(id), grave);
       await op('rmrf', grave);
