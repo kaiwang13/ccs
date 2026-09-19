@@ -55,7 +55,11 @@ liveTest('L2: Z/Q forms never suspend, C forms never exit, !sleep 3 with Ctrl+C 
   // Local detach through the real attach client.
   for (const key of ['\x1a', '\x1b[122;5u']) {
     const c = live.attach(row.name);
-    await c.waitText(/❯/, 60000);
+    // NOT /❯/: the `!` typed above put claude in shell mode, and Ctrl+C clears the command text without
+    // leaving that mode, so the prompt here is `!`. Wait for the session-name box instead — claude renders
+    // it from `-n NAME` in both prompt modes, so it is a mode-agnostic "this client has joined and painted"
+    // marker, which is all this wait is for.
+    await c.waitText(new RegExp(row.name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')), 60000);
     c.write(key);
     assert.equal((await c.exited).exitCode, 0, `attach client detaches locally on ${JSON.stringify(key)}`);
     await assertHealthy(live, row, pid, `local detach ${JSON.stringify(key)}`);

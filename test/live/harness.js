@@ -108,11 +108,20 @@ function createLiveEnv(pre, { remoteControl }) {
     async teardown() {
       for (const term of terminals) term.kill(); // SIGTERM to our attach clients only; they detach cleanly
       for (const c of created) {
-        const row = await live.row(c.name).catch(() => null);
-        if (row && row.live) {
+        // A row that cannot be read, or that reports not-live, previously skipped the stop SILENTLY — which
+        // leaves a real claude running against the real ~/.claude and makes postflight abort with a process
+        // count it cannot explain. Say which branch was taken instead of swallowing it.
+        const row = await live.row(c.name).catch((e) => ({ readError: e.message }));
+        if (row && row.readError) throw new Error(`teardown: cannot read the registry row for ${c.name} (${row.readError}); a real claude may still be running — inspect it, never force-kill`);
+        if (!row) throw new Error(`teardown: no registry row for ${c.name}; a real claude may still be running — inspect it, never force-kill`);
+        if (row.live) {
           const r = await live.ccs(['stop', c.name], { timeoutMs: 200000 });
           if (r.code !== 0) throw new Error(`ccs stop ${c.name} failed (never force-kill; inspect manually): ${r.stderr}`);
         }
+        // `ccs stop` returning 0, or a not-live row, is not proof the claude process is gone. Verify, and
+        // report the pid rather than signalling it: postflight's abort names pids with no context otherwise.
+        const stray = live.claudePid(c.id);
+        if (stray) throw new Error(`teardown: ${c.name} (${c.id}) still has claude pid ${stray} after stop (row.live was ${row.live}) — inspect it, never force-kill`);
       }
     },
   };
