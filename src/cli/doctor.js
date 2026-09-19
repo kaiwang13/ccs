@@ -66,7 +66,10 @@ function checkDecoder(bin, timeoutMs = 60000) {
     // `throw new Error(msg)` statement, the indented source excerpt line above the canonical line
     // itself contains the literal text "Error(", so `/error/i` matches that excerpt first and never
     // reaches the real message. The canonical-shape matcher exists to be tried first and win instead.
-    // It must be `/^[A-Za-z_$][\w$]*:\s/` — an identifier immediately followed by ": " — and must NOT
+    // It must be `/^[A-Za-z_$][\w$]*(?:\s*\[[^\]]*\])?:\s/` — an identifier followed by ": ", with an
+    // optional bracketed code in between so Node's `AssertionError [ERR_ASSERTION]: ...` form still
+    // matches (without that branch the scan falls through to `/error/i`, which on an assertion failure
+    // picks a dumped property line such as "generatedMessage: true," instead of the message) — and must NOT
     // try to anchor the literal word "Error"/"Exception" after an identifier prefix (e.g.
     // `[A-Za-z_$][\w$]*(Error|Exception)\b`): that shape can never match a plain `Error: <message>`
     // line, because the mandatory leading `[A-Za-z_$]` consumes the line's own "E", leaving "rror:"
@@ -80,7 +83,7 @@ function checkDecoder(bin, timeoutMs = 60000) {
     const lines = String(r.stderr || '').trim().split(/\r?\n/).map((s) => s.trim()).filter(Boolean)
       .filter((s) => !/^Node\.js v/.test(s) && !/^at\s/.test(s) && !/^\^+$/.test(s) && !/^\S+:\d+$/.test(s));
     let why = (r.error && r.error.message)
-      || lines.find((s) => /^[A-Za-z_$][\w$]*:\s/.test(s))
+      || lines.find((s) => /^[A-Za-z_$][\w$]*(?:\s*\[[^\]]*\])?:\s/.test(s))
       || lines.find((s) => /error/i.test(s))
       || lines[0] || `exit ${r.status}`;
     if (why.length > 200) why = `${why.slice(0, 200)}…`; // a pathological single-line stderr must not make the detail unbounded
