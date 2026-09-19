@@ -23,7 +23,21 @@ class LiveAbort extends Error {
   constructor(message) { super(`live preflight/postflight abort: ${message}`); this.name = 'LiveAbort'; }
 }
 
-/** Our own processes whose executable is a Claude Code version binary. */
+/**
+ * Our own processes whose executable is a Claude Code version binary AND which are claude *sessions*.
+ *
+ * The version binary is multi-call: Claude Code re-executes it with argv[0] `ugrep` for file searches, so an
+ * exe-path test alone counts those helpers as sessions. On this NFS home they are also long-lived and their
+ * exe resolves to an `.nfsXXXX` silly-rename (an older version deleted while still open) — three such helpers
+ * aged 21-58 days were present here, inflating the baseline. A helper cannot write ~/.claude.json, so counting
+ * one makes the safety baseline drift: a helper starting or exiting mid-run shifts the count and either aborts
+ * a healthy run or masks a genuine leaked session.
+ *
+ * Filter on argv[0], not on the exe path: excluding `.nfs*` would also drop a REAL claude session whose binary
+ * was replaced under it while running, which is exactly the process this check must never miss.
+ */
+const NON_SESSION_ARGV0 = new Set(['ugrep']);
+
 function claudeProcesses() {
   let versionsDir;
   try { versionsDir = fs.realpathSync(path.join(HOME, '.local', 'share', 'claude', 'versions')); } catch { return []; }
@@ -32,7 +46,11 @@ function claudeProcesses() {
     if (!readEnviron(pid)) continue; // not ours (EACCES) or gone
     let exe;
     try { exe = fs.realpathSync(`/proc/${pid}/exe`); } catch { continue; }
-    if (exe.startsWith(`${versionsDir}/`)) found.push(pid);
+    if (!exe.startsWith(`${versionsDir}/`)) continue;
+    let argv0 = '';
+    try { argv0 = fs.readFileSync(`/proc/${pid}/cmdline`, 'utf8').split('\0')[0] || ''; } catch { /* gone: fall through and count it */ }
+    if (NON_SESSION_ARGV0.has(path.basename(argv0))) continue;
+    found.push(pid);
   }
   return found;
 }
