@@ -69,6 +69,40 @@ test('formatTable, formatAge, tildify', () => {
   assert.match(out, /^! cnv +needs you · permission +2 clients +2h +~\/p$/m);
 });
 
+test('formatTable truncates over-width names so columns stay aligned (NAME_RE allows up to 40 chars, nameW caps at 24)', () => {
+  const longName = 'a-very-descriptive-session-name-35c'; // 35 chars, NAME_RE-valid ([a-z0-9][a-z0-9._-]{0,39}), well past the 24-col cap
+  assert.equal(longName.length, 35);
+  assert.ok(/^[a-z0-9][a-z0-9._-]{0,39}$/.test(longName));
+  const rows = [
+    { name: longName, glyph: '·', text: 'idle', live: true, clients: 1, ageMs: 1000, cwd: '/p' },
+    { name: 'short', glyph: '!', text: 'needs you · permission', live: true, clients: 2, ageMs: 7200e3, cwd: '/other' },
+  ];
+  const out = formatTable(rows, { home: '/home/u' });
+  const lines = out.replace(/\n$/, '').split('\n');
+  assert.equal(lines.length, 3); // header + 2 rows
+
+  // Alignment: the header's own "STATUS" label marks where every row's STATUS field must start.
+  // Pre-fix, padEnd(nameW) does not truncate the 35-char name, so the long-name row's STATUS field
+  // starts 12 columns later than the header/short-name row and this assertion fails.
+  const header = lines[0];
+  const expectedStatusStart = header.indexOf('STATUS');
+  assert.ok(expectedStatusStart > 0);
+  for (const line of lines.slice(1)) {
+    assert.equal(
+      line.slice(expectedStatusStart, expectedStatusStart + 4),
+      line === lines[1] ? 'idle' : 'need',
+      `STATUS column misaligned in ${JSON.stringify(line)} (expected it to start at column ${expectedStatusStart}, as the header does)`,
+    );
+  }
+
+  // The NAME field itself must never exceed the computed column width (nameW = 24 here).
+  const nameW = 24;
+  const longNameField = lines[1].slice(2, 2 + nameW);
+  assert.equal(longNameField.length, nameW);
+  assert.ok(longNameField.endsWith('…'), `expected ellipsis truncation, got ${JSON.stringify(longNameField)}`);
+  assert.equal(longNameField, `${longName.slice(0, nameW - 1)}…`);
+});
+
 test('parseArgs', () => {
   assert.deepEqual(parseArgs(['x', '--cwd', '/d', '--no-attach', '--', '--model', 'opus'], { bool: ['--no-attach'], value: ['--cwd'] }), { flags: { '--cwd': '/d', '--no-attach': true }, positional: ['x'], rest: ['--model', 'opus'] });
   assert.throws(() => parseArgs(['--bogus'], {}), UsageError);

@@ -184,7 +184,12 @@ function formatTable(rows, { cols = 120, home = os.homedir() } = {}) {
   const lines = [`  ${'NAME'.padEnd(nameW)}  ${'STATUS'.padEnd(28)}  ${'CLIENTS'.padEnd(9)}  ${'AGE'.padEnd(4)}  CWD`];
   for (const r of rows) {
     const clients = r.live ? (r.clients === 1 ? '1 client' : `${r.clients} clients`) : '–';
-    const line = `${r.glyph} ${r.name.padEnd(nameW)}  ${r.text.padEnd(28)}  ${clients.padEnd(9)}  ${formatAge(r.ageMs).padEnd(4)}  ${tildify(r.cwd, home)}`;
+    // Names are capped at nameW above (this is the only fixed-width column with a following column that
+    // depends on its width): truncate with a single-column ellipsis so padEnd never overshoots it. STATUS
+    // has no such cap — it is allowed to overflow and push CLIENTS/AGE/CWD out of alignment, matching the
+    // picker's own sample table (spec §3.14); CWD is last, so nothing after it needs its width bounded.
+    const disp = r.name.length > nameW ? `${r.name.slice(0, nameW - 1)}…` : r.name;
+    const line = `${r.glyph} ${disp.padEnd(nameW)}  ${r.text.padEnd(28)}  ${clients.padEnd(9)}  ${formatAge(r.ageMs).padEnd(4)}  ${tildify(r.cwd, home)}`;
     lines.push(line.length > cols ? line.slice(0, cols) : line);
   }
   return `${lines.join('\n')}\n`;
