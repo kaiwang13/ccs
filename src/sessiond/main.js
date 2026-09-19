@@ -137,7 +137,19 @@ async function runSession(spec, { recover = false, sessiondArgv, stateWriter } =
 
 module.exports = { runSession, startSession };
 
-if (require.main === module) {
+// Plan 03 (contract R7): `--start <ccsId>` / `--recover <ccsId>` (never combined with `--spec`) are handled by
+// src/sessiond/startspec.js, which builds the session spec from registry + preflight + launcher and calls
+// runSession(spec, {recover, sessiondArgv, stateWriter}). Any argv with --start/--recover and no --spec goes to startMain, which
+// prints its own usage and returns 64 for a malformed id (plan 02's `--spec <file> --recover` still reaches plan 02's block).
+const plan03StartArgs = require.main === module && !process.argv.includes('--spec') && (process.argv.includes('--start') || process.argv.includes('--recover'));
+if (plan03StartArgs) {
+  require('./startspec.js').startMain(process.argv.slice(2)).then(
+    (code) => process.exit(code),
+    (err) => { process.stderr.write(`ccs-sessiond: ${(err && err.stack) || err}\n`); process.exit(1); },
+  );
+}
+
+if (require.main === module && !plan03StartArgs) {
   const argv = process.argv.slice(2);
   const i = argv.indexOf('--spec');
   if (i < 0 || !argv[i + 1]) { process.stderr.write('usage: node src/sessiond/main.js --spec <session-spec.json> [--recover]\n'); process.exit(2); }
