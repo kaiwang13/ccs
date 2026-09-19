@@ -21,6 +21,7 @@ const { runNfsOp } = require('./nfsworker.js');
 const { tryLock } = require('./locks.js');
 const { ensureRuntime } = require('./runtime.js');
 const { machineId } = require('./procinfo.js');
+const { DEFAULT_AGENT, KNOWN_AGENTS } = require('../agents/index.js');
 
 /** Names: 1–40 of [a-z0-9._-]; the first character must be a letter or digit so a name can never
  *  be parsed as a flag when it is passed to claude as `-n NAME --remote-control NAME`. */
@@ -170,9 +171,9 @@ function createRegistry(paths, opts = {}) {
 
   /**
    * @param {{name?: string|null, cwd: string, claudeArgs?: string[], env?: Record<string,string>,
-   *          trustExpected?: boolean, initialSessionId?: string, desired?: 'running'|'stopped'}} draft
+   *          trustExpected?: boolean, initialSessionId?: string, desired?: 'running'|'stopped', agent?: string}} draft
    *   name null/undefined ⇒ opaque `ccs-<id6>` (spec §3.14); a given name is validated, lowercased, and
-   *   suffixed -2, -3 … if taken.
+   *   suffixed -2, -3 … if taken. agent null/undefined ⇒ DEFAULT_AGENT; a given value must be in KNOWN_AGENTS.
    * @returns {Promise<SessionRecord>}
    */
   async function create(draft) {
@@ -181,6 +182,9 @@ function createRegistry(paths, opts = {}) {
     if (draft.name != null) {
       base = normalizeName(draft.name);
       if (!base) throw new RegistryError('BAD_NAME', `invalid session name '${draft.name}': use 1–40 characters from a-z 0-9 . _ -, starting with a letter or digit`);
+    }
+    if (draft.agent != null && !KNOWN_AGENTS.includes(draft.agent)) {
+      throw new RegistryError('UNKNOWN_AGENT', `unknown agent '${draft.agent}' (known: ${KNOWN_AGENTS.join(', ')})`);
     }
     return withLock(async () => {
       await checkHost(true);
@@ -196,6 +200,7 @@ function createRegistry(paths, opts = {}) {
         desired: draft.desired || 'running', retryGen: 0,
         nameAtCreate: name, pendingName: null, pendingNameGen: 0,
         cwd: draft.cwd, initialSessionId: draft.initialSessionId || crypto.randomUUID(),
+        agent: draft.agent == null ? DEFAULT_AGENT : draft.agent,
         claudeArgs: draft.claudeArgs || [], trustExpected: !!draft.trustExpected,
         lastReconcileBlock: null, env: draft.env || {},
       };

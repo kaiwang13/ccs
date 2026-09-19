@@ -167,3 +167,19 @@ test('two processes creating the same name concurrently get distinct names', asy
   assert.deepEqual(names, ['same', 'same-2']);
   assert.equal((await createRegistry(paths).list()).length, 2);
 });
+
+test('create() persists the agent and defaults to claude', async (t) => {
+  const { paths } = env(t);               // existing helper at the top of this file
+  const reg = createRegistry(paths);
+  const a = await reg.create({ name: 'a1', cwd: '/data/proj' });
+  assert.equal(a.intent.agent, 'claude', 'an omitted agent is recorded explicitly as claude');
+  const b = await reg.create({ name: 'b1', cwd: '/data/proj', agent: 'claude' });
+  assert.equal(b.intent.agent, 'claude');
+  assert.equal(b.intent.schema, 'ccs.intent/1', 'adding an optional field must not bump the schema');
+});
+
+test('create() refuses an unknown agent rather than writing an unusable record', async (t) => {
+  const { paths } = env(t);
+  const reg = createRegistry(paths);
+  await assert.rejects(reg.create({ name: 'c1', cwd: '/data/proj', agent: 'gpt-9' }), /unknown agent/i);
+});
