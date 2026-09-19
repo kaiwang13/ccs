@@ -18,3 +18,11 @@ test('recoverArgv is the canonical --start form, so the holder respawn (+ --reco
   assert.deepEqual(argv, ['/usr/bin/node', '/repo/src/sessiond/main.js', '--start', 'abcdef12']);
   assert.deepEqual(parseStartArgv([...argv.slice(2), '--recover']), { id: 'abcdef12', recover: true, batch: null });
 });
+
+test('the session spec is built through the agent selected by intent.agent', async () => {
+  // An absent intent.agent must behave exactly as before multi-agent existed.
+  const { getAgent } = require('../../src/agents/index.js');
+  assert.equal(getAgent(undefined).id, 'claude');
+  // A record explicitly marked claude resolves to the same agent as an absent field.
+  assert.equal(getAgent('claude').id, getAgent(undefined).id);
+});

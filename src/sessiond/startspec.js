@@ -22,8 +22,8 @@ const { runNfsOp } = require('../common/nfsworker.js');
 const { createRegistry } = require('../common/registry.js');
 const { controlRequest } = require('../common/ctlclient.js');
 const { validateSessionSpec } = require('./spec.js');
-const { buildLaunch, resolveClaudeBin, writeSettingsFile, LaunchError } = require('./launcher.js');
-const { runPreflight } = require('./preflight.js');
+const { getAgent } = require('../agents/index.js');
+const { resolveClaudeBin, LaunchError } = require('./launcher.js');
 
 const ID_RE = /^[0-9a-f]{8}$/;
 const SETTLED = new Set(['RUNNING', 'SETUP_GATED', 'SUSPENDED', 'BLOCKED', 'FAILED', 'EXITED', 'STOPPING', 'STOPPED', 'STOP_STUCK']);
@@ -43,8 +43,9 @@ async function buildSessionSpec(ccsId, paths, opts = {}) {
   const sessionId = (rec.state && rec.state.lastSessionId) || rec.intent.initialSessionId;
   const claudeSettings = await runNfsOp({ kind: 'readJson', args: [paths.claudeSettings, { retries: 1, retryDelayMs: 50 }] }, timeoutMs);
   const transcript = await runNfsOp({ kind: 'findTranscript', args: [paths.claudeProjectsDir, sessionId] }, timeoutMs);
-  const launch = buildLaunch({ intent: { ...rec.intent, ccsId }, state: rec.state, paths, config, claudeSettings, transcriptExists: transcript !== null, bin });
-  writeSettingsFile(launch.settingsFile, launch.theme);
+  const agent = getAgent(rec.intent.agent);
+  const launch = agent.buildLaunch({ intent: { ...rec.intent, ccsId }, state: rec.state, paths, config, claudeSettings, transcriptExists: transcript !== null, bin });
+  agent.writeSettingsFile(launch.settingsFile, launch.theme);
   const last = rec.state && rec.state.pty;
   const pty = last && last.cols > 0 && last.rows > 0
     ? { cols: Math.min(last.cols, config.size.maxCols), rows: Math.min(last.rows, config.size.maxRows) }
@@ -171,7 +172,7 @@ async function startMain(argv, env = process.env, deps = {}) {
     ...(rec.state || {}), bootId: bootId(), writer: { pid: process.pid, procStart: procStart(process.pid) },
     appliedRetryGen: rec.intent.retryGen || 0,
   };
-  const pf = await runPreflight({ paths, config, ccsId: id, sessionId, state: rec.state, bin, batchId: batch, log });
+  const pf = await getAgent(rec.intent.agent).preflight({ paths, config, ccsId: id, sessionId, state: rec.state, bin, batchId: batch, log });
   if (!pf.ok) {
     await registry.writeState(id, { ...base, lifecycle: 'BLOCKED', lifecycleSince: new Date().toISOString(), blocked: { code: pf.code, detail: pf.detail, at: new Date().toISOString() } });
     log.warn('start.blocked', { code: pf.code });
