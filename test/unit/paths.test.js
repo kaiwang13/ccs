@@ -41,11 +41,11 @@ test('runtime layout (local /tmp)', () => {
 });
 
 test('persistent layout (NFS state dir, host-tagged)', () => {
-  const p = resolvePaths({ HOME: '/home/u', CCS_STATE_DIR: '/x/state', CCS_HOSTNAME: 'host1' });
-  assert.equal(p.hostDir, '/x/state/hosts/host1');
-  assert.equal(p.sessionsStateDir, '/x/state/hosts/host1/sessions');
-  assert.equal(p.intentFile('k3f9x2ab'), '/x/state/hosts/host1/sessions/k3f9x2ab/intent.json');
-  assert.equal(p.stateFile('k3f9x2ab'), '/x/state/hosts/host1/sessions/k3f9x2ab/state.json');
+  const p = resolvePaths({ HOME: '/home/u', CCS_STATE_DIR: '/x/state', CCS_HOSTNAME: 'testhost' });
+  assert.equal(p.hostDir, '/x/state/hosts/testhost');
+  assert.equal(p.sessionsStateDir, '/x/state/hosts/testhost/sessions');
+  assert.equal(p.intentFile('k3f9x2ab'), '/x/state/hosts/testhost/sessions/k3f9x2ab/intent.json');
+  assert.equal(p.stateFile('k3f9x2ab'), '/x/state/hosts/testhost/sessions/k3f9x2ab/state.json');
   assert.equal(p.backupsDir, '/x/state/backups/claude.json');
 });
 

@@ -3,7 +3,7 @@
 /**
  * Killable NFS worker (spec §3.12 "NFS can hang the process, not just the write").
  *
- * /home/user and the project tree are `hard` NFSv4 mounts. A stalled NFS server parks the
+ * The home directory and project tree may be `hard` NFSv4 mounts. A stalled NFS server parks the
  * calling thread in uninterruptible sleep; a setTimeout around an in-process fs call only
  * abandons the promise, not the libuv threadpool thread. Every registry and ~/.claude* read
  * or write therefore runs in a forked child process. If an operation exceeds its timeout the

@@ -8,7 +8,7 @@
     "node": "22.22.2"
   },
   "scripts": {
-    "build:native": "node-gyp rebuild --directory=native/ttyctl --nodedir=/data3/users/user/.nvm/versions/node/v22.22.2",
+    "build:native": "node-gyp rebuild --directory=native/ttyctl --nodedir=$(node -p \"require('path').dirname(require('path').dirname(process.execPath))\")",
     "test": "node --test \"test/unit/**/*.test.js\" \"test/golden/**/*.test.js\" \"test/integration/**/*.test.js\"",
     "test:unit": "node --test \"test/unit/**/*.test.js\"",
     "test:golden": "node --test \"test/golden/**/*.test.js\"",

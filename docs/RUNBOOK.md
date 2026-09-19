@@ -3,7 +3,7 @@
 ccs keeps several named, long-lived Claude Code sessions on this host. Each session has exactly one
 `claude` process; any number of terminals can attach to it and stay in sync, each with Claude's full
 rendering in its own native scrollback; Remote Control is on by default, so the Claude app keeps working.
-Design: `docs/superpowers/specs/2026-09-16-ccs-multiclient-design.md`.
+Architecture overview: [`../README.md`](../README.md).
 
 M1 ships: `ccs`, `ccs new`, `ccs attach`/`ccs a`, `ccs ls [--json]`, `ccs stop`, `ccs restart`, `ccs rm`,
 `ccs doctor --lite [--accept-config]`, and a minimal picker. Not yet: `ccs start`, `logs`, `kick`, `rename`,
@@ -12,9 +12,8 @@ M1 ships: `ccs`, `ccs new`, `ccs attach`/`ccs a`, `ccs ls [--json]`, `ccs stop`,
 ## 1. Install for development use
 
 ```bash
-cd /data3/users/user/projects/cnv_gene/claude_code_server
-export PATH=/data3/users/user/.nvm/versions/node/v22.22.2/bin:$PATH
-npm ci --nodedir=/data3/users/user/.nvm/versions/node/v22.22.2
+cd /path/to/ccs
+npm ci
 npm run build:native && npm test
 ```
 
@@ -23,11 +22,11 @@ Create `~/.local/bin/ccs` (mode 0755):
 ```sh
 #!/bin/sh
 export UV_THREADPOOL_SIZE=16
-exec /data3/users/user/.nvm/versions/node/v22.22.2/bin/node /data3/users/user/projects/cnv_gene/claude_code_server/bin/ccs.js "$@"
+exec /absolute/path/to/node /absolute/path/to/ccs/bin/ccs.js "$@"
 ```
 
 - The node path is absolute because detached daemons must not depend on nvm being loaded.
-- `UV_THREADPOOL_SIZE=16` must be set before node starts: `/home/user` and the repo are `hard` NFSv4
+- `UV_THREADPOOL_SIZE=16` must be set before node starts: the home directory and repo may be `hard` NFSv4
   mounts, and a stuck NFS call parks a libuv thread in uninterruptible sleep (spec §3.12, §12.1).
 - M1 runs straight from the repo. **Stop every session (`ccs stop --all`) before `npm ci` or
   `npm run build:native`**: running holders load `node-pty` and `ttyctl` from the tree, and replacing a
@@ -51,7 +50,7 @@ While attached: **Ctrl+Z or Ctrl+\\ detaches** (the session keeps running). Typi
 disconnects only your terminal; Claude restarts underneath for anyone else attached. To end a session
 use `ccs stop NAME`.
 
-**Names.** `/proc` on this host has no `hidepid`, so every account can read every process's arguments,
+**Names.** When `/proc` is mounted without `hidepid`, so every account can read every process's arguments,
 including claude's `-n NAME --remote-control NAME`. The default name is therefore an opaque `ccs-<id6>`.
 `ccs new NAME` or `ccs new --name-from-cwd` choose a readable name (ccs prints a one-line reminder that it
 is visible). Names are lowercase `a-z 0-9 . _ -`, up to 40 characters, starting with a letter or digit;
@@ -64,8 +63,8 @@ never typeable through ccs: fix auth in a normal terminal, then `ccs restart NAM
 
 ## 3. Other terminals
 
-- Desktop terminal: `ssh -t host1 ~/.local/bin/ccs` (a non-interactive SSH may not have `~/.local/bin` on
-  PATH). A shell function helps: `ccs() { ssh -t host1 .local/bin/ccs "$@"; }`.
+- Desktop terminal: `ssh -t <host> ~/.local/bin/ccs` (a non-interactive SSH may not have `~/.local/bin` on
+  PATH). A shell function helps: `ccs() { ssh -t <host> .local/bin/ccs "$@"; }`.
 - Phone: use the official Claude app; the session is listed under its ccs name via Remote Control.
 
 ## 4. Recommended client settings
@@ -134,7 +133,7 @@ batch or every 6 h).
 ## 9. M1 hands-on checklist (spec §11 M1 acceptance item 5)
 
 Setup: `ccs new m1-hands-on --cwd ~/ccs-live-scratch -- --model haiku`, then attach from a Cursor editor
-terminal, a narrow Cursor panel terminal, and a desktop terminal via `ssh -t host1 ~/.local/bin/ccs a m1-hands-on`.
+terminal, a narrow Cursor panel terminal, and a desktop terminal via `ssh -t <host> ~/.local/bin/ccs a m1-hands-on`.
 Record `python3 -c "import json;d=json.load(open('$HOME/.claude.json'));print(len(d),len(d['projects']),d.get('theme'),d.get('hasCompletedOnboarding'))"` before starting.
 
 - [ ] a Cursor editor terminal, a narrow Cursor panel and a desktop `ssh -t` terminal on one session — all three show the same conversation
@@ -157,7 +156,7 @@ ccs new ccs-t1 --no-attach --cwd ~/ccs-live-scratch -- --model haiku
 # Terminal A (Cursor editor terminal):
 script -qf ~/ccs-t1/A.raw -c '~/.local/bin/ccs a ccs-t1'
 # Terminal B (desktop terminal):
-ssh -t host1 "script -qf ~/ccs-t1/B.raw -c '~/.local/bin/ccs a ccs-t1'"
+ssh -t <host> "script -qf ~/ccs-t1/B.raw -c '~/.local/bin/ccs a ccs-t1'"
 ```
 
 Open session `ccs-t1` in the Claude app on the phone (Remote Control), then:

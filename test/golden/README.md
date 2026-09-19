@@ -1,6 +1,6 @@
 # Golden captures (provenance)
 
-Imported by `node tools/import-captures.js` on 2026-09-18T09:23:35.953Z from `/home/user/.local/share/ccs-evidence/2026-09-16/captures`
+Imported by `node tools/import-captures.js` on 2026-09-18T09:23:35.953Z from the 2026-09-16 validation-spike capture set
 (the durable evidence copy of the 2026-09-16 validation spikes; the original spike
 scratchpad lived in /tmp and is not guaranteed to survive a reboot).
 `manifest.json` lists every file with its size and sha256; `manifest.test.js` verifies them.

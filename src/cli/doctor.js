@@ -14,8 +14,11 @@ const { claudeJsonGuard, checkClaudeJson, backupClaudeJson } = require('../sessi
 const { loadDecoderBaseline } = require('../claude/tested.js');
 const { tildify } = require('./ls.js');
 
-const PINNED_NODE = '/data3/users/user/.nvm/versions/node/v22.22.2/bin/node';
-const PINNED_NODE_VERSION = 'v22.22.2';
+// Optional pin: the native addons (ttyctl, node-pty) are compiled for one Node ABI, so a deployment that
+// keeps several interpreters around can pin the expected one. Unset (the default) means "whatever node is
+// running is the one native modules must match", which is the right answer for a normal install.
+const PINNED_NODE = process.env.CCS_PINNED_NODE || '';
+const PINNED_NODE_VERSION = process.env.CCS_PINNED_NODE_VERSION || '';
 const EXTRACTOR = path.join(__dirname, '..', '..', 'tools', 'extract-claude-decoder.js');
 
 /** @typedef {{level: 'ok'|'warn'|'fail', label: string, detail: string}} Check */
@@ -26,8 +29,9 @@ function realOrSelf(p) { try { return fs.realpathSync(p); } catch { return p; } 
 /** @returns {Check} */
 function checkNode() {
   const detail = `${process.execPath} ${process.version} (ABI ${process.versions.modules})`;
-  const pinned = realOrSelf(process.execPath) === realOrSelf(PINNED_NODE) && process.version === PINNED_NODE_VERSION;
-  return { level: pinned ? 'ok' : 'warn', label: 'node', detail: pinned ? detail : `${detail} — expected ${PINNED_NODE} ${PINNED_NODE_VERSION}; native modules must be rebuilt for another node` };
+  if (!PINNED_NODE) return { level: 'ok', label: 'node', detail: `${detail} — native modules must be built for this ABI (set CCS_PINNED_NODE to pin an interpreter)` };
+  const pinned = realOrSelf(process.execPath) === realOrSelf(PINNED_NODE) && (!PINNED_NODE_VERSION || process.version === PINNED_NODE_VERSION);
+  return { level: pinned ? 'ok' : 'warn', label: 'node', detail: pinned ? detail : `${detail} — expected ${PINNED_NODE}${PINNED_NODE_VERSION ? ' ' + PINNED_NODE_VERSION : ''}; native modules must be rebuilt for another node` };
 }
 
 /** @returns {Check[]} */
@@ -41,7 +45,7 @@ function checkNative() {
     require('node-pty');
     out.push({ level: 'ok', label: 'node-pty', detail: `node-pty ${require('node-pty/package.json').version} loaded` });
   } catch (e) {
-    out.push({ level: 'fail', label: 'node-pty', detail: `did not load (${(/** @type {any} */ (e)).message}) — run: npm ci --nodedir=/data3/users/user/.nvm/versions/node/v22.22.2` });
+    out.push({ level: 'fail', label: 'node-pty', detail: `did not load (${(/** @type {any} */ (e)).message}) — run: npm ci` });
   }
   return out;
 }
