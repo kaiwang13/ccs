@@ -13,7 +13,7 @@
     "test:unit": "node --test \"test/unit/**/*.test.js\"",
     "test:golden": "node --test \"test/golden/**/*.test.js\"",
     "test:integration": "node --test \"test/integration/**/*.test.js\"",
-    "test:live": "node --test \"test/live/**/*.test.js\""
+    "test:live": "node --test --test-concurrency=1 \"test/live/**/*.test.js\""
   },
   "dependencies": {
     "@xterm/addon-serialize": "0.14.0",
