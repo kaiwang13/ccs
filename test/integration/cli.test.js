@@ -86,6 +86,40 @@ test('new rejects bad names and disallowed claude args before creating anything'
   assert.deepEqual(await lsJson(ctx), []);
 });
 
+test('ccs new \'\' (explicit empty name) is rejected like any other invalid name, with zero orphan registry entries', async (t) => {
+  // Regression for Finding 1 (task-9-review.md): `if (positional[0])` was a truthiness check, so an
+  // explicit empty-string name was indistinguishable from "no name given" and silently fell through to the
+  // opaque ccs-<id6> default with exit 0. This is the RED that failed against the pre-fix implementation
+  // (it exited 0 and created one registry entry named ccs-<id6> instead of failing with exit 2).
+  const ctx = makeCcsEnv(t);
+  const before = await createRegistry(ctx.paths).list();
+  assert.equal(before.length, 0);
+  const r = await runCcs(ctx, ['new', '', '--no-attach']);
+  assert.equal(r.code, 2);
+  assert.match(r.stderr, /invalid name ''/);
+  const after = await createRegistry(ctx.paths).list();
+  assert.equal(after.length, 0, `expected zero orphan registry entries, found: ${JSON.stringify(after.map((rec) => rec.intent.nameAtCreate))}`);
+});
+
+test('bare extra-arg notice: fires and names the offending token when a bare word trails an allowed flag+value; silent for a plain flag+value pair', async (t) => {
+  // Regression for Finding 2 / Fix 4 (task-9-review.md): validateExtraArgs only polices dash-prefixed
+  // tokens, so `ccs new -- --model sonnet do the thing` would silently start a background session whose
+  // trailing bare words become claude's initial prompt, unattended. This is a notice only (Fix 2 was ruled
+  // against arity-aware blocking, since several allowlisted flags are variadic) — exit code must not change.
+  const ctx = makeCcsEnv(t);
+  const quiet = await runCcs(ctx, ['new', 'quiet', '--no-attach', '--', '--model', 'sonnet']);
+  assert.equal(quiet.code, 0, quiet.stderr);
+  assert.doesNotMatch(quiet.stderr, /will be passed to claude as extra arguments/);
+
+  const noisy = await runCcs(ctx, ['new', 'noisy', '--no-attach', '--', '--model', 'sonnet', 'do the thing']);
+  assert.equal(noisy.code, 0, noisy.stderr);
+  assert.match(noisy.stderr, /'do the thing' will be passed to claude as extra arguments/);
+  assert.match(noisy.stderr, /initial prompt/);
+  assert.match(noisy.stderr, /unattended/);
+  // 'sonnet' is --model's own value and must not itself be named as offending.
+  assert.doesNotMatch(noisy.stderr, /'sonnet' will be passed/);
+});
+
 test('an unhealthy ~/.claude.json blocks the start with a message naming the fix', async (t) => {
   const ctx = makeCcsEnv(t, { claudeJson: claudeJsonFixture({ onboarding: false }) });
   const r = await runCcs(ctx, ['new', 'blocked', '--no-attach']);

@@ -99,8 +99,12 @@ function resolveTheme(claudeSettings, config) {
 }
 
 /**
- * Extra claude args pass only if every flag token is in config.claude.extraArgsAllow (spec §3.2).
- * The first token must be a flag, so nothing can smuggle in a positional prompt.
+ * Extra claude args pass only if every dash-prefixed token is in config.claude.extraArgsAllow (spec §3.2),
+ * comparing the part before any `=`; the first token must itself be a flag. Bare (non-dash) tokens at any
+ * later index are NOT validated: several allowlisted flags (--add-dir, --mcp-config, --allowedTools,
+ * --disallowedTools) are variadic, so a bare value legitimately follows an allowed flag, and this function
+ * has no per-flag arity metadata to tell a variadic value apart from a trailing positional prompt. M2 is
+ * tracked to add that arity table; see new.js's bare-arg notice for the mitigation until then.
  * @param {unknown} args @param {string[]} allow
  */
 function validateExtraArgs(args, allow) {

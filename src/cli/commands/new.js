@@ -22,15 +22,19 @@ const { tildify } = require('../ls.js');
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-/** True when /proc is mounted with hidepid (anything but 0/off). @param {string} mountsText contents of /proc/mounts */
+/** True when /proc is mounted with hidepid (anything but 0/off). When /proc is mounted more than once the
+ *  last entry is the one actually in effect, so the last matching line wins rather than the first hidepid-on
+ *  one — an earlier mount's hidepid must not mask a later mount without it.
+ *  @param {string} mountsText contents of /proc/mounts */
 function hidepidEnabled(mountsText) {
+  let enabled = false;
   for (const line of mountsText.split('\n')) {
     const f = line.split(' ');
     if (f.length < 4 || f[1] !== '/proc' || f[2] !== 'proc') continue;
     const m = /(?:^|,)hidepid=([^,]+)/.exec(f[3]);
-    if (m && m[1] !== '0' && m[1] !== 'off') return true;
+    enabled = !!(m && m[1] !== '0' && m[1] !== 'off');
   }
-  return false;
+  return enabled;
 }
 
 /** @param {any} config @param {boolean} hidepid */
@@ -65,7 +69,7 @@ async function run(argv, ctx) {
   try { hidepid = hidepidEnabled(fs.readFileSync('/proc/mounts', 'utf8')); } catch { /* assume off: the safe default */ }
   /** @type {string|null} */
   let name = null;
-  if (positional[0]) {
+  if (positional.length >= 1) {
     name = normalizeName(positional[0]);
     if (!name) { ctx.err.write(`ccs: invalid name '${positional[0]}': use 1–40 characters from a-z 0-9 . _ -, starting with a letter or digit\n`); return 2; }
   } else if (flags['--name-from-cwd'] || nameFromCwdByDefault(ctx.config, hidepid)) {
@@ -73,6 +77,15 @@ async function run(argv, ctx) {
   }
   if (name && !hidepid) {
     ctx.err.write(`ccs: note: /proc on this host has no hidepid, so the session name '${name}' is visible to every account in the process list\n`);
+  }
+  // validateExtraArgs above only polices dash-prefixed tokens (several allowlisted flags are variadic, so a
+  // bare value legitimately follows one); it cannot tell a single flag value apart from a trailing positional
+  // prompt. A bare token immediately after a flag is treated as that flag's own (possibly variadic) value and
+  // stays quiet; any further bare token that follows another bare token is named here, since ccs runs
+  // sessions unattended and a trailing run of bare words is exactly what a smuggled initial prompt looks like.
+  const bareArgs = rest.filter((a, i) => !a.startsWith('-') && !(i > 0 && rest[i - 1].startsWith('-')));
+  if (bareArgs.length) {
+    ctx.err.write(`ccs: note: ${bareArgs.map((a) => `'${a}'`).join(' ')} will be passed to claude as extra arguments; if a trailing one is a positional argument, it becomes the session's initial prompt, so the session may start working on it unattended\n`);
   }
 
   /** @type {string|undefined} */
