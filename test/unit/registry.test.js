@@ -181,5 +181,6 @@ test('create() persists the agent and defaults to claude', async (t) => {
 test('create() refuses an unknown agent rather than writing an unusable record', async (t) => {
   const { paths } = env(t);
   const reg = createRegistry(paths);
-  await assert.rejects(reg.create({ name: 'c1', cwd: '/data/proj', agent: 'gpt-9' }), /unknown agent/i);
+  await assert.rejects(reg.create({ name: 'c1', cwd: '/data/proj', agent: 'gpt-9' }),
+    (e) => e instanceof RegistryError && e.code === 'UNKNOWN_AGENT');
 });

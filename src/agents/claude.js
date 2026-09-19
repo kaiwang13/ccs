@@ -35,8 +35,10 @@ module.exports = {
   resolveBin: (paths, config) => resolveClaudeBin(paths, config),
   buildLaunch: (ctx) => buildLaunch(ctx),
   writeSettingsFile: (file, theme) => writeSettingsFile(file, theme),
-  /** @param {number} pid @param {any} paths */
-  observe: (pid, paths) => new ClaudeWatch(pid, paths),
+  /** Plan A does not route observation through the agent — the supervisor constructs ClaudeWatch
+   *  directly (src/sessiond/supervisor.js:317). Plan B wires this properly; until then, fail loudly.
+   *  Note ClaudeWatch takes ONE options object ({claudeHome, clock, pidProvider, …}), not (pid, paths). */
+  observe: () => { throw new Error('agent.observe is not implemented in Plan A — see src/sessiond/supervisor.js:317'); },
   preflight: (ctx) => runPreflight(ctx),
   doctorChecks: () => [], // doctor keeps calling its own Claude checks in Plan A; Plan B moves them here
 };

@@ -13,6 +13,10 @@ test('an absent agent id means claude: records written before multi-agent keep w
 test('an unknown agent id throws rather than silently falling back to claude', () => {
   // Silently defaulting would launch the WRONG BINARY for a session the user asked to be something else.
   assert.throws(() => getAgent('gpt-9'), (e) => e instanceof UnknownAgentError && e.code === 'UNKNOWN_AGENT');
+  // REGISTRY is a plain object; a lookup by an inherited-property name must not reach Object.prototype.
+  for (const bad of ['constructor', 'toString', '__proto__', 'hasOwnProperty', 'valueOf']) {
+    assert.throws(() => getAgent(bad), (e) => e instanceof UnknownAgentError && e.code === 'UNKNOWN_AGENT', bad);
+  }
 });
 
 test('every known agent satisfies the interface', () => {

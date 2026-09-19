@@ -33,7 +33,7 @@ const KNOWN_AGENTS = Object.keys(REGISTRY);
  */
 function getAgent(id) {
   const key = id == null || id === '' ? DEFAULT_AGENT : id;
-  const make = REGISTRY[key];
+  const make = Object.hasOwn(REGISTRY, key) ? REGISTRY[key] : null;
   // Never fall back to the default for an unrecognised id: that would launch the wrong binary for a
   // session the user explicitly asked to be something else.
   if (!make) throw new UnknownAgentError(key);

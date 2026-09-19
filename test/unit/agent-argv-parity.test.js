@@ -43,6 +43,16 @@ test('agent facade produces byte-identical argv to buildLaunch', () => {
   assert.equal(viaAgent.sessionId, direct.sessionId);
 });
 
+test('an intent.json with NO agent field produces byte-identical argv (spec §8 item 2)', () => {
+  const ctx = fixture();
+  assert.equal(Object.hasOwn(ctx.intent, 'agent'), false, 'fixture must model a pre-multi-agent record');
+  const direct = buildLaunch(ctx);
+  const viaAbsent = getAgent(ctx.intent.agent).buildLaunch(ctx);   // exactly what startspec.js:46 does
+  assert.deepEqual(viaAbsent.argv, direct.argv);
+  assert.deepEqual(viaAbsent.resumeArgv, direct.resumeArgv);
+  assert.deepEqual(viaAbsent.env, direct.env);
+});
+
 test('claude capabilities describe what claude actually does', () => {
   const c = getAgent('claude').capabilities;
   assert.equal(c.liveStatus, true, 'claude exposes status via ~/.claude/sessions/<pid>.json');
