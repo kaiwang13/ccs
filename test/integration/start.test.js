@@ -5,6 +5,7 @@ const fs = require('fs');
 const path = require('path');
 const { createRegistry } = require('../../src/common/registry.js');
 const { controlRequest, probeSocket } = require('../../src/common/ctlclient.js');
+const { isLocked } = require('../../src/common/locks.js');
 const { closeNfsWorker } = require('../../src/common/nfsworker.js');
 const { buildSessionSpec, parseStartArgv } = require('../../src/sessiond/startspec.js');
 const { makeCcsEnv, waitFor, spawnSessiond } = require('../helpers/ccsenv.js');
@@ -84,4 +85,30 @@ test('the holder re-runs a --start session through a --recover argv that plan 03
   const specIdx = cmd.indexOf('--spec');
   if (specIdx >= 0) assert.ok(fs.existsSync(cmd[specIdx + 1]), 'the --spec file the holder will pass exists');
   else assert.deepEqual(parseStartArgv(cmd.slice(2)), { id: rec.id, recover: true, batch: null });
+});
+
+test('a --start that arrives while the holder lock is genuinely held recovers instead of starting a second claude', async (t) => {
+  const ctx = makeCcsEnv(t);
+  const reg = createRegistry(ctx.paths);
+  const rec = await reg.create({ name: 'holder-alive', cwd: ctx.work, env: { PATH: process.env.PATH, HOME: ctx.home } });
+  const first = spawnSessiond(ctx, ['--start', rec.id]);
+  await waitFor(() => probeSocket(ctx.paths.ctlSock(rec.id), 200), 20000, 'first ctl.sock');
+  const echoBefore = await waitFor(() => { const f = fs.readdirSync(ctx.home).filter((x) => /^echoclaude-\d+\.json$/.test(x)); return f.length ? f : null; }, 10000, 'echoclaude record');
+  // wait for a settled lifecycle before signalling, so runSession's SIGTERM handler is installed
+  await waitFor(async () => { try { const r = await controlRequest(ctx.paths.ctlSock(rec.id), 'STATUS', {}, { timeoutMs: 1000 }); return r.ok && r.data && r.data.lifecycle === 'RUNNING'; } catch { return false; } }, 15000, 'lifecycle RUNNING');
+  first.child.kill('SIGTERM'); // graceful sessiond shutdown: detaches, leaves holder+claude alive
+  assert.equal((await first.exited).code, 0);
+  await waitFor(() => isLocked(ctx.paths.holderLock(rec.id)), 5000, 'holder.lock still held with no sessiond');
+  const second = spawnSessiond(ctx, ['--start', rec.id]);
+  await waitFor(() => probeSocket(ctx.paths.ctlSock(rec.id), 200), 20000, 'recovered ctl.sock');
+  assert.deepEqual(fs.readdirSync(ctx.home).filter((x) => /^echoclaude-\d+\.json$/.test(x)), echoBefore, 'no second claude was spawned');
+  await controlRequest(ctx.paths.ctlSock(rec.id), 'STOP', {}, { timeoutMs: 3000 });
+  // This must be `second`'s own exit code, not merely "some ctl.sock came up": the holder independently
+  // auto-respawns sessiond --recover ~5s after noticing sessiond is gone (src/holder/main.js noConnMs), and
+  // separately preflight's SECOND_WRITER guard would also block a naive second claude spawn. Both of those
+  // would let the assertions above pass even if this test's actual target -- startspec.js's `if (!recover &&
+  // isLocked(holderLock)) recover = true` -- were removed. Asserting `second` itself exits 0 here pins it: with
+  // the branch removed, `second` gets SECOND_WRITER-blocked and exits 2 almost immediately, before STOP is even
+  // sent, so this assertion (not the two above) is what actually fails without the branch.
+  assert.equal((await second.exited).code, 0, 'the second --start itself recovered (not just the holder\'s own auto-respawn)');
 });
