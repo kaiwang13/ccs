@@ -55,6 +55,35 @@ test('decoder check (R12): an extraction failure on a real versions binary is FA
   const c = checkDecoder({ path: bin, version: '9.9.9', source: 'versions' }, 30000);
   assert.equal(c.level, 'fail');
   assert.match(c.detail, /^9\.9\.9: the key decoder could not be extracted\/loaded .* this version is untested/);
+  // Regression: the reason must name the real fault (the extractor's own uncaught error, "decoder not
+  // found"), never Node's runtime-version banner that trails an uncaught-exception stack trace.
+  assert.match(c.detail, /decoder not found/);
+  assert.doesNotMatch(c.detail, /Node\.js v/);
+});
+
+test('decoder failure reason: empty stderr falls back to the exit status, and stack-frames-only stderr never yields an empty reason', (t) => {
+  const cp = require('child_process');
+  const original = cp.spawnSync;
+  t.after(() => { cp.spawnSync = original; });
+
+  // A child that exits non-zero with nothing on stderr at all.
+  cp.spawnSync = () => ({ status: 1, stdout: '', stderr: '', error: null });
+  const empty = checkDecoder({ path: '/does/not/matter', version: '9.9.9', source: 'versions' }, 1000);
+  assert.equal(empty.level, 'fail');
+  assert.match(empty.detail, /exit 1/);
+  assert.doesNotMatch(empty.detail, /Node\.js v/);
+
+  // A child whose stderr is nothing but stack frames plus the runtime banner (no message line) — the
+  // real-world shape of Node's uncaught-exception output when the thrown error itself is swallowed.
+  cp.spawnSync = () => ({
+    status: 1, stdout: '', error: null,
+    stderr: '    at Object.<anonymous> (/x.js:1:1)\n    at Module._compile (node:internal/modules/cjs/loader:1234:1)\n\nNode.js v22.22.2\n',
+  });
+  const stackOnly = checkDecoder({ path: '/does/not/matter', version: '9.9.9', source: 'versions' }, 1000);
+  assert.equal(stackOnly.level, 'fail');
+  assert.doesNotMatch(stackOnly.detail, /Node\.js v/);
+  assert.doesNotMatch(stackOnly.detail, /\(\)/); // never an empty parenthetical
+  assert.match(stackOnly.detail, /exit 1/);
 });
 
 test('runtime dir check: missing, wrong mode, symlink', (t) => {

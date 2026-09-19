@@ -57,7 +57,13 @@ function checkDecoder(bin, timeoutMs = 60000) {
   const script = `const x=require(${JSON.stringify(EXTRACTOR)});const ex=x.extract(process.argv[1]);x.selfCheck(x.load(ex));process.stdout.write(JSON.stringify({sha256:ex.sha256}));`;
   const r = cp.spawnSync(process.execPath, ['-e', script, bin.path], { encoding: 'utf8', timeout: timeoutMs, killSignal: 'SIGTERM' });
   if (r.error || r.status !== 0) {
-    const why = (r.error && r.error.message) || String(r.stderr || '').trim().split('\n').filter(Boolean).pop() || `exit ${r.status}`;
+    // A child that dies with an uncaught exception has Node append its own runtime-version banner
+    // after the stack trace, so the *last* stderr line is never the fault — it is always "Node.js
+    // vX.Y.Z". Drop that banner and any stack frame lines, and prefer a line that actually looks like
+    // an error message; fall back to the exit status when nothing usable is left.
+    const lines = String(r.stderr || '').trim().split('\n').map((s) => s.trim()).filter(Boolean)
+      .filter((s) => !/^Node\.js v/.test(s) && !/^at\s/.test(s));
+    const why = (r.error && r.error.message) || lines.find((s) => /error/i.test(s)) || lines[0] || `exit ${r.status}`;
     return { level: 'fail', label: 'decoder', detail: `${bin.version}: the key decoder could not be extracted/loaded (${why}) — this version is untested; use a tested claude version` };
   }
   /** @type {string|null} */
