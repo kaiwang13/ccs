@@ -27,10 +27,18 @@ bad()  { fail=$((fail+1)); printf '  \033[31mFAIL\033[0m %s\n' "$*"; }
 cleanup() { rm -rf "$PREFIX"; }
 trap cleanup EXIT INT TERM
 
-# A stable fingerprint of the real registry: every file's path, size and content hash.
+# Fingerprint of what the installer must never touch: the set of session records, and every intent.json.
+#
+# state.json is DELIBERATELY EXCLUDED. intent.json is the user's intent and is written only by CLI
+# processes; state.json is runtime state owned by each live sessiond, which rewrites it continuously
+# (heartbeats, status transitions). Hashing it would make this test fail on any machine that is actually
+# running sessions — the exact people it protects. Excluding it does not weaken the check: a deleted,
+# added or rewritten record still changes the record list or an intent.json.
 fingerprint() { [ -d "$REAL_STATE" ] || { echo "no-state-dir"; return; }
-  find "$REAL_STATE" -type f -print0 2>/dev/null | sort -z \
-    | xargs -0 -r sha256sum 2>/dev/null | sha256sum | cut -d' ' -f1; }
+  { find "$REAL_STATE" -mindepth 1 -maxdepth 4 -type d -print 2>/dev/null | sort
+    find "$REAL_STATE" -type f ! -name 'state.json' -print0 2>/dev/null | sort -z \
+      | xargs -0 -r sha256sum 2>/dev/null
+  } | sha256sum | cut -d' ' -f1; }
 
 BEFORE=$(fingerprint)
 say "real registry fingerprint before: ${BEFORE%"${BEFORE#????????}"}…"
@@ -82,8 +90,10 @@ fi
 
 say "THE STANDING RULE: your real session records are untouched"
 AFTER=$(fingerprint)
-if [ "$BEFORE" = "$AFTER" ]; then pass "real registry is byte-identical before and after install/update/uninstall"
-else bad "REAL REGISTRY CHANGED — install/update/uninstall must never touch session records"; fi
+if [ "$BEFORE" = "$AFTER" ]; then pass "real session records unchanged: same record set, every intent.json byte-identical"
+else bad "REAL SESSION RECORDS CHANGED — install/update/uninstall must never touch them"
+  find "$REAL_STATE" -type f ! -name 'state.json' -newer "$PREFIX/install.log" -print 2>/dev/null | head -5
+fi
 
 printf '\n%s passed, %s failed\n' "$ok" "$fail"
 [ "$fail" -eq 0 ]
