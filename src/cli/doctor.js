@@ -60,18 +60,27 @@ function checkDecoder(bin, timeoutMs = 60000) {
     // A child that dies with an uncaught exception prints, in order: a `file:line` header, the
     // indented source excerpt of the throw site, a `^` caret marker, a blank line, the canonical
     // `<ErrorClass>: <message>` line, indented `at ...` stack frames, a blank line, then Node's own
-    // "Node.js vX.Y.Z" runtime banner. Only the canonical line is the fault. The source excerpt is
-    // NOT merely noise to drop — for a plain `throw new Error(...)` statement it contains the
-    // *literal text* "Error(" and often the message string too, so a naive "line matching /error/i"
-    // scan finds it before it ever reaches the real "Error: <message>" line below it (this is the
-    // exact defect this comment now guards against: a FAIL used to read the throw-site source code
-    // as its reason instead of the actual message). Filter out the header/excerpt/caret/frames/
-    // banner, prefer a line that has the canonical "<Identifier>: message" shape, then any line that
-    // merely mentions "error", then the exit status.
+    // "Node.js vX.Y.Z" runtime banner. Only the canonical line is the fault.
+    //
+    // The loose `/error/i` scan below cannot be the *primary* matcher: for a plain
+    // `throw new Error(msg)` statement, the indented source excerpt line above the canonical line
+    // itself contains the literal text "Error(", so `/error/i` matches that excerpt first and never
+    // reaches the real message. The canonical-shape matcher exists to be tried first and win instead.
+    // It must be `/^[A-Za-z_$][\w$]*:\s/` — an identifier immediately followed by ": " — and must NOT
+    // try to anchor the literal word "Error"/"Exception" after an identifier prefix (e.g.
+    // `[A-Za-z_$][\w$]*(Error|Exception)\b`): that shape can never match a plain `Error: <message>`
+    // line, because the mandatory leading `[A-Za-z_$]` consumes the line's own "E", leaving "rror:"
+    // to match the literal "Error" against — which fails. It only matches compound class names like
+    // "TypeError", silently never firing for the commonest case and leaving the loose `/error/i` scan
+    // to fall through to the source excerpt again. (An earlier version of this fix also excluded any
+    // line containing "throw new" as a workaround for that dead canonical matcher; with the matcher
+    // fixed that exclusion is not just unneeded but actively wrong — it also strips a genuine error
+    // message that happens to contain the phrase "throw new", e.g. "cannot throw new session without
+    // a name", leaving nothing behind and reporting a bare exit status instead of real content.)
     const lines = String(r.stderr || '').trim().split(/\r?\n/).map((s) => s.trim()).filter(Boolean)
-      .filter((s) => !/^Node\.js v/.test(s) && !/^at\s/.test(s) && !/^\^+$/.test(s) && !/^\S+:\d+$/.test(s) && !/throw\s+new\s/.test(s));
+      .filter((s) => !/^Node\.js v/.test(s) && !/^at\s/.test(s) && !/^\^+$/.test(s) && !/^\S+:\d+$/.test(s));
     let why = (r.error && r.error.message)
-      || lines.find((s) => /^[A-Za-z_$][\w$]*(?:\s*\[[^\]]*\])?:\s/.test(s))
+      || lines.find((s) => /^[A-Za-z_$][\w$]*:\s/.test(s))
       || lines.find((s) => /error/i.test(s))
       || lines[0] || `exit ${r.status}`;
     if (why.length > 200) why = `${why.slice(0, 200)}…`; // a pathological single-line stderr must not make the detail unbounded

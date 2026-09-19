@@ -87,11 +87,11 @@ test('decoder failure reason: a real child process that throws from a file (not 
   assert.doesNotMatch(c.detail, /Node\.js v/);
 });
 
-test('decoder failure reason: a message that legitimately mentions a Node.js version survives the banner filter', (t) => {
+test('decoder failure reason: a custom Error subclass and a message that legitimately mentions a Node.js version both survive', (t) => {
   const root = fs.mkdtempSync('/tmp/ccst-');
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));
   const script = path.join(root, 'throws-nodever.js');
-  fs.writeFileSync(script, "throw new Error('incompatible with Node.js v22');\n");
+  fs.writeFileSync(script, "class DecoderError extends Error {}\nthrow new DecoderError('incompatible with Node.js v22');\n");
   const realCp = require('child_process');
   const real = realCp.spawnSync(process.execPath, [script], { encoding: 'utf8' });
   assert.notEqual(real.status, 0);
@@ -101,8 +101,50 @@ test('decoder failure reason: a message that legitimately mentions a Node.js ver
   realCp.spawnSync = () => real;
   const c = checkDecoder({ path: '/does/not/matter', version: '9.9.9', source: 'versions' }, 1000);
   assert.equal(c.level, 'fail');
-  // The genuine message must survive intact — only Node's own trailing banner line is filtered.
-  assert.match(c.detail, /Error: incompatible with Node\.js v22\)/);
+  // The genuine message must survive intact, with its real (subclass) error class name — only
+  // Node's own trailing banner line is filtered, never a line that merely mentions "Node.js v".
+  assert.match(c.detail, /DecoderError: incompatible with Node\.js v22\)/);
+});
+
+test('decoder failure reason (round 3 regression): a genuine message containing "throw new" is not stripped to a bare exit status', (t) => {
+  const root = fs.mkdtempSync('/tmp/ccst-');
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const script = path.join(root, 'throws-phrase.js');
+  fs.writeFileSync(script, "throw new Error('cannot throw new session without a name');\n");
+  const realCp = require('child_process');
+  const real = realCp.spawnSync(process.execPath, [script], { encoding: 'utf8' });
+  assert.notEqual(real.status, 0, 'sanity: the script must actually have died');
+
+  const original = realCp.spawnSync;
+  t.after(() => { realCp.spawnSync = original; });
+  realCp.spawnSync = () => real;
+  const c = checkDecoder({ path: '/does/not/matter', version: '9.9.9', source: 'versions' }, 1000);
+  assert.equal(c.level, 'fail');
+  // Round 2's fix excluded any stderr line containing "throw new" as a workaround for a dead
+  // canonical-shape matcher. That workaround regressed exactly this case: a genuine error message
+  // that happens to contain the phrase "throw new" was excluded right along with the throw-site
+  // source excerpt, leaving `lines` empty and the FAIL reading a bare "exit 1" — zero diagnostic
+  // content, worse than reporting source code (the bug round 2 set out to fix in the first place).
+  assert.match(c.detail, /Error: cannot throw new session without a name/);
+  assert.doesNotMatch(c.detail, /\(exit 1\)/);
+});
+
+test('decoder failure reason: a real process.exit() with empty stderr yields the exit status, not an empty reason', (t) => {
+  const root = fs.mkdtempSync('/tmp/ccst-');
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const script = path.join(root, 'exits.js');
+  fs.writeFileSync(script, 'process.exit(3);\n');
+  const realCp = require('child_process');
+  const real = realCp.spawnSync(process.execPath, [script], { encoding: 'utf8' });
+  assert.equal(real.status, 3);
+  assert.equal(real.stderr, '');
+
+  const original = realCp.spawnSync;
+  t.after(() => { realCp.spawnSync = original; });
+  realCp.spawnSync = () => real;
+  const c = checkDecoder({ path: '/does/not/matter', version: '9.9.9', source: 'versions' }, 1000);
+  assert.equal(c.level, 'fail');
+  assert.match(c.detail, /\(exit 3\)/);
 });
 
 test('decoder failure reason: empty stderr falls back to the exit status, and stack-frames-only stderr never yields an empty reason', (t) => {
