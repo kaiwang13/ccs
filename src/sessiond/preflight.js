@@ -322,5 +322,5 @@ async function runPreflight(ctx) {
 
 module.exports = {
   runPreflight, claudeJsonGuard, checkClaudeJson, backupClaudeJson, scanSecondWriters, scanOrphans, hashAccount,
-  claudeJsonBackupDir, newestBaseline, listBackups, utcStamp, stampToMs, BACKUP_KEEP,
+  claudeJsonBackupDir, newestBaseline, listBackups, utcStamp, stampToMs, BACKUP_KEEP, acquireStartLock,
 };
