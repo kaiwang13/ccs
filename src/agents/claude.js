@@ -11,13 +11,8 @@ const { buildLaunch, resolveClaudeBin, writeSettingsFile } = require('../session
 const { runPreflight } = require('../sessiond/preflight.js');
 const { ClaudeWatch } = require('../sessiond/claudewatch.js');
 
-/**
- * @typedef {{liveStatus: boolean, assignableSessionId: boolean, nameInArgv: boolean,
- *            remoteControl: 'per-session'|'daemon'|false}} Capabilities
- * @typedef {{id: string, label: string, capabilities: Capabilities,
- *            resolveBin: Function, buildLaunch: Function, writeSettingsFile: Function,
- *            observe: Function, preflight: Function, doctorChecks: Function}} Agent
- */
+/** @typedef {import('../common/types').Capabilities} Capabilities */
+/** @typedef {import('../common/types').Agent} Agent */
 
 /** @type {Capabilities} */
 const capabilities = {

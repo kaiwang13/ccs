@@ -35,3 +35,13 @@ test('every known agent satisfies the interface', () => {
     assert.ok(['per-session', 'daemon', false].includes(c.remoteControl));
   }
 });
+
+test('the unknown-agent message has one source of truth', () => {
+  const { formatUnknownAgent, KNOWN_AGENTS } = require('../../src/agents/index.js');
+  const msg = formatUnknownAgent('gpt-9');
+  assert.match(msg, /unknown agent 'gpt-9'/);
+  assert.match(msg, new RegExp(KNOWN_AGENTS.join(', ')));
+  // The thrown error must use the same formatter, not a second copy of the sentence.
+  try { require('../../src/agents/index.js').getAgent('gpt-9'); assert.fail('should throw'); }
+  catch (e) { assert.equal(e.message, msg); }
+});

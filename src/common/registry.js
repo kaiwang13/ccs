@@ -21,7 +21,7 @@ const { runNfsOp } = require('./nfsworker.js');
 const { tryLock } = require('./locks.js');
 const { ensureRuntime } = require('./runtime.js');
 const { machineId } = require('./procinfo.js');
-const { DEFAULT_AGENT, KNOWN_AGENTS } = require('../agents/index.js');
+const { DEFAULT_AGENT, KNOWN_AGENTS, formatUnknownAgent } = require('../agents/index.js');
 
 /** Names: 1–40 of [a-z0-9._-]; the first character must be a letter or digit so a name can never
  *  be parsed as a flag when it is passed to claude as `-n NAME --remote-control NAME`. */
@@ -184,7 +184,7 @@ function createRegistry(paths, opts = {}) {
       if (!base) throw new RegistryError('BAD_NAME', `invalid session name '${draft.name}': use 1–40 characters from a-z 0-9 . _ -, starting with a letter or digit`);
     }
     if (draft.agent != null && !KNOWN_AGENTS.includes(draft.agent)) {
-      throw new RegistryError('UNKNOWN_AGENT', `unknown agent '${draft.agent}' (known: ${KNOWN_AGENTS.join(', ')})`);
+      throw new RegistryError('UNKNOWN_AGENT', formatUnknownAgent(String(draft.agent)));
     }
     return withLock(async () => {
       await checkHost(true);

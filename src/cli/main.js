@@ -71,7 +71,7 @@ async function main(argv, io = {}) {
     const x = /** @type {any} */ (e);
     if (x instanceof UsageError) { err.write(`ccs: ${x.message}\n${USAGE}`); return 2; }
     if (x && x.code === 'RUNTIME_DIR_UNSAFE') { err.write(`ccs: ${x.message}\nccs refuses to use a runtime directory it does not own exclusively (spec §8 item 3); ask an admin to remove it\n`); return 1; }
-    if (x && (x.name === 'RegistryError' || x.name === 'NfsTimeoutError')) { err.write(`ccs: ${x.message}\n`); return 1; }
+    if (x && (x.name === 'RegistryError' || x.name === 'NfsTimeoutError' || x.name === 'UnknownAgentError')) { err.write(`ccs: ${x.message}\n`); return 1; }
     throw e;
   }
 }

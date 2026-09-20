@@ -7,12 +7,16 @@
  * (`capabilities`) rather than asking which agent it is.
  */
 
-/** @typedef {import('./claude.js').Agent} Agent */
+/** @typedef {import('../common/types').Agent} Agent */
+
+/** The single source of truth for this sentence: registry.js validates at write time and throws its own
+ *  RegistryError, but must not re-word the message. @param {string} id */
+function formatUnknownAgent(id) { return `unknown agent '${id}' (known: ${KNOWN_AGENTS.join(', ')})`; }
 
 class UnknownAgentError extends Error {
   /** @param {string} id */
   constructor(id) {
-    super(`unknown agent '${id}' (known: ${KNOWN_AGENTS.join(', ')})`);
+    super(formatUnknownAgent(id));
     this.name = 'UnknownAgentError';
     this.code = 'UNKNOWN_AGENT';
   }
@@ -40,4 +44,4 @@ function getAgent(id) {
   return make();
 }
 
-module.exports = { getAgent, DEFAULT_AGENT, KNOWN_AGENTS, UnknownAgentError };
+module.exports = { getAgent, DEFAULT_AGENT, KNOWN_AGENTS, UnknownAgentError, formatUnknownAgent };
