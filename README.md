@@ -1,13 +1,14 @@
-# ccs — multi-client Claude Code sessions
+# ccs — multi-client Claude Code and Codex sessions
 
-`ccs` keeps named Claude Code sessions running on a Linux host so that **several terminals can attach to
-the same session at once and stay in sync**, each with Claude's full rendering in its **own native
-terminal scrollback**. Detach a terminal, close your laptop, come back tomorrow from a different machine —
-the session keeps running. The official Claude phone app keeps working through Remote Control.
+`ccs` keeps named CLI-agent sessions — **Claude Code** and **Codex CLI** — running on a Linux host so that
+**several terminals can attach to the same session at once and stay in sync**, each with the agent's full
+rendering in its **own native terminal scrollback**. Detach a terminal, close your laptop, come back
+tomorrow from a different machine — the session keeps running. The official Claude phone app keeps working
+through Remote Control (Claude sessions only — see [Hosting Codex CLI sessions](#hosting-codex-cli-sessions)).
 
 ```
 terminal A ─┐
-terminal B ─┼─▶ ccs-sessiond ─▶ ccs-holder ─▶ claude   (one process, one conversation)
+terminal B ─┼─▶ ccs-sessiond ─▶ ccs-holder ─▶ claude | codex   (one process, one conversation)
 phone (RC) ─┘     (emulator,        (owns the pty)
                  per-client view)
 ```
@@ -15,16 +16,23 @@ phone (RC) ─┘     (emulator,        (owns the pty)
 Unlike `tmux` or `screen`, `ccs` does not own your scrollback. Each client renders into its own terminal,
 so you scroll with your normal mouse wheel, trackpad, and scrollbar — no prefix key, no copy mode.
 
-**Status: v0.1.0, first stable release (milestone M1).** The automated suite (579 tests) and the live
-suites against a real `claude` pass. See [Limitations](#limitations) for what is not built yet.
+**Status: v0.2.0.** Adds Codex CLI hosting alongside Claude Code, on the same terms: persisted and
+displayed session type, honest (never fabricated) status, thread-id discovery and resume, per-agent
+preflight and doctor checks — with zero changes to Claude's own code paths. The automated suite (680
+tests: 495 unit, 93 integration, 92 golden) and the live suites against real `claude` and `codex` binaries
+pass. See [Limitations](#limitations) for what is not built yet.
 
 ## Requirements
 
 - **Linux** (uses `/proc`, AF_UNIX sockets, and a small native TTY addon)
-- **Node.js 22.x** — one interpreter, consistently: the native addons are compiled for its ABI
+- **Node.js 22.x** — one interpreter, consistently: the native addons are compiled for its ABI, and Codex
+  support additionally needs Node's built-in `node:sqlite` (Node 22.5+)
 - **gcc, make, python3** — `node-gyp` builds `node-pty` and the bundled `ttyctl` addon from source
 - **Claude Code** installed and logged in. Tested against **2.1.267**; other versions run but report
   `UNTESTED_CLAUDE_VERSION` (a warning, never a block)
+- **Codex CLI** — optional. Tested against **0.155.0**/**0.155.1**; other versions run but report
+  `UNTESTED_CODEX_VERSION`. Codex not being installed is never a doctor failure — it's simply unavailable
+  until you install it
 
 ## Install
 
@@ -132,9 +140,9 @@ picker of your sessions.
 | Command | What it does |
 |---|---|
 | `ccs` | Session picker on a TTY (↑↓ move, ⏎ attach, `n` new, `s` stop, `q` quit); `ccs ls` otherwise |
-| `ccs new [NAME] [--cwd DIR] [--no-attach] [--resume UUID] [-- --model opus]` | Create a session and attach |
+| `ccs new [NAME] [--cwd DIR] [--no-attach] [--agent claude\|codex] [--resume ID] [-- --model opus]` | Create a session and attach. `--agent` defaults to `claude` (or `config.defaultAgent`) |
 | `ccs a\|attach [NAME] [--shrink] [--allow-setup]` | Attach; starts a stopped session first |
-| `ccs ls [--json]` | List sessions |
+| `ccs ls [--json]` | List sessions — a `TYPE` column shows `claude` or `codex` |
 | `ccs stop NAME\|--all` | Stop cleanly — `/exit` when idle, then SIGTERM. `claude` is never force-killed |
 | `ccs restart NAME` | Stop and start again with `--resume`; clears `FAILED`/`BLOCKED`/`EXITED` |
 | `ccs rm NAME` | Remove a stopped session. **Claude's transcript is kept** |
@@ -157,7 +165,7 @@ else stays attached. Use `ccs stop NAME` to end a session.
 answers it and never writes `~/.claude.json`; only a client attached with `--allow-setup` can type into it,
 which `ccs new` does automatically for an untrusted directory.
 
-## Resuming an existing conversation
+## Resuming an existing Claude conversation
 
 ```bash
 cd ~/my-project
@@ -174,20 +182,77 @@ ls -t "$D"/*.jsonl | head -5 | xargs -n1 basename -s .jsonl
 Do not resume a conversation that is already open in a plain `claude`: two writers on one transcript is
 not a supported configuration.
 
+## Hosting Codex CLI sessions
+
+Codex is hosted the same way Claude is — attach/detach, multi-client sync, and native scrollback all work
+identically. Create one with `--agent codex`:
+
+```bash
+cd ~/my-project
+ccs new myproject --agent codex
+```
+
+`ccs ls` shows it with `TYPE codex` and an honest activity line (`active Nm` / `idle`, derived from Codex's
+own thread database) rather than the working/idle/waiting detail Claude sessions get — Codex has no
+per-session status file to read, so `ccs` never fabricates one.
+
+**Resuming an existing Codex conversation** works too, but the id has to already exist in Codex's own
+thread database (`~/.codex/state_5.sqlite`):
+
+```bash
+cd ~/my-project
+ccs new myproject --agent codex --resume <thread-id>
+```
+
+Find a thread's id from inside Codex with `/status` (it prints `Session: <uuid>`), or list every thread
+`ccs` can currently resume:
+
+```bash
+node -e "
+const {DatabaseSync}=require('node:sqlite');
+const db=new DatabaseSync(process.env.HOME+'/.codex/state_5.sqlite',{readOnly:true});
+for (const r of db.prepare('SELECT id,cwd,name FROM threads ORDER BY CAST(updated_at_ms AS INTEGER) DESC LIMIT 10').all())
+  console.log(r.id, r.cwd, r.name||'');
+"
+```
+
+A **freshly opened** Codex session is not resumable yet: Codex only writes a thread to its database once
+there has been real conversation activity — opening it, running `/status`, or switching models does not
+count. Send at least one real message first.
+
+### Things specific to Codex
+
+- **Detach with Ctrl+Z or Ctrl+\\, same as Claude — but it matters more here.** Claude's `/exit` is
+  specially intercepted by `ccs` as "detach only"; Codex has no such interception, so typing an exit
+  command goes straight through and quits the real process. The conversation itself is never lost (it's
+  still a real Codex thread — `ccs restart NAME` resumes it), but the running session ends.
+- **`--sandbox`, `--ask-for-approval`, `--profile`, `--search` and `--model`** are the extra flags allowed
+  after `--` by default (`config.codex.extraArgsAllow`) — Claude's allowlist does not apply.
+- **No Remote Control.** Codex's remote-control is a separate daemon (`codex remote-control start`), not a
+  per-session flag like Claude's, so the phone app does not currently reach a `ccs`-hosted Codex session.
+- **Terminal colours.** `ccs new`/`ccs restart` capture your terminal's real default colours once at
+  session start and forward them to Codex, so its input-box tint matches what you'd see running it
+  natively. A session created before this existed picks it up on its next `ccs restart`.
+
 ## How it works
 
-Each session is a pair of processes:
+Each session is a pair of processes hosting one agent (`claude` or `codex`), chosen through a small agent
+adapter (`src/agents/`) so the two never share code paths — the holder and sessiond below are agent-neutral:
 
-- **`ccs-holder`** owns the `claude` pty and nothing else. It never touches NFS, drains output
-  unconditionally, and answers terminal queries, so `claude` can never block on a slow or absent client.
+- **`ccs-holder`** owns the agent's pty and nothing else. It never touches NFS, drains output
+  unconditionally, and answers terminal queries, so the agent can never block on a slow or absent client.
 - **`ccs-sessiond`** is restartable. It runs a headless terminal emulator over the output stream and keeps
   a per-client view, so a joining client receives a **snapshot of the current screen** rather than a replay.
 
 Clients talk to `sessiond` over AF_UNIX sockets — there are **no TCP listeners anywhere**. Session state
 lives in `~/.local/state/ccs/`, runtime sockets in `/tmp/ccs-<uid>/` (0700, never on NFS).
 
-Crashed sessions are restored automatically; `claude` is never sent `SIGKILL`, and a test enforces that
+Crashed sessions are restored automatically; neither agent is ever sent `SIGKILL`, and a test enforces that
 the string appears nowhere in the source.
+
+For Codex specifically: `ccs` never writes to `~/.codex/` — `src/codex/threads.js` is the only module that
+reads Codex's own (undocumented, versioned) thread database, always read-only, and degrades to "unknown"
+on any schema surprise rather than failing a session.
 
 ## Configuration
 
@@ -195,7 +260,9 @@ Optional, at `~/.config/ccs/config.json` (override with `CCS_CONFIG`):
 
 ```json
 {
+  "defaultAgent": "claude",
   "claude": { "extraArgsAllow": ["--model", "--permission-mode", "--add-dir"] },
+  "codex":  { "extraArgsAllow": ["--model", "--sandbox", "--ask-for-approval", "--add-dir", "--profile", "--search"] },
   "size":   { "floorCols": 50, "floorRows": 15 },
   "env":    { "passthrough": ["MY_VAR"] }
 }
@@ -210,7 +277,7 @@ restart, so a session created in a shell without your proxy set will never have 
 ## Tests
 
 ```bash
-npm test                  # unit + golden + integration (579)
+npm test                  # unit + golden + integration (680)
 npm run test:unit
 npm run test:golden       # terminal-emulator differential tests
 npm run test:integration
@@ -231,8 +298,12 @@ from a clone.
 Known gaps in this release:
 
 - The extra-argument allowlist checks flag tokens but cannot tell a stray bare word from a variadic flag's
-  value, so a trailing word after `--` can become Claude's initial prompt. `ccs new --no-attach` warns.
+  value, so a trailing word after `--` can become the agent's initial prompt. `ccs new --no-attach` warns.
 - A very long status hint in `ccs ls` can push the trailing columns off the row.
+- Codex has no Remote Control (the phone app) and no per-session live status (`ccs ls` shows honest
+  activity instead of working/idle/waiting) — both are architectural, not planned for a later milestone.
+- The session picker (`ccs`, bare) has no way to choose `--agent codex` for a new session; use
+  `ccs new --agent codex` from the command line.
 
 ## License
 

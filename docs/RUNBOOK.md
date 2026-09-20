@@ -1,13 +1,18 @@
-# ccs runbook (M1)
+# ccs runbook (M1 + Codex agent support)
 
-ccs keeps several named, long-lived Claude Code sessions on this host. Each session has exactly one
-`claude` process; any number of terminals can attach to it and stay in sync, each with Claude's full
-rendering in its own native scrollback; Remote Control is on by default, so the Claude app keeps working.
-Architecture overview: [`../README.md`](../README.md).
+ccs keeps several named, long-lived Claude Code or Codex CLI sessions on this host. Each session has
+exactly one agent process; any number of terminals can attach to it and stay in sync, each with the
+agent's full rendering in its own native scrollback. Remote Control is on by default for Claude sessions
+(phone app keeps working); Codex sessions are terminal-only — see §2a. Architecture overview:
+[`../README.md`](../README.md).
 
 M1 ships: `ccs`, `ccs new`, `ccs attach`/`ccs a`, `ccs ls [--json]`, `ccs stop`, `ccs restart`, `ccs rm`,
 `ccs doctor --lite [--accept-config]`, and a minimal picker. Not yet: `ccs start`, `logs`, `kick`, `rename`,
 `install` (releases + cron), reconcile, full doctor, the shim (M2/M3).
+
+A later, separate piece of work added Codex CLI as a second hostable agent on the exact same commands
+(`--agent codex` on `ccs new`; everything else is agent-neutral) with zero changes to Claude's own code
+paths. Session type is persisted (`intent.agent`) and displayed (`ccs ls`'s `TYPE` column).
 
 ## 1. Install for development use
 
@@ -38,17 +43,20 @@ exec /absolute/path/to/node /absolute/path/to/ccs/bin/ccs.js "$@"
 | Command | What it does |
 |---|---|
 | `ccs` | Picker on a terminal (↑↓ move, ⏎ attach, `n` new, `s` stop, `q` quit); `ccs ls` otherwise |
-| `ccs new [NAME] [--cwd DIR] [--no-attach] [-- --model opus]` | Create a session and attach |
+| `ccs new [NAME] [--cwd DIR] [--no-attach] [--agent claude\|codex] [-- --model opus]` | Create a session and attach. `--agent` defaults to `claude` (or `config.defaultAgent`) |
 | `ccs a [NAME]` | Attach; starts a stopped session first |
-| `ccs ls` / `ccs ls --json` | List sessions |
-| `ccs stop NAME` / `ccs stop --all` | Stop cleanly (`/exit` when idle, then closing the terminal, then SIGTERM; claude is never force-killed) |
+| `ccs ls` / `ccs ls --json` | List sessions — `TYPE` column shows `claude` or `codex` |
+| `ccs stop NAME` / `ccs stop --all` | Stop cleanly (`/exit` when idle, then closing the terminal, then SIGTERM; the agent is never force-killed) |
 | `ccs restart NAME` | Stop and start again with `--resume`; also clears `FAILED`/`BLOCKED`/`EXITED` |
-| `ccs rm NAME` | Remove a stopped session from ccs (Claude's transcript is kept) |
-| `ccs doctor --lite` | Health checks |
+| `ccs rm NAME` | Remove a stopped session from ccs (the agent's own transcript/thread is kept) |
+| `ccs doctor --lite` | Health checks — includes Codex's (absent Codex is `ok`, never a failure) |
 
-While attached: **Ctrl+Z or Ctrl+\\ detaches** (the session keeps running). Typing `/exit` (or `/quit`)
-disconnects only your terminal; Claude restarts underneath for anyone else attached. To end a session
-use `ccs stop NAME`.
+While attached: **Ctrl+Z or Ctrl+\\ detaches** (the session keeps running). For Claude, typing `/exit` (or
+`/quit`) disconnects only your terminal; Claude restarts underneath for anyone else attached. **Codex has
+no equivalent interception** — an exit command typed into a Codex session goes straight to the real
+process and quits it (the conversation itself survives as a real thread; `ccs restart NAME` resumes it,
+but the running session ends). Always prefer Ctrl+Z/Ctrl+\\ to detach from Codex. To end a session
+deliberately, either way, use `ccs stop NAME`.
 
 **Names.** When `/proc` is mounted without `hidepid`, so every account can read every process's arguments,
 including claude's `-n NAME --remote-control NAME`. The default name is therefore an opaque `ccs-<id6>`.
@@ -59,7 +67,47 @@ is visible). Names are lowercase `a-z 0-9 . _ -`, up to 40 characters, starting 
 **Trust dialog.** In a directory Claude has not trusted yet, Claude shows its trust dialog. ccs never
 answers it and never writes `~/.claude.json`; only a client attached with `--allow-setup` may type into it
 (`ccs new` attaches that way automatically for an untrusted directory). Login and onboarding screens are
-never typeable through ccs: fix auth in a normal terminal, then `ccs restart NAME`.
+never typeable through ccs: fix auth in a normal terminal, then `ccs restart NAME`. Codex has no
+equivalent gate — this whole paragraph is Claude-only.
+
+## 2a. Codex-specific notes
+
+```bash
+ccs new myproject --agent codex                          # new Codex session
+ccs new myproject --agent codex --resume <thread-id>      # resume an existing Codex thread
+```
+
+- **Resuming needs an already-persisted thread.** Codex writes a thread to `~/.codex/state_5.sqlite` only
+  after real conversation activity — opening Codex, `/status`, or a model switch does not count. `ccs new
+  --agent codex --resume <id>` fails cleanly with "no codex session `<id>` found" if the thread isn't there
+  yet; send at least one real message in that Codex session first.
+- **Find a resumable thread's id** with `/status` inside Codex (prints `Session: <uuid>`), or list every
+  thread directly:
+  ```bash
+  node -e "
+  const {DatabaseSync}=require('node:sqlite');
+  const db=new DatabaseSync(process.env.HOME+'/.codex/state_5.sqlite',{readOnly:true});
+  for (const r of db.prepare('SELECT id,cwd,name FROM threads ORDER BY CAST(updated_at_ms AS INTEGER) DESC LIMIT 10').all())
+    console.log(r.id, r.cwd, r.name||'');
+  "
+  ```
+- **Status is honest, not detailed.** Codex has no per-session status file the way Claude does, so
+  `ccs ls` shows `active Nm` / `idle` (derived from the thread's `updated_at_ms`) instead of
+  working/idle/waiting — never a fabricated status.
+- **No Remote Control.** Codex's remote-control is a separate daemon, not a per-session flag; the phone
+  app does not reach a Codex session hosted by ccs.
+- **Extra args differ.** `config.codex.extraArgsAllow` (default: `--model`, `--sandbox`,
+  `--ask-for-approval`, `--add-dir`, `--profile`, `--search`) governs what's allowed after `--`, separately
+  from `config.claude.extraArgsAllow`.
+- **Terminal colours.** `ccs new`/`ccs restart` query the terminal they run in for its default fg/bg (OSC
+  10/11) once, at session start, and forward them into the hosted Codex process — Codex asks for these
+  exactly once, ~29 ms after spawn, and never again, so this can only be captured at spawn time, not pushed
+  later. Without it, Codex's input-box tint is missing (it silently renders without asking). A session
+  created before this existed, or from a different terminal, picks the new colours up on its next
+  `ccs restart`.
+- **`ccs doctor`** reports Codex's binary/version and the state database's schema health; a missing Codex
+  binary is `ok` (optional, not installed), never a failure. A drifted schema is a `warn` — session id
+  discovery and the activity column degrade, but a session still hosts fine.
 
 ## 3. Other terminals
 
@@ -88,7 +136,8 @@ never typeable through ccs: fix auth in a normal terminal, then `ccs restart NAM
   terminal's scrollback.
 - A freshly created `--no-attach` session starts at the configured default size (`size.defaultCols` ×
   `size.defaultRows`); a restarted one reuses its last size.
-- A session name is visible to every other account on this host (no `hidepid`).
+- A session name is visible to every other account on this host (no `hidepid`) — **Claude only**: Codex
+  takes no `-n NAME` argument, so a Codex session's name never enters `/proc/<pid>/cmdline` at all.
 - Typing `/exit` (or `/quit`) disconnects only that terminal; the others see Claude's ordinary `--resume`
   reprint. An exit ccs cannot attribute to one client (a crash, an app-side end) leaves the session
   `EXITED` in M1: `ccs restart NAME` brings it back.
@@ -104,8 +153,10 @@ never typeable through ccs: fix auth in a normal terminal, then `ccs restart NAM
 | `blocked: SECOND_WRITER_REMOTE` | A claude on another host sharing this NFS home updated the conversation in the last 120 s | `/exit` it there, then `ccs restart NAME` |
 | `blocked: ORPHAN_ALIVE` | A claude from an earlier run of this session is still alive | `/exit` it or wait for it to end, then `ccs restart NAME` |
 | `blocked: CLAUDE_MISSING` | No claude binary found | Install Claude Code, then `ccs restart NAME` |
-| `needs setup: login` / `onboarding` | Claude shows its login/onboarding screen | Fix auth in a normal terminal, then `ccs restart NAME` |
-| `stop stuck (claude pid N)` | The stop sequence ran out | Inspect pid N (`ps -o pid,stat,cmd -p N`); claude is never force-killed by ccs |
+| `blocked: CODEX_MISSING` | No codex binary found | Install Codex CLI, then `ccs restart NAME` |
+| `blocked: SECOND_WRITER` (codex) | Another `ccs` session already runs this Codex thread | Stop it there, then `ccs restart NAME` |
+| `needs setup: login` / `onboarding` | Claude shows its login/onboarding screen (Claude only) | Fix auth in a normal terminal, then `ccs restart NAME` |
+| `stop stuck (claude pid N)` | The stop sequence ran out | Inspect pid N (`ps -o pid,stat,cmd -p N`); the agent is never force-killed by ccs |
 
 Backups of `~/.claude.json` live in `~/.local/state/ccs/backups/claude.json/` (0600, 20 kept, one per start
 batch or every 6 h).
@@ -118,10 +169,12 @@ batch or every 6 h).
 | `~/.local/state/ccs/hosts/<hostname>/sessions/<id>/intent.json` | What the CLI asked for (desired state, cwd, args, env snapshot) |
 | `~/.local/state/ccs/hosts/<hostname>/sessions/<id>/state.json` | What that session's daemon reports |
 | `~/.config/ccs/config.json` | Optional configuration (spec §10.5); invalid values fall back to defaults |
+| `~/.codex/state_5.sqlite` | Codex's own thread database — read-only, never written by ccs (`src/codex/threads.js`) |
 
 ## 8. Tests
 
-- `npm test` runs unit, golden and integration suites with fake claudes only.
+- `npm test` runs unit, golden and integration suites with fake claudes and a fake codex (`test/fake/`)
+  only — no test in the automated suite starts a real `claude` or `codex`.
 - Live tests start **real** claude (haiku; Remote Control only in L10). Run them only deliberately, one file at a
   time, never while another live run is going:
   1. once: `mkdir -p ~/ccs-live-scratch && cd ~/ccs-live-scratch && claude` — accept the trust dialog, then `/exit`;
