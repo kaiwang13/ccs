@@ -184,3 +184,12 @@ test('create() refuses an unknown agent rather than writing an unusable record',
   await assert.rejects(reg.create({ name: 'c1', cwd: '/data/proj', agent: 'gpt-9' }),
     (e) => e instanceof RegistryError && e.code === 'UNKNOWN_AGENT');
 });
+
+test('create() persists resumeRequested: true only when the draft actually asked for it', async (t) => {
+  const { paths } = env(t);
+  const reg = createRegistry(paths);
+  const resumed = await reg.create({ name: 'd1', cwd: '/data/proj', resumeRequested: true, initialSessionId: '612eda4a-0000-1111-2222-333344445555' });
+  assert.equal(resumed.intent.resumeRequested, true);
+  const fresh = await reg.create({ name: 'd2', cwd: '/data/proj' });
+  assert.equal(fresh.intent.resumeRequested, false, 'omitting resumeRequested must default to false, not undefined');
+});

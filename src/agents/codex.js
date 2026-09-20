@@ -39,10 +39,14 @@ function buildLaunch({ intent, state, paths, config, bin }) {
   const extra = validateExtraArgs(intent.claudeArgs || [], config.codex.extraArgsAllow);
   const cwd = intent.cwd;
   // state.lastSessionId is the field the supervisor already maintains and persists, and the one
-  // startspec already reads for resume — reuse it rather than inventing a parallel field. Note this
-  // deliberately ignores intent.initialSessionId: registry.create() mints a random UUID there for
-  // Claude's `--session-id`, and that value is meaningless to Codex, which assigns its own id.
-  const sessionId = (state && state.lastSessionId) || null;
+  // startspec already reads for resume — reuse it rather than inventing a parallel field. Below
+  // that, intent.initialSessionId is used ONLY when intent.resumeRequested is true — the signal
+  // that the user actually passed --resume with a real thread id, validated by
+  // findResumeSession() above before the session was even created. Without that gate,
+  // intent.initialSessionId would just as often be registry.create()'s auto-minted placeholder
+  // (meant for Claude's --session-id, meaningless to Codex), and using it unconditionally would
+  // make ccs try to "resume" a thread that was never created.
+  const sessionId = (state && state.lastSessionId) || (intent.resumeRequested ? intent.initialSessionId : null);
   const tail = ['-C', cwd, ...extra];
   // Codex takes no name argument — `name` here is ccs's own label, used for display only.
   return {
@@ -85,5 +89,13 @@ module.exports = {
   discoverSessionId: ({ paths, cwd, launchedAtMs }) => {
     const t = require('../codex/threads.js').findThreadByCwd(paths, { cwd, createdAfterMs: launchedAtMs });
     return t ? t.id : null;
+  },
+  /** Whether a --resume id names a real Codex thread: looked up directly in Codex's own thread
+   *  database. threads.js degrades to null on any surprise (missing db, drifted schema), so a
+   *  lookup failure here just reads as "not found", never throws.
+   *  @param {string} id @param {{paths: any}} ctx */
+  findResumeSession: (id, ctx) => {
+    const t = require('../codex/threads.js').getThread(ctx.paths, id);
+    return { found: !!t, checkedPath: ctx.paths.codexStateDb };
   },
 };

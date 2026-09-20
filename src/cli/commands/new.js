@@ -101,10 +101,11 @@ async function run(argv, ctx) {
   /** @type {string|undefined} */
   let initialSessionId;
   if (flags['--resume']) {
-    if (!UUID_RE.test(flags['--resume'])) { ctx.err.write(`ccs: --resume needs a Claude session id (a UUID), got '${flags['--resume']}'\n`); return 2; }
-    const found = await runNfsOp({ kind: 'findTranscript', args: [ctx.paths.claudeProjectsDir, flags['--resume']] }, ctx.nfsTimeoutMs);
-    if (!found) { ctx.err.write(`ccs: no transcript ${flags['--resume']}.jsonl under ${tildify(ctx.paths.claudeProjectsDir)}\n`); return 2; }
-    initialSessionId = String(flags['--resume']).toLowerCase();
+    if (!UUID_RE.test(flags['--resume'])) { ctx.err.write(`ccs: --resume needs a session id (a UUID), got '${flags['--resume']}'\n`); return 2; }
+    const resumeId = String(flags['--resume']).toLowerCase();
+    const found = await getAgent(agent).findResumeSession(resumeId, { paths: ctx.paths, nfsTimeoutMs: ctx.nfsTimeoutMs });
+    if (!found.found) { ctx.err.write(`ccs: no ${getAgent(agent).label} session ${resumeId} found under ${tildify(found.checkedPath)}\n`); return 2; }
+    initialSessionId = resumeId;
   }
 
   // Trust is read, never written (spec §4.14): an untrusted directory means Claude will show its trust
@@ -119,7 +120,7 @@ async function run(argv, ctx) {
   const trusted = !trustGated || !!(projectEntry && projectEntry.hasTrustDialogAccepted === true);
 
   const env = captureIntentEnv(ctx.env, { passthrough: ctx.config.env.passthrough });
-  const rec = await ctx.registry.create({ name, cwd, claudeArgs: rest, env, trustExpected: !trusted, initialSessionId, agent });
+  const rec = await ctx.registry.create({ name, cwd, claudeArgs: rest, env, trustExpected: !trusted, initialSessionId, resumeRequested: !!flags['--resume'], agent });
   const finalName = rec.intent.nameAtCreate;
   if (!trusted) {
     ctx.err.write(`ccs: ${tildify(cwd)} is not trusted by Claude yet — its trust dialog will appear; ${flags['--no-attach'] ? `answer it with: ccs a ${finalName} --allow-setup` : 'answer it in this terminal'}\n`);

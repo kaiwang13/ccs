@@ -1,7 +1,16 @@
 'use strict';
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { parseStartArgv, recoverArgv } = require('../../src/sessiond/startspec.js');
+const path = require('path');
+const { parseStartArgv, recoverArgv, startMain } = require('../../src/sessiond/startspec.js');
+const { createRegistry } = require('../../src/common/registry.js');
+const { makeCcsEnv } = require('../helpers/ccsenv.js');
+
+const FAKE_CODEX = path.join(__dirname, '..', 'fake', 'fakecodex');
+/** Keep startMain's background releaseAfterReady() poll short: it never finds a real ctl.sock in these
+ *  tests (deps.runSession is stubbed, so no real session is started), and would otherwise hold the test
+ *  process open for config.start.readyTimeoutMs. */
+const FAST_START = { start: { staggerMs: 10, readyTimeoutMs: 200 } };
 
 test('parseStartArgv accepts --start ID, --recover ID, --start ID --recover, and ignores --spec', () => {
   assert.deepEqual(parseStartArgv(['--start', 'abcdef12']), { id: 'abcdef12', recover: false, batch: null });
@@ -69,4 +78,51 @@ test('a resolution failure names the actual agent, not always "claude" (spec §7
       },
     );
   } finally { codex.resolveBin = originalResolveBin; }
+});
+
+// M7: startMain's fresh-start branch seeds Supervisor's initial state from intent.initialSessionId when
+// the session was created with --resume and has no prior state.json yet — otherwise `codex resume <id>`
+// would launch correctly but `ccs ls`/`ccs ls --json` would show sessionId: null until (if ever) Codex's
+// own cwd+time discovery poller caught up, which for a pre-existing thread never happens (see
+// src/codex/threads.js's findThreadByCwd time bound).
+test('M7: startMain seeds initialState.lastSessionId from intent.initialSessionId when resumeRequested and rec.state is null', async (t) => {
+  const ctx = makeCcsEnv(t, { env: { CCS_CODEX_BIN: FAKE_CODEX }, config: FAST_START });
+  const reg = createRegistry(ctx.paths);
+  const threadId = '612eda4a-0000-1111-2222-333344445555';
+  const rec = await reg.create({ name: 'seed-test', cwd: ctx.work, agent: 'codex', resumeRequested: true, initialSessionId: threadId, env: { PATH: process.env.PATH, HOME: ctx.home } });
+
+  let captured = null;
+  const code = await startMain(['--start', rec.id], ctx.env, { runSession: async (spec, o) => { captured = o; } });
+  assert.equal(code, 0);
+  assert.ok(captured, 'runSession must have been called');
+  assert.deepEqual(captured.initialState, { lastSessionId: threadId });
+});
+
+test('M7 regression guard: rec.state already present always wins over the resumeRequested seed', async (t) => {
+  const ctx = makeCcsEnv(t, { env: { CCS_CODEX_BIN: FAKE_CODEX }, config: FAST_START });
+  const reg = createRegistry(ctx.paths);
+  const threadId = '612eda4a-0000-1111-2222-333344445555';
+  const rec = await reg.create({ name: 'seed-state-wins', cwd: ctx.work, agent: 'codex', resumeRequested: true, initialSessionId: threadId, env: { PATH: process.env.PATH, HOME: ctx.home } });
+  // A prior recovery/run already wrote real state — it must be used as-is, never patched with the seed.
+  const written = await reg.writeState(rec.id, { lifecycle: 'STOPPED' });
+
+  let captured = null;
+  const code = await startMain(['--start', rec.id], ctx.env, { runSession: async (spec, o) => { captured = o; } });
+  assert.equal(code, 0);
+  assert.ok(captured, 'runSession must have been called');
+  assert.deepEqual(captured.initialState, written, 'real prior state must be passed through unchanged, not augmented with lastSessionId');
+  assert.equal(captured.initialState.lastSessionId, undefined, 'the seed must not be grafted onto real prior state');
+});
+
+test('M7 regression guard: resumeRequested false/absent leaves initialState null exactly as before this fix (ordinary new session)', async (t) => {
+  const ctx = makeCcsEnv(t, { env: { CCS_CODEX_BIN: FAKE_CODEX }, config: FAST_START });
+  const reg = createRegistry(ctx.paths);
+  const rec = await reg.create({ name: 'no-resume', cwd: ctx.work, agent: 'codex', env: { PATH: process.env.PATH, HOME: ctx.home } });
+  assert.equal(rec.intent.resumeRequested, false);
+
+  let captured = null;
+  const code = await startMain(['--start', rec.id], ctx.env, { runSession: async (spec, o) => { captured = o; } });
+  assert.equal(code, 0);
+  assert.ok(captured, 'runSession must have been called');
+  assert.equal(captured.initialState, null, 'an ordinary new codex session must not have its auto-minted placeholder id seeded as a discovered sessionId');
 });

@@ -82,7 +82,11 @@ test('new rejects bad names and disallowed claude args before creating anything'
   assert.match(args.stderr, /'--dangerously-skip-permissions' is not allowed/);
   const resume = await runCcs(ctx, ['new', 'y', '--no-attach', '--resume', '612eda4a-0000-1111-2222-333344445555']);
   assert.equal(resume.code, 2);
-  assert.match(resume.stderr, /no transcript/);
+  // M7: the old Claude-specific wording ("no transcript X.jsonl under ...") is now issued through the
+  // agent-generic findResumeSession() path (src/cli/commands/new.js) and reads "no claude session X found
+  // under ..." — an intentional wording change (the old message named a Claude-specific file format that
+  // would be actively wrong if ever shown for a Codex session), not a regression.
+  assert.match(resume.stderr, /no claude session 612eda4a-0000-1111-2222-333344445555 found under/);
   assert.deepEqual(await lsJson(ctx), []);
 });
 

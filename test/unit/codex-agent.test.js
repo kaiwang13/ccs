@@ -87,3 +87,41 @@ test('discoverSessionId returns the thread ccs launched, and null before the fir
 test('claude does not use discovery — it is told its id at launch', () => {
   assert.equal(require('../../src/agents/claude.js').discoverSessionId({}), null);
 });
+
+test('resumeRequested: true resumes the exact validated thread id from intent.initialSessionId', () => {
+  const l = codex.buildLaunch(ctx({ intent: { resumeRequested: true, initialSessionId: '01a0ba74-15de-7763-9852-1b5466afc64c' }, state: null }));
+  assert.deepEqual(l.argv, ['/opt/codex/0.155.0/bin/codex', 'resume', '01a0ba74-15de-7763-9852-1b5466afc64c', '-C', '/w/proj']);
+  assert.equal(l.mode, 'resume');
+  assert.equal(l.sessionId, '01a0ba74-15de-7763-9852-1b5466afc64c');
+});
+
+test('resumeRequested: false (or absent) must never leak registry.create()\'s auto-minted placeholder into a real launch', () => {
+  const l = codex.buildLaunch(ctx({ intent: { initialSessionId: 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee' }, state: null }));
+  assert.ok(!l.argv.includes('resume'), 'an ordinary new session must never be launched as a resume');
+  assert.ok(!l.argv.includes('aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee'), 'the auto-minted placeholder id must never reach codex argv');
+  assert.equal(l.mode, 'new');
+  assert.equal(l.sessionId, null);
+});
+
+test('findResumeSession: true for a thread that exists in the codex state db, false otherwise', (t) => {
+  const fs = require('fs'); const path = require('path');
+  const { DatabaseSync } = require('node:sqlite');
+  const { REQUIRED_COLUMNS } = require('../../src/codex/threads.js');
+  const root = fs.mkdtempSync('/tmp/ccst-');
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const file = path.join(root, 'state_5.sqlite');
+  const d = new DatabaseSync(file);
+  d.exec(`CREATE TABLE threads (${REQUIRED_COLUMNS.map((c) => `${c} TEXT`).join(', ')})`);
+  d.prepare(`INSERT INTO threads (${REQUIRED_COLUMNS.join(', ')}) VALUES (${REQUIRED_COLUMNS.map(() => '?').join(', ')})`)
+    .run('thread-known', '/w/proj', '2000', '2100', 'n', 't', '0.155.0', '0');
+  d.close();
+  const paths = { codexStateDb: file };
+
+  const found = codex.findResumeSession('thread-known', { paths });
+  assert.equal(found.found, true);
+  assert.equal(found.checkedPath, file);
+
+  const notFound = codex.findResumeSession('thread-unknown', { paths });
+  assert.equal(notFound.found, false);
+  assert.equal(notFound.checkedPath, file);
+});

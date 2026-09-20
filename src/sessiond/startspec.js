@@ -191,7 +191,8 @@ async function startMain(argv, env = process.env, deps = {}) {
     return 2;
   }
   log.info('start.spawn', { mode: spec.claude.argv.includes('--resume') ? 'resume' : 'new', version: spec.claude.version });
-  const running = runSession(spec, { recover: false, sessiondArgv: recoverArgv(id), stateWriter: nfsStateWriter(registry, id), initialState: rec.state || null });
+  const seededState = rec.state || (rec.intent.resumeRequested ? { lastSessionId: rec.intent.initialSessionId } : null);
+  const running = runSession(spec, { recover: false, sessiondArgv: recoverArgv(id), stateWriter: nfsStateWriter(registry, id), initialState: seededState });
   releaseAfterReady({ release: pf.release, sockPath: paths.ctlSock(id), readyTimeoutMs: config.start.readyTimeoutMs, staggerMs: config.start.staggerMs })
     .catch((e) => log.error('start.release_failed', { message: String(e && e.message) }));
   await running;

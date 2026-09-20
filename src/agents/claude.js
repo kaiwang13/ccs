@@ -10,6 +10,7 @@
 const { buildLaunch, resolveClaudeBin, writeSettingsFile } = require('../sessiond/launcher.js');
 const { runPreflight } = require('../sessiond/preflight.js');
 const { ClaudeWatch } = require('../sessiond/claudewatch.js');
+const { runNfsOp } = require('../common/nfsworker.js');
 
 /** @typedef {import('../common/types').Capabilities} Capabilities */
 /** @typedef {import('../common/types').Agent} Agent */
@@ -44,4 +45,11 @@ module.exports = {
   /** Claude is given its session id at launch (`--session-id`) and reports it back through ClaudeWatch,
    *  so there is nothing to discover. */
   discoverSessionId: () => null,
+  /** Whether a --resume id names a real Claude session: a transcript must exist for it under
+   *  ~/.claude/projects (an NFS-mounted store, hence the NFS-worker lookup rather than a direct
+   *  fs call). @param {string} id @param {{paths: any, nfsTimeoutMs: number}} ctx */
+  findResumeSession: async (id, ctx) => {
+    const found = await runNfsOp({ kind: 'findTranscript', args: [ctx.paths.claudeProjectsDir, id] }, ctx.nfsTimeoutMs);
+    return { found: !!found, checkedPath: ctx.paths.claudeProjectsDir };
+  },
 };

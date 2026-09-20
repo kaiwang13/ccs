@@ -36,3 +36,39 @@ test('a claude session created alongside it is unaffected and still reports clau
     'the default must still be claude with a second agent registered');
   await runCcs(ctx, ['stop', 'cl1']);
 });
+
+// M7 end-to-end: `ccs new --agent codex --resume <id>` for a thread that already existed before this ccs
+// session launched. src/codex/threads.js's findThreadByCwd only matches created_at_ms >= the launch time
+// of THIS session, so a pre-existing thread can never be found by cwd+time discovery — the fix must show
+// its sessionId immediately, seeded from the validated --resume id, never relying on discovery at all.
+//
+// Note: fakecodex.js's CCS_FAKE_CODEX_DB insert-on-launch feature cannot be used to set this up through
+// the real `ccs new` pipeline — src/sessiond/env.js's buildEnv() deliberately strips every CCS_*-prefixed
+// variable (DENY_PATTERNS includes 'CCS_*') before building the spawned agent's env, exactly so ccs's own
+// control variables never leak into a hosted session. So the thread row is seeded directly here (same
+// fixture pattern as test/unit/codex-threads.test.js and the M7 cases in test/unit/cli-new.test.js) —
+// which also more directly represents "a thread this ccs session never itself launched".
+test('M7: --agent codex --resume <existing thread id> resumes a pre-existing thread, sessionId visible immediately', async (t) => {
+  const { DatabaseSync } = require('node:sqlite');
+  const fs = require('fs');
+  const { REQUIRED_COLUMNS } = require('../../src/codex/threads.js');
+  const ctx = makeCcsEnv(t, { env: { CCS_CODEX_BIN: FAKE } });
+
+  const threadId = '612eda4a-0000-1111-2222-333344445555';
+  fs.mkdirSync(path.dirname(ctx.paths.codexStateDb), { recursive: true });
+  const d = new DatabaseSync(ctx.paths.codexStateDb);
+  d.exec(`CREATE TABLE IF NOT EXISTS threads (${REQUIRED_COLUMNS.map((c) => `${c} TEXT`).join(', ')})`);
+  d.prepare(`INSERT INTO threads (${REQUIRED_COLUMNS.join(', ')}) VALUES (${REQUIRED_COLUMNS.map(() => '?').join(', ')})`)
+    .run(threadId, ctx.work, '1000', '1000', 'n', 't', '0.155.0', '0');
+  d.close();
+
+  const resumed = await runCcs(ctx, ['new', 'resumed', '--agent', 'codex', '--resume', threadId, '--no-attach']);
+  assert.equal(resumed.code, 0, resumed.stdout + resumed.stderr);
+  const rows = JSON.parse((await runCcs(ctx, ['ls', '--json'])).stdout);
+  const row = rows.find((r) => r.name === 'resumed');
+  assert.ok(row, 'the resumed session must be listed');
+  // The whole point: this thread predates the new session's launch, so cwd+time discovery (findThreadByCwd)
+  // could never have found it — sessionId must come from the resumeRequested seed, and be visible right away.
+  assert.equal(row.sessionId, threadId, 'ccs ls --json must show the resumed thread id immediately, not null');
+  await runCcs(ctx, ['stop', 'resumed']);
+});

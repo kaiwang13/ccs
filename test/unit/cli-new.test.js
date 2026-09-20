@@ -1,10 +1,27 @@
 'use strict';
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const fs = require('fs');
+const path = require('path');
+const { DatabaseSync } = require('node:sqlite');
 const { hidepidEnabled, nameFromCwdByDefault } = require('../../src/cli/commands/new.js');
 const { validateExtraArgs } = require('../../src/sessiond/launcher.js');
 const { DEFAULTS } = require('../../src/common/config.js');
+const { REQUIRED_COLUMNS } = require('../../src/codex/threads.js');
+const { createRegistry } = require('../../src/common/registry.js');
 const { makeCcsEnv, runCcs } = require('../helpers/ccsenv.js');
+
+/** Insert one row into ctx's codex state db (ctx.paths.codexStateDb: $HOME/.codex/state_5.sqlite),
+ *  shaped exactly like src/codex/threads.js reads it — same fixture pattern as
+ *  test/unit/codex-threads.test.js and test/unit/codex-agent.test.js. */
+function seedCodexThread(ctx, id) {
+  fs.mkdirSync(path.dirname(ctx.paths.codexStateDb), { recursive: true });
+  const d = new DatabaseSync(ctx.paths.codexStateDb);
+  d.exec(`CREATE TABLE IF NOT EXISTS threads (${REQUIRED_COLUMNS.map((c) => `${c} TEXT`).join(', ')})`);
+  d.prepare(`INSERT INTO threads (${REQUIRED_COLUMNS.join(', ')}) VALUES (${REQUIRED_COLUMNS.map(() => '?').join(', ')})`)
+    .run(id, ctx.work, '1000', '1100', 'n', 't', '0.155.0', '0');
+  d.close();
+}
 
 test('hidepid detection from /proc/mounts and the default-name rule', () => {
   assert.equal(hidepidEnabled('proc /proc proc rw,nosuid,nodev,noexec,relatime 0 0\n'), false);
@@ -95,4 +112,31 @@ test('I5: --agent codex never prints Claude\'s trust-dialog message, even in a d
   const ctx = makeCcsEnv(t, { trustedWork: false });
   const r = await runCcs(ctx, ['new', 'x-codex-trust', '--agent', 'codex', '--no-attach']);
   assert.doesNotMatch(r.stderr, /is not trusted by Claude yet/, `codex has no trust-dialog concept; got: ${r.stderr}`);
+});
+
+// M7: `ccs new --agent codex --resume <id>` used to validate every --resume id against Claude's
+// transcript store regardless of --agent — a real Codex thread id never has a Claude transcript, so this
+// always failed. It must now validate against Codex's own thread database instead.
+test('M7: --agent codex --resume <existing thread id> validates against the codex thread db, not claude transcripts', async (t) => {
+  const FAKE = path.join(__dirname, '..', 'fake', 'fakecodex');
+  const ctx = makeCcsEnv(t, { env: { CCS_CODEX_BIN: FAKE } });
+  const threadId = '612eda4a-0000-1111-2222-333344445555';
+  seedCodexThread(ctx, threadId); // exists only in codex's db — no claude transcript exists anywhere in this env
+  const r = await runCcs(ctx, ['new', 'cx-resume', '--agent', 'codex', '--resume', threadId, '--no-attach']);
+  assert.equal(r.code, 0, `a codex-only thread id must be accepted for --agent codex; got: ${r.stdout}${r.stderr}`);
+  const rows = await createRegistry(ctx.paths).list();
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].intent.initialSessionId, threadId);
+  assert.equal(rows[0].intent.resumeRequested, true);
+});
+
+test('M7: --agent codex --resume <unknown thread id> fails with codex-specific wording, not claude\'s "transcript"/".jsonl"', async (t) => {
+  const ctx = makeCcsEnv(t);
+  const threadId = '00000000-1111-2222-3333-444444444444'; // never seeded into codex's db
+  const r = await runCcs(ctx, ['new', 'cx-resume-bad', '--agent', 'codex', '--resume', threadId, '--no-attach']);
+  assert.equal(r.code, 2);
+  assert.doesNotMatch(r.stderr, /transcript/i);
+  assert.doesNotMatch(r.stderr, /\.jsonl/);
+  assert.match(r.stderr, new RegExp(`no codex session ${threadId} found under`));
+  assert.deepEqual(await createRegistry(ctx.paths).list(), []);
 });
