@@ -7,5 +7,6 @@
  *             remoteControl: 'per-session'|'daemon'|false}} Capabilities */
 /** @typedef {{id: string, label: string, capabilities: Capabilities,
  *             resolveBin: Function, buildLaunch: Function, writeSettingsFile: Function,
- *             observe: Function, preflight: Function, doctorChecks: Function}} Agent */
+ *             observe: Function, preflight: Function, doctorChecks: Function,
+ *             discoverSessionId: Function}} Agent */
 module.exports = {};

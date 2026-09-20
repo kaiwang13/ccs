@@ -36,4 +36,7 @@ module.exports = {
   observe: () => { throw new Error('agent.observe is not implemented in Plan A — see src/sessiond/supervisor.js:317'); },
   preflight: (ctx) => runPreflight(ctx),
   doctorChecks: () => [], // doctor keeps calling its own Claude checks in Plan A; Plan B moves them here
+  /** Claude is given its session id at launch (`--session-id`) and reports it back through ClaudeWatch,
+   *  so there is nothing to discover. */
+  discoverSessionId: () => null,
 };

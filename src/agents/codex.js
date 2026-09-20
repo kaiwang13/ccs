@@ -75,4 +75,13 @@ module.exports = {
   observe: () => null,
   preflight: (ctx) => require('../codex/preflight.js').runCodexPreflight(ctx),
   doctorChecks: (paths, config) => require('../codex/doctor.js').codexChecks(paths, config),
+  /** Codex mints its thread id on the first turn. Correlate on the cwd ccs chose and the time it
+   *  launched: other Codex sessions have different cwds, and the time bound separates two ccs sessions
+   *  sharing one directory. Returns null until the thread exists — a wrong id would make `ccs restart`
+   *  resume somebody else's conversation.
+   *  @param {{paths: any, cwd: string, launchedAtMs: number}} a */
+  discoverSessionId: ({ paths, cwd, launchedAtMs }) => {
+    const t = require('../codex/threads.js').findThreadByCwd(paths, { cwd, createdAfterMs: launchedAtMs });
+    return t ? t.id : null;
+  },
 };

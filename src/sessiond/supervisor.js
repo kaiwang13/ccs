@@ -15,6 +15,7 @@ const { ClaudeWatch } = require('./claudewatch');
 const { matchSetup } = require('./screens');
 const { resumeArgvFor } = require('./spec');
 const { getAgent } = require('../agents/index.js');
+const { shouldDiscover, nextDiscoveryDelayMs } = require('./discovery.js');
 
 /** @typedef {import('../common/types').Lifecycle} Lifecycle */
 /** @typedef {import('./pipeline').AnnotatedChunk} AnnotatedChunk */
@@ -131,8 +132,8 @@ class Supervisor extends EventEmitter {
     this.pendingCpr = [];
     this.lastPongAt = clock.now();
     this.unresponsiveNotified = false;
-    /** @type {{scan: any, slow: any, block: any, ping: any, state: any}} */
-    this.t = { scan: null, slow: null, block: null, ping: null, state: null };
+    /** @type {{scan: any, slow: any, block: any, ping: any, state: any, discovery: any}} */
+    this.t = { scan: null, slow: null, block: null, ping: null, state: null, discovery: null };
     this.disposed = false;
   }
 
@@ -143,6 +144,7 @@ class Supervisor extends EventEmitter {
   async start() {
     if (!this.recover) {
       this.gen = 1;
+      this.launchedAtMs = this.clock.now();
       await this.startHolder({ gen: this.gen, argv: this.spec.claude.argv, cols: this.spec.pty.cols, rows: this.spec.pty.rows });
     }
     const hc = await this._connect(this.timers.holderConnectMs);
@@ -216,6 +218,7 @@ class Supervisor extends EventEmitter {
     if (this.lifecycle === 'RECOVERING' && this.replayUntil <= from) this._setLifecycle('STARTING');
     hc.attach(from);
     this._startWatch();
+    this._startDiscovery();
     this._armStartTimers();
     this._armScan();
     this._armPing();
@@ -338,6 +341,23 @@ class Supervisor extends EventEmitter {
     this._writeState(false);
   }
 
+  /** Agents that mint their own session id (Codex) are polled for it after launch; the existing
+   *  lastSessionId field and _writeState persistence are reused, so nothing new is stored. */
+  _startDiscovery(attempt = 0) {
+    const agent = getAgent(this.spec.agent);
+    if (!shouldDiscover(agent, this.lastSessionId)) return;
+    const delay = nextDiscoveryDelayMs(attempt);
+    if (delay === null) { if (this.log) this.log.info('discovery.gave_up', { attempts: attempt }); return; }
+    this.t.discovery = this.clock.setTimeout(() => {
+      this.t.discovery = null;
+      if (this.exitHandled) return;
+      let id = null;
+      try { id = agent.discoverSessionId({ paths: this.paths, cwd: this.spec.claude.cwd, launchedAtMs: this.launchedAtMs }); } catch { id = null; }
+      if (id) { this.lastSessionId = id; if (this.log) this.log.info('discovery.found', { sessionId: id }); this._writeState(true); return; }
+      this._startDiscovery(attempt + 1);
+    }, delay);
+  }
+
   _armStartTimers() {
     this._clearTimer('slow');
     this._clearTimer('block');
@@ -409,7 +429,7 @@ class Supervisor extends EventEmitter {
     if (this.exitHandled) return;
     this.exitHandled = true;
     if (this.pipeline) this._chunks(this.pipeline.flush());
-    for (const k of /** @type {const} */ (['slow', 'block', 'scan', 'ping'])) this._clearTimer(k);
+    for (const k of /** @type {const} */ (['slow', 'block', 'scan', 'ping', 'discovery'])) this._clearTimer(k);
     if (this.watch) { this.watch.stop(); this.watch = null; }
     this.pendingCpr = [];
     const hc = this.holder;
@@ -445,6 +465,7 @@ class Supervisor extends EventEmitter {
     const lockFile = this.paths.holderLock(this.spec.ccsId);
     for (let i = 0; i < 100 && isLocked(lockFile); i++) await sleep(this.clock, 50);   // the old holder (and so the old claude) is gone
     this.gen += 1;
+    this.launchedAtMs = this.clock.now();
     await this.startHolder({ gen: this.gen, argv, cols: this.pty.cols, rows: this.pty.rows });
     const hc = await this._connect(this.timers.holderConnectMs);
     this.observed = null;
@@ -592,7 +613,7 @@ class Supervisor extends EventEmitter {
       });
   }
 
-  /** @param {'scan'|'slow'|'block'|'ping'|'state'} k */
+  /** @param {'scan'|'slow'|'block'|'ping'|'state'|'discovery'} k */
   _clearTimer(k) { if (this.t[k] !== null) { this.clock.clearTimeout(this.t[k]); this.t[k] = null; } }
 
   /** Lets go of the holder without touching Claude (sessiond shutdown): the holder respawns sessiond --recover. */
@@ -606,7 +627,7 @@ class Supervisor extends EventEmitter {
     if (this.disposed) return;
     this._writeState(true);
     this.disposed = true;
-    for (const k of /** @type {const} */ (['scan', 'slow', 'block', 'ping', 'state'])) this._clearTimer(k);
+    for (const k of /** @type {const} */ (['scan', 'slow', 'block', 'ping', 'state', 'discovery'])) this._clearTimer(k);
     if (this.watch) this.watch.stop();
     if (this.suspendNet) this.suspendNet.dispose();
   }

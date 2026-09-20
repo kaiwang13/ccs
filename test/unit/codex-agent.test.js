@@ -61,3 +61,29 @@ test('writeSettingsFile is a no-op that cannot write anything', () => {
   assert.doesNotThrow(() => codex.writeSettingsFile('/tmp/should-not-be-written', 'dark'));
   assert.equal(require('fs').existsSync('/tmp/should-not-be-written'), false);
 });
+
+test('discoverSessionId returns the thread ccs launched, and null before the first turn', (t) => {
+  const fs = require('fs'); const path = require('path');
+  const { DatabaseSync } = require('node:sqlite');
+  const { REQUIRED_COLUMNS } = require('../../src/codex/threads.js');
+  const root = fs.mkdtempSync('/tmp/ccst-');
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const file = path.join(root, 'state_5.sqlite');
+  const d = new DatabaseSync(file);
+  d.exec(`CREATE TABLE threads (${REQUIRED_COLUMNS.map((c) => `${c} TEXT`).join(', ')})`);
+  const paths = { codexStateDb: file };
+
+  // Before Codex writes a thread row, discovery must answer "not yet", never a guess.
+  assert.equal(codex.discoverSessionId({ paths, cwd: '/w/proj', launchedAtMs: 1000 }), null);
+
+  d.prepare(`INSERT INTO threads (${REQUIRED_COLUMNS.join(', ')}) VALUES (${REQUIRED_COLUMNS.map(() => '?').join(', ')})`)
+    .run('thread-1', '/w/proj', '2000', '2100', 'n', 't', '0.155.0', '0');
+  d.close();
+  assert.equal(codex.discoverSessionId({ paths, cwd: '/w/proj', launchedAtMs: 1000 }), 'thread-1');
+  // A thread created BEFORE this session launched belongs to someone else.
+  assert.equal(codex.discoverSessionId({ paths, cwd: '/w/proj', launchedAtMs: 9000 }), null);
+});
+
+test('claude does not use discovery — it is told its id at launch', () => {
+  assert.equal(require('../../src/agents/claude.js').discoverSessionId({}), null);
+});
