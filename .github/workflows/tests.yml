@@ -1,0 +1,52 @@
+name: tests
+
+# The project's safety argument is "the Linux path is provably unchanged". That claim can only be
+# checked by running the suites on Linux, and a macOS developer cannot do that locally -- so this
+# workflow is what makes the guarantee enforceable rather than aspirational.
+#
+# macos-latest runs the same suites so the port cannot silently bit-rot, and so a macOS-only change
+# is visible on the platform it affects.
+
+on:
+  push:
+    branches: ['**']
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      # The project pins one exact Node version in package.json engines and asserts it in
+      # test/unit/smoke.test.js, because the native addons (ttyctl, node-pty) are compiled against a
+      # single ABI. setup-node reads that pin, so CI cannot drift from it.
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: package.json
+          cache: npm
+
+      - name: install
+        run: npm ci
+
+      - name: build the ttyctl native addon
+        run: npm run build:native
+
+      - name: unit tests
+        run: node --test --test-concurrency=1 "test/unit/**/*.test.js"
+
+      # Separate steps, not one command: the suites are run individually because a combined run
+      # exceeds the memory ceiling on the maintainer's machine, and because a failure in one should
+      # not obscure whether the others passed.
+      - name: integration tests
+        run: node --test --test-concurrency=1 "test/integration/**/*.test.js"
+
+      # Terminal-rendering differentials: any change here is a rendering regression, never new
+      # coverage. Kept as its own step so a golden diff is unmistakable in the run summary.
+      - name: golden tests
+        run: node --test --test-concurrency=1 "test/golden/**/*.test.js"

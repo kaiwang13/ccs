@@ -1,6 +1,6 @@
 # ccs — multi-client Claude Code and Codex sessions
 
-`ccs` keeps named CLI-agent sessions — **Claude Code** and **Codex CLI** — running on a Linux host so that
+`ccs` keeps named CLI-agent sessions — **Claude Code** and **Codex CLI** — running on your machine so that
 **several terminals can attach to the same session at once and stay in sync**, each with the agent's full
 rendering in its **own native terminal scrollback**. Detach a terminal, close your laptop, come back
 tomorrow from a different machine — the session keeps running. The official Claude phone app keeps working
@@ -18,21 +18,38 @@ so you scroll with your normal mouse wheel, trackpad, and scrollbar — no prefi
 
 **Status: v0.2.0.** Adds Codex CLI hosting alongside Claude Code, on the same terms: persisted and
 displayed session type, honest (never fabricated) status, thread-id discovery and resume, per-agent
-preflight and doctor checks — with zero changes to Claude's own code paths. The automated suite (680
-tests: 495 unit, 93 integration, 92 golden) and the live suites against real `claude` and `codex` binaries
-pass. See [Limitations](#limitations) for what is not built yet.
+preflight and doctor checks — with zero changes to Claude's own code paths. Hosting runs on **Linux and
+macOS** from one codebase. The automated suite (514 unit, 93 integration, 92 golden) and the live suites
+against real `claude` and `codex` binaries pass. See [Limitations](#limitations) for what is not built yet.
 
 ## Requirements
 
-- **Linux** (uses `/proc`, AF_UNIX sockets, and a small native TTY addon)
+- **Linux or macOS.** Process information comes from `/proc` on Linux and `libproc` on macOS, behind a
+  single platform seam (`src/common/procinfo.js`); the native TTY addon builds on both.
 - **Node.js 22.x** — one interpreter, consistently: the native addons are compiled for its ABI, and Codex
   support additionally needs Node's built-in `node:sqlite` (Node 22.5+)
-- **gcc, make, python3** — `node-gyp` builds `node-pty` and the bundled `ttyctl` addon from source
+- **gcc/clang, make, python3** — `node-gyp` builds `node-pty` and the bundled `ttyctl` addon from source
+  (on macOS: `xcode-select --install`)
 - **Claude Code** installed and logged in. Tested against **2.1.267**; other versions run but report
   `UNTESTED_CLAUDE_VERSION` (a warning, never a block)
 - **Codex CLI** — optional. Tested against **0.155.0**/**0.155.1**; other versions run but report
   `UNTESTED_CODEX_VERSION`. Codex not being installed is never a doctor failure — it's simply unavailable
   until you install it
+
+### Platform differences on macOS
+
+`ccs doctor` reports both of these as warnings. Neither blocks a session; they narrow two safety checks
+that depend on Linux facilities macOS does not have.
+
+- **Cross-host writer detection.** Claude writes `pidDomain` as `linux:<machine-id>:pid:[<ns>]` on Linux,
+  which is how `ccs` tells "another host sharing this home has the same conversation open" from "this
+  host". On macOS the field is the bare literal `darwin` with no machine identity, so a session started on
+  a Mac is classified as local. A session file written by a *Linux* host sharing the home is still detected
+  as remote. This matters only if one home directory is shared between machines — a single-user Mac on
+  local disk is unaffected.
+- **Orphan detection.** `ccs` finds an agent left over from a crashed session by reading that process's
+  environment and argv. macOS does not expose another process's environment, so this scan cannot run and
+  `ccs` says so rather than reporting a clean result it did not actually verify.
 
 ## Install
 
