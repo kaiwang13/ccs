@@ -41,8 +41,8 @@ class FakeHolder extends EventEmitter {
   names() { return this.calls.map((c) => c[0]); }
 }
 
-/** @param {import('node:test').TestContext} t @param {{timers?: object, config?: any}} [o] */
-function setup(t, { timers = {}, config = DEFAULTS, stateWriter } = {}) {
+/** @param {import('node:test').TestContext} t @param {{timers?: object, config?: any, agent?: string}} [o] */
+function setup(t, { timers = {}, config = DEFAULTS, stateWriter, agent } = {}) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ccsu-'));
   t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
   const claudeHome = path.join(dir, 'claude');
@@ -53,6 +53,7 @@ function setup(t, { timers = {}, config = DEFAULTS, stateWriter } = {}) {
   /** @type {any[]} */
   const started = [];
   const spec = { schema: 'ccs.sessionspec/1', ccsId: 'unit01', name: 'demo', runtimeDir: dir, stateFile: path.join(dir, 'state.json'), configFile: null,
+    ...(agent ? { agent } : {}),
     claude: { argv: ['/fake', '--session-id', 'sid-0', '-n', 'demo'], resumeArgv: ['/fake', '--resume', '{sessionId}', '-n', 'demo'], env: {}, cwd: dir, version: '2.1.267' },
     pty: { cols: 100, rows: 30 } };
   const paths = { ptySock: () => path.join(dir, 'pty.sock'), holderLock: () => path.join(dir, 'holder.lock'), claudeHome };
@@ -100,6 +101,17 @@ test('no session json: STARTING_SLOW at 10 s with input open, BLOCKED(NO_SESSION
   s.sessionJson();
   await s.tickAndSettle(1000);
   assert.equal(s.sup.lifecycle, 'RUNNING');
+  s.sup.dispose();
+});
+
+test('codex (capabilities.liveStatus false): no session json ever appears, but the false BLOCKED(NO_SESSION_JSON) never fires; a connected holder alone moves STARTING straight to RUNNING', async (t) => {
+  const s = setup(t, { agent: 'codex' });
+  await s.sup.start();
+  assert.equal(s.sup.lifecycle, 'RUNNING', 'a connected pty holder is the only "started" signal this agent has');
+  assert.equal(s.sup.blockedCode, null);
+  await s.tickAndSettle(70000, 5000);                                            // past both startingSlowMs and sessionJsonSlowMs
+  assert.equal(s.sup.lifecycle, 'RUNNING', 'never STARTING_SLOW, never BLOCKED for an agent with no session file to wait for');
+  assert.equal(s.sup.blockedCode, null);
   s.sup.dispose();
 });
 

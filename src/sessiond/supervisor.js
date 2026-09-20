@@ -361,6 +361,14 @@ class Supervisor extends EventEmitter {
   _armStartTimers() {
     this._clearTimer('slow');
     this._clearTimer('block');
+    if (!getAgent(this.spec.agent).capabilities.liveStatus) {
+      // No per-session status file exists for this agent (Codex): a connected pty holder is the only
+      // "started" signal available, so move straight to RUNNING instead of arming the Claude-only
+      // session-file timers below, which this agent can never satisfy (spec §9: no fabricated status —
+      // that includes a fabricated BLOCKED, not just a fabricated working/idle).
+      if (this.setupKind === null && ['STARTING', 'STARTING_SLOW'].includes(this.lifecycle)) this._setLifecycle('RUNNING');
+      return;
+    }
     this.t.slow = this.clock.setTimeout(() => {
       this.t.slow = null;
       if (this.lifecycle === 'STARTING' && !this.observed && this.setupKind === null) {
