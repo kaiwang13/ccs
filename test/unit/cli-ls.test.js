@@ -66,7 +66,8 @@ test('formatTable, formatAge, tildify', () => {
   assert.equal(tildify('/home/u/p', '/home/u'), '~/p');
   assert.equal(formatTable([]), 'no sessions · ccs new [NAME] creates one\n');
   const out = formatTable([{ name: 'cnv', glyph: '!', text: 'needs you · permission', live: true, clients: 2, ageMs: 7200e3, cwd: '/home/u/p' }], { home: '/home/u' });
-  assert.match(out, /^! cnv +needs you · permission +2 clients +2h +~\/p$/m);
+  // Task 10 added a TYPE column between NAME and STATUS (defaulting to 'claude' when a row has no agent).
+  assert.match(out, /^! cnv +claude +needs you · permission +2 clients +2h +~\/p$/m);
 });
 
 test('formatTable truncates over-width names so columns stay aligned (NAME_RE allows up to 40 chars, nameW caps at 24)', () => {
@@ -122,4 +123,43 @@ test('codex activity is honest about what it does and does not know', () => {
   assert.equal(codexActivityText(now - 3 * 60_000, now), 'active 3m');
   assert.equal(codexActivityText(now - 5 * 3600_000, now), 'idle', 'stale means idle, not a fake status');
   assert.equal(codexActivityText(null, now), 'idle', 'no thread yet is idle, never "working"');
+});
+
+const STATUS_W = 28;
+
+function rows() {
+  return [
+    { name: 'ccserver', agent: 'claude', glyph: '*', text: 'working', live: true, clients: 1, ageMs: 60000, cwd: '/w/a' },
+    { name: 'mining', agent: 'codex', glyph: '·', text: 'active 3m', live: true, clients: 0, ageMs: 60000, cwd: '/w/b' },
+  ];
+}
+
+test('TYPE is a column of its own and every column stays aligned', () => {
+  const out = formatTable(rows(), { cols: 120, home: '/home/u' });
+  const lines = out.trimEnd().split('\n');
+  assert.match(lines[0], /\bTYPE\b/, 'header must name the column');
+  const typeAt = lines[0].indexOf('TYPE');
+  const statusAt = lines[0].indexOf('STATUS');
+  for (const l of lines.slice(1)) {
+    assert.equal(l.slice(typeAt, typeAt + 6).trim(), l.includes('ccserver') ? 'claude' : 'codex');
+    assert.equal(l[statusAt - 1], ' ', 'STATUS must start at the header column on every row');
+  }
+});
+
+test('an over-long STATUS hint no longer pushes the trailing columns off the row', () => {
+  const long = rows();
+  long[0].text = `blocked: SECOND_WRITER_REMOTE — another host holds this session; stop it there, then 'ccs restart ccserver'`;
+  const lines = formatTable(long, { cols: 120, home: '/home/u' }).trimEnd().split('\n');
+  const dataLine = lines.find((l) => l.includes('ccserver'));
+  assert.ok(dataLine.includes('/w/a'), 'CWD must survive a long hint — it used to be pushed off');
+  assert.ok(dataLine.length <= 120);
+  // The full hint is not lost: it continues on an indented line beneath.
+  const cont = lines[lines.indexOf(dataLine) + 1];
+  assert.match(cont, /^ {4}/, 'the continuation line is indented');
+  assert.match(cont, /ccs restart ccserver/, 'the remedy must stay whole — that is why truncation was refused');
+});
+
+test('a short status produces no continuation line', () => {
+  const lines = formatTable(rows(), { cols: 120, home: '/home/u' }).trimEnd().split('\n');
+  assert.equal(lines.length, 3, 'header + two rows, nothing extra');
 });

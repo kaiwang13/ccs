@@ -205,16 +205,25 @@ async function collectSessions({ paths, registry, statusTimeoutMs = 2000 }) {
 function formatTable(rows, { cols = 120, home = os.homedir() } = {}) {
   if (!rows.length) return 'no sessions · ccs new [NAME] creates one\n';
   const nameW = Math.min(24, Math.max(4, ...rows.map((r) => r.name.length)));
-  const lines = [`  ${'NAME'.padEnd(nameW)}  ${'STATUS'.padEnd(28)}  ${'CLIENTS'.padEnd(9)}  ${'AGE'.padEnd(4)}  CWD`];
+  const typeW = Math.max(4, ...rows.map((r) => String(r.agent || 'claude').length));
+  const statusW = 28;
+  const lines = [`  ${'NAME'.padEnd(nameW)}  ${'TYPE'.padEnd(typeW)}  ${'STATUS'.padEnd(statusW)}  ${'CLIENTS'.padEnd(9)}  ${'AGE'.padEnd(4)}  CWD`];
   for (const r of rows) {
     const clients = r.live ? (r.clients === 1 ? '1 client' : `${r.clients} clients`) : '–';
-    // Names are capped at nameW above (this is the only fixed-width column with a following column that
-    // depends on its width): truncate with a single-column ellipsis so padEnd never overshoots it. STATUS
-    // has no such cap — it is allowed to overflow and push CLIENTS/AGE/CWD out of alignment, matching the
-    // picker's own sample table (spec §3.14); CWD is last, so nothing after it needs its width bounded.
-    const disp = r.name.length > nameW ? `${r.name.slice(0, nameW - 1)}…` : r.name;
-    const line = `${r.glyph} ${disp.padEnd(nameW)}  ${r.text.padEnd(28)}  ${clients.padEnd(9)}  ${formatAge(r.ageMs).padEnd(4)}  ${tildify(r.cwd, home)}`;
+    // Every fixed-width column that has a column after it is truncated with a single-column ellipsis
+    // before padding, because padEnd only pads — it never truncates. STATUS is capped here too (it was
+    // not, before): an over-long hint used to consume the rest of the line and push CLIENTS/AGE/CWD off
+    // the row entirely. Truncating it outright was refused because a blocked row's hint carries the
+    // remedy, so the full text continues on an indented line beneath instead.
+    const fit = (s, w) => (s.length > w ? `${s.slice(0, w - 1)}…` : s);
+    const type = fit(String(r.agent || 'claude'), typeW);
+    const status = String(r.text || '');
+    const line = `${r.glyph} ${fit(r.name, nameW).padEnd(nameW)}  ${type.padEnd(typeW)}  ${fit(status, statusW).padEnd(statusW)}  ${clients.padEnd(9)}  ${formatAge(r.ageMs).padEnd(4)}  ${tildify(r.cwd, home)}`;
     lines.push(line.length > cols ? line.slice(0, cols) : line);
+    if (status.length > statusW) {
+      const cont = `    ${status}`;
+      lines.push(cont.length > cols ? cont.slice(0, cols) : cont);
+    }
   }
   return `${lines.join('\n')}\n`;
 }
