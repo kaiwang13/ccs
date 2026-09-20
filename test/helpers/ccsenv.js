@@ -32,7 +32,7 @@ function writeNodeWrapper(file, script, preamble = '') {
 /**
  * @param {import('node:test').TestContext} t
  * @param {{claudeJson?: object|string|null, backups?: Array<[string, object]>, trustedWork?: boolean,
- *          config?: object, claudeBin?: string, echo?: object}} [o]
+ *          config?: object, claudeBin?: string, echo?: object, env?: Record<string, string>}} [o]
  */
 function makeCcsEnv(t, o = {}) {
   const root = fs.mkdtempSync('/tmp/ccst-');
@@ -53,7 +53,7 @@ function makeCcsEnv(t, o = {}) {
   const env = {
     ...process.env, HOME: home, CCS_RUNTIME_DIR: path.join(root, 'rt'), CCS_STATE_DIR: path.join(root, 'state'),
     CCS_CONFIG: configFile, CCS_CLAUDE_HOME: path.join(home, '.claude'), CCS_CLAUDE_JSON: claudeJsonFile,
-    CCS_CLAUDE_BIN: claudeBin, CCS_HOSTNAME: 'testhost', TERM: 'xterm-256color',
+    CCS_CLAUDE_BIN: claudeBin, CCS_HOSTNAME: 'testhost', TERM: 'xterm-256color', ...(o.env || {}),
   };
   for (const k of ['CCS_ID', 'TMUX', 'STY', 'TERM_PROGRAM']) delete env[k];
   const paths = resolvePaths(env);
