@@ -51,7 +51,8 @@ async function startSession(rawSpec, { recover = false, sessiondArgv = [process.
   const startHolder = async (/** @type {{gen: number, argv: string[], cols: number, rows: number}} */ { gen, argv, cols, rows }) => {
     const file = paths.holderSpec(spec.ccsId, gen);
     writeAtomic(file, { schema: 'ccs.holderspec/1', ccsId: spec.ccsId, argv, env: spec.claude.env, cwd: spec.claude.cwd, cols, rows,
-      ringBytes: config.holder.ringBytes, sessiondCmd, gen, runtimeDir: spec.runtimeDir, ...(holderTimers ? { timers: holderTimers } : {}) });
+      ringBytes: config.holder.ringBytes, sessiondCmd, gen, runtimeDir: spec.runtimeDir, termColors: spec.termColors || null,
+      ...(holderTimers ? { timers: holderTimers } : {}) });
     const child = spawn(process.execPath, [HOLDER_MAIN, '--spec', file], { detached: true, stdio: 'ignore', cwd: '/', env: { ...process.env, CCS_RUNTIME_DIR: spec.runtimeDir } });
     child.on('error', (e) => log.error('holder.spawn_failed', { error: e.message }));
     child.unref();

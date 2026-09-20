@@ -9,6 +9,7 @@ const { parseArgs, UsageError } = require('../args.js');
 const { resolveTarget } = require('../resolve.js');
 const { recordName } = require('../../common/registry.js');
 const { isLive, stopAndWait, stopTimeoutMs, startAndWait } = require('../lifecycle.js');
+const { queryTermColors } = require('../termcolors.js');
 const { reportStartFailure } = require('./attach.js');
 
 /** @param {string[]} argv @param {any} ctx */
@@ -23,7 +24,16 @@ async function run(argv, ctx) {
     const r = await stopAndWait({ paths: ctx.paths, registry: ctx.registry, id: rec.id, timeoutMs: stopTimeoutMs(ctx.config) });
     if (!r.ok) { ctx.err.write(`ccs: '${name}' did not stop cleanly${r.stuck ? ' (stop stuck)' : ''}; not restarting — check 'ccs ls'\n`); return 1; }
   }
-  await ctx.registry.updateIntent(rec.id, (i) => { i.desired = 'running'; i.retryGen = (i.retryGen || 0) + 1; });
+  // Refresh the stored terminal colours from THIS terminal: picks them up for sessions created before this
+  // feature existed, or restarted from a different terminal than the one that created them. Only overwrite
+  // when something was actually captured, so a restart from a non-TTY context (e.g. a script) does not
+  // wipe previously good colours.
+  const termColors = await queryTermColors({ stdin: ctx.stdin, stdout: ctx.out });
+  await ctx.registry.updateIntent(rec.id, (i) => {
+    i.desired = 'running';
+    i.retryGen = (i.retryGen || 0) + 1;
+    if (termColors.fg || termColors.bg) i.termColors = termColors;
+  });
   ctx.out.write(`ccs: starting '${name}'…\n`);
   const started = await startAndWait({ paths: ctx.paths, registry: ctx.registry, id: rec.id, env: ctx.env });
   if (!started.ok) return reportStartFailure(ctx, rec.id, name, started);

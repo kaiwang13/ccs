@@ -6,13 +6,13 @@ const { ModeState } = require('../../src/holder/modes');
 const { Responder } = require('../../src/holder/responder');
 const { createFakeClock } = require('../../src/common/clock');
 
-/** @param {(kind: string, offset: number) => Promise<Buffer|null>} [forward] */
-function setup(forward = async () => null) {
+/** @param {(kind: string, offset: number) => Promise<Buffer|null>} [forward] @param {{fg: string|null, bg: string|null}|null} [colors] */
+function setup(forward = async () => null, colors = null) {
   const clock = createFakeClock();
   const modes = new ModeState();
   /** @type {string[]} */
   const writes = [];
-  const r = new Responder({ modes, clock, forward, write: (b) => writes.push(b.toString('latin1')) });
+  const r = new Responder({ modes, clock, forward, colors, write: (b) => writes.push(b.toString('latin1')) });
   const lexer = new Lexer();
   const feed = (/** @type {string} */ s) => { for (const t of lexer.feed(Buffer.from(s, 'latin1')).tokens) { modes.apply(t); r.onToken(t); } };
   return { clock, writes, feed };
@@ -54,4 +54,31 @@ test('a CPR without a reply within 100 ms is answered as nothing', () => {
   assert.deepEqual(writes, []);
   clock.tick(1);
   assert.equal(writes.join(''), '\x1b[?1;2c');
+});
+
+test('OSC 10/11 are answered from configured colours, in stream order; OSC 12 (cursor) is never answered', () => {
+  const colors = { fg: 'rgb:c5c5/c8c8/c6c6', bg: 'rgb:1e1e/2222/2727' };
+  const { writes, feed } = setup(async () => null, colors);
+  feed('\x1b]10;?\x07\x1b]11;?\x07\x1b]12;?\x07');
+  assert.equal(writes.join(''), '\x1b]10;rgb:c5c5/c8c8/c6c6\x1b\\\x1b]11;rgb:1e1e/2222/2727\x1b\\');
+});
+
+test('OSC 10 or 11 alone is answered on its own', () => {
+  const colors = { fg: 'rgb:c5c5/c8c8/c6c6', bg: 'rgb:1e1e/2222/2727' };
+  { const { writes, feed } = setup(async () => null, colors); feed('\x1b]10;?\x07'); assert.equal(writes.join(''), '\x1b]10;rgb:c5c5/c8c8/c6c6\x1b\\'); }
+  { const { writes, feed } = setup(async () => null, colors); feed('\x1b]11;?\x07'); assert.equal(writes.join(''), '\x1b]11;rgb:1e1e/2222/2727\x1b\\'); }
+});
+
+test('colors: null (today\'s default behaviour) leaves OSC 10/11 unanswered', () => {
+  const { writes, feed } = setup();
+  feed('\x1b]10;?\x07\x1b]11;?\x07\x1b]12;?\x07');
+  assert.deepEqual(writes, []);
+});
+
+test('a malformed stored colour (fg or bg) is never echoed into the pty', () => {
+  const bads = ['rgb:x', '#1e1e2227', 'rgba:1e1e/2222/2727/ffff', '', 'rgb:1e1e/2222', 'rgb:1e1e/2222/2727\x1b', `rgb:1e1e/2222/2727${'\x1b\\'}extra`];
+  for (const bad of bads) {
+    { const { writes, feed } = setup(async () => null, { fg: bad, bg: null }); feed('\x1b]10;?\x07'); assert.deepEqual(writes, [], `fg=${JSON.stringify(bad)}`); }
+    { const { writes, feed } = setup(async () => null, { fg: null, bg: bad }); feed('\x1b]11;?\x07'); assert.deepEqual(writes, [], `bg=${JSON.stringify(bad)}`); }
+  }
 });

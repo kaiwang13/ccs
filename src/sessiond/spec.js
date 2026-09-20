@@ -3,7 +3,8 @@
 /**
  * @typedef {{schema: 'ccs.sessionspec/1', ccsId: string, name: string, runtimeDir: string, stateFile: string|null,
  *   claude: {argv: string[], resumeArgv: string[], env: Record<string, string>, cwd: string, version: string},
- *   pty: {cols: number, rows: number}, configFile: string|null, agent: string}} SessionSpec
+ *   pty: {cols: number, rows: number}, configFile: string|null, agent: string,
+ *   termColors: {fg: string|null, bg: string|null}|null}} SessionSpec
  */
 
 const { KNOWN_AGENTS } = require('../agents/index.js');
@@ -15,6 +16,20 @@ class SpecError extends Error {
 
 const ID_RE = /^[a-z0-9]{4,32}$/;
 const NAME_RE = /^[a-z0-9._-]{1,40}$/;
+/** Strict: the only reply form ccs will ever echo back into a pty (defence in depth — re-validated here
+ *  even though src/cli/termcolors.js already checked it once at capture time). */
+const COLOR_RE = /^rgb:[0-9a-fA-F]{1,4}\/[0-9a-fA-F]{1,4}\/[0-9a-fA-F]{1,4}$/;
+
+/** Optional terminal colours, strictly validated: these are echoed into the pty verbatim, so an invalid
+ *  value degrades to null (no answer) rather than throwing — a bad colour must never block a session from
+ *  starting. @param {unknown} v */
+function termColorsOf(v) {
+  if (!v || typeof v !== 'object') return null;
+  const o = /** @type {any} */ (v);
+  const fg = typeof o.fg === 'string' && COLOR_RE.test(o.fg) ? o.fg : null;
+  const bg = typeof o.bg === 'string' && COLOR_RE.test(o.bg) ? o.bg : null;
+  return fg || bg ? { fg, bg } : null;
+}
 
 /** @param {unknown} v @param {string} f @returns {string} */
 function str(v, f) { if (typeof v !== 'string' || v === '') throw new SpecError(f, 'must be a non-empty string'); return v; }
@@ -56,7 +71,8 @@ function validateSessionSpec(obj) {
   const cols = int(obj.pty.cols, 'pty.cols', 40, 240);
   const rows = int(obj.pty.rows, 'pty.rows', 10, 150);
   return { schema: 'ccs.sessionspec/1', ccsId, name, runtimeDir, stateFile, configFile, agent,
-    claude: { argv: [...argv], resumeArgv: [...resumeArgv], env: { ...c.env }, cwd, version }, pty: { cols, rows } };
+    claude: { argv: [...argv], resumeArgv: [...resumeArgv], env: { ...c.env }, cwd, version }, pty: { cols, rows },
+    termColors: termColorsOf(obj.termColors) };
 }
 
 /** @param {SessionSpec} spec @param {string} sessionId @returns {string[]} */

@@ -13,7 +13,7 @@ const good = () => ({
 test('a valid spec is returned as a normalized copy', () => {
   const s = good();
   const v = validateSessionSpec(s);
-  assert.deepEqual(v, s);
+  assert.deepEqual(v, { ...s, termColors: null });
   assert.notEqual(v.claude.argv, s.claude.argv);
 });
 
@@ -46,4 +46,36 @@ test('the session spec carries an optional agent, defaulting to claude', () => {
     'a spec written before multi-agent must validate and mean claude');
   assert.equal(validateSessionSpec({ ...base, agent: 'codex' }).agent, 'codex');
   assert.throws(() => validateSessionSpec({ ...base, agent: 'gpt-9' }), /agent/);
+});
+
+test('termColors: a valid value is kept, an invalid one is nulled, a missing one is nulled — never throws', () => {
+  const base = good();
+  const valid = { fg: 'rgb:c5c5/c8c8/c6c6', bg: 'rgb:1e1e/2222/2727' };
+  assert.deepEqual(validateSessionSpec({ ...base, termColors: valid }).termColors, valid);
+  assert.equal(validateSessionSpec({ ...base }).termColors, null, 'a spec written before this field must still validate');
+  assert.equal(validateSessionSpec({ ...base, termColors: undefined }).termColors, null);
+  assert.equal(validateSessionSpec({ ...base, termColors: null }).termColors, null);
+  // Only one of fg/bg present is kept, the other stays null (not dropped entirely).
+  assert.deepEqual(validateSessionSpec({ ...base, termColors: { fg: valid.fg, bg: null } }).termColors, { fg: valid.fg, bg: null });
+  // Anything not matching COLOR_RE — including an attempt to smuggle escape/control bytes — degrades to
+  // null (no answer), and must never throw: this field is optional user-terminal-derived input.
+  const bad = [
+    { fg: 'rgb:x', bg: valid.bg },
+    { fg: '#1e1e2227', bg: valid.bg },
+    { fg: `${valid.fg}\x1b`, bg: valid.bg },
+    { fg: `${valid.fg};rm -rf /`, bg: valid.bg },
+    { fg: 123, bg: valid.bg },
+    'not-an-object',
+    42,
+    [],
+  ];
+  for (const v of bad) {
+    let got;
+    assert.doesNotThrow(() => { got = validateSessionSpec({ ...base, termColors: v }); });
+    if (v && typeof v === 'object' && !Array.isArray(v) && v.bg === valid.bg) {
+      assert.deepEqual(/** @type {any} */ (got).termColors, { fg: null, bg: valid.bg }, JSON.stringify(v));
+    } else {
+      assert.equal(/** @type {any} */ (got).termColors, null, JSON.stringify(v));
+    }
+  }
 });

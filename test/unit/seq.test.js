@@ -22,7 +22,7 @@ test('queryKind / isQuery table', () => {
     [`${E}[5n`, 'DSR5'], [`${E}[6n`, 'CPR'], [`${E}[?6n`, 'DECXCPR'], [`${E}[0n`, null],
     [`${E}[?2026$p`, 'DECRQM'], [`${E}[?1049$p`, 'DECRQM'], [`${E}[2026$p`, null], [`${E}[?2026;2$y`, null],
     [`${E}[14t`, 'OTHER'], [`${E}[22;2t`, 'OTHER'], [`${E}[?u`, 'OTHER'], [`${E}[?1u`, null], [`${E}[u`, null],
-    [`${E}]10;?\x07`, 'OTHER'], [`${E}]11;?${E}\\`, 'OTHER'], [`${E}]12;?\x07`, 'OTHER'], [`${E}]4;1;?\x07`, 'OTHER'],
+    [`${E}]10;?\x07`, 'OSCCOLOR'], [`${E}]11;?${E}\\`, 'OSCCOLOR'], [`${E}]12;?\x07`, 'OSCCOLOR'], [`${E}]4;1;?\x07`, 'OTHER'],
     [`${E}]11;rgb:ffff/ffff/ffff\x07`, null], [`${E}]0;title?\x07`, null],
     [`${E}P+q6b31${E}\\`, 'OTHER'], [`${E}P$qm${E}\\`, 'OTHER'], [`${E}P>|xterm${E}\\`, null],
     [`${E}[m`, null], [`${E}7`, null], ['x', null],

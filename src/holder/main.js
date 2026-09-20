@@ -168,7 +168,7 @@ async function runHolder(specPath) {
   /** @type {Map<number, (b: Buffer|null) => void>} */
   const pendingQueries = new Map();
   const responder = new Responder({
-    modes, clock,
+    modes, clock, colors: spec.termColors || null,
     write: (b) => queue.enqueue(b),
     forward: (kind, offset) => new Promise((resolve) => {
       if (!conn || !attached) { resolve(null); return; }

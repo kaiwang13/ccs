@@ -13,7 +13,7 @@ const plainCsi = (t, final) => t.kind === 'csi' && t.prefix === '' && t.intermed
 /** @param {Token} t @param {string} prefix @param {string} final */
 const prefCsi = (t, prefix, final) => t.kind === 'csi' && t.prefix === prefix && t.intermediates === '' && t.final === final;
 
-/** @param {Token} t @returns {'XTVERSION'|'DA1'|'DA2'|'DECRQM'|'DSR5'|'CPR'|'DECXCPR'|'OTHER'|null} */
+/** @param {Token} t @returns {'XTVERSION'|'DA1'|'DA2'|'DECRQM'|'DSR5'|'CPR'|'DECXCPR'|'OSCCOLOR'|'OTHER'|null} */
 function queryKind(t) {
   if (t.kind === 'csi') {
     const p = t.params;
@@ -30,7 +30,9 @@ function queryKind(t) {
   }
   if (t.kind === 'osc') {
     const n = oscNumber(t);
-    if ((n === 4 || n === 10 || n === 11 || n === 12) && /** @type {string} */ (t.data).split(';').slice(1).includes('?')) return 'OTHER';
+    const asked = /** @type {string} */ (t.data).split(';').slice(1).includes('?');
+    if (asked && (n === 10 || n === 11 || n === 12)) return 'OSCCOLOR'; // default fg/bg/cursor colour query
+    if (asked && n === 4) return 'OTHER'; // palette colour query
     return null;
   }
   if (t.kind === 'dcs') {

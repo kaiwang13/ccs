@@ -185,6 +185,21 @@ test('create() refuses an unknown agent rather than writing an unusable record',
     (e) => e instanceof RegistryError && e.code === 'UNKNOWN_AGENT');
 });
 
+test('create({termColors}) persists it; create() without it stores null', async (t) => {
+  const { paths } = env(t);
+  const reg = createRegistry(paths);
+  const colors = { fg: 'rgb:c5c5/c8c8/c6c6', bg: 'rgb:1e1e/2222/2727' };
+  const withColors = await reg.create({ name: 'e1', cwd: '/data/proj', termColors: colors });
+  assert.deepEqual(withColors.intent.termColors, colors);
+  const withoutColors = await reg.create({ name: 'e2', cwd: '/data/proj' });
+  assert.equal(withoutColors.intent.termColors, null, 'omitting termColors must default to null, not undefined');
+  // Neither fg nor bg present is treated the same as omitted: stored as null, not a useless {fg:null,bg:null}.
+  const withEmpty = await reg.create({ name: 'e3', cwd: '/data/proj', termColors: { fg: null, bg: null } });
+  assert.equal(withEmpty.intent.termColors, null);
+  const got = await reg.get(withColors.id);
+  assert.deepEqual(got.intent.termColors, colors, 'persisted round-trip through intent.json');
+});
+
 test('create() persists resumeRequested: true only when the draft actually asked for it', async (t) => {
   const { paths } = env(t);
   const reg = createRegistry(paths);

@@ -16,6 +16,7 @@ const { KNOWN_AGENTS, DEFAULT_AGENT, formatUnknownAgent, getAgent } = require('.
 const { runNfsOp } = require('../../common/nfsworker.js');
 const { captureIntentEnv } = require('../../sessiond/env.js');
 const { validateExtraArgs } = require('../../sessiond/launcher.js');
+const { queryTermColors } = require('../termcolors.js');
 const { attach, attachPrecheck } = require('../attach.js');
 const { startAndWait } = require('../lifecycle.js');
 const { reportStartFailure } = require('./attach.js');
@@ -120,7 +121,10 @@ async function run(argv, ctx) {
   const trusted = !trustGated || !!(projectEntry && projectEntry.hasTrustDialogAccepted === true);
 
   const env = captureIntentEnv(ctx.env, { passthrough: ctx.config.env.passthrough });
-  const rec = await ctx.registry.create({ name, cwd, claudeArgs: rest, env, trustExpected: !trusted, initialSessionId, resumeRequested: !!flags['--resume'], agent });
+  // Query the terminal this `ccs new` runs in for its real default colours (spawn-time only: Codex asks
+  // OSC 10/11 once, ~29 ms after the agent spawns, and never again, so this must already be known by then).
+  const termColors = await queryTermColors({ stdin: ctx.stdin, stdout: ctx.out });
+  const rec = await ctx.registry.create({ name, cwd, claudeArgs: rest, env, trustExpected: !trusted, initialSessionId, resumeRequested: !!flags['--resume'], agent, termColors });
   const finalName = rec.intent.nameAtCreate;
   if (!trusted) {
     ctx.err.write(`ccs: ${tildify(cwd)} is not trusted by Claude yet — its trust dialog will appear; ${flags['--no-attach'] ? `answer it with: ccs a ${finalName} --allow-setup` : 'answer it in this terminal'}\n`);

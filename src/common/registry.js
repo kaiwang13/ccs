@@ -172,7 +172,7 @@ function createRegistry(paths, opts = {}) {
   /**
    * @param {{name?: string|null, cwd: string, claudeArgs?: string[], env?: Record<string,string>,
    *          trustExpected?: boolean, initialSessionId?: string, resumeRequested?: boolean,
-   *          desired?: 'running'|'stopped', agent?: string}} draft
+   *          desired?: 'running'|'stopped', agent?: string, termColors?: {fg: string|null, bg: string|null}}} draft
    *   name null/undefined ⇒ opaque `ccs-<id6>` (spec §3.14); a given name is validated, lowercased, and
    *   suffixed -2, -3 … if taken. agent null/undefined ⇒ DEFAULT_AGENT; a given value must be in KNOWN_AGENTS.
    * @returns {Promise<SessionRecord>}
@@ -202,6 +202,7 @@ function createRegistry(paths, opts = {}) {
         nameAtCreate: name, pendingName: null, pendingNameGen: 0,
         cwd: draft.cwd, initialSessionId: draft.initialSessionId || crypto.randomUUID(),
         resumeRequested: !!draft.resumeRequested,
+        termColors: draft.termColors && (draft.termColors.fg || draft.termColors.bg) ? draft.termColors : null,
         agent: draft.agent == null ? DEFAULT_AGENT : draft.agent,
         claudeArgs: draft.claudeArgs || [], trustExpected: !!draft.trustExpected,
         lastReconcileBlock: null, env: draft.env || {},

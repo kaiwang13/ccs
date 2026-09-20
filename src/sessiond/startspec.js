@@ -54,6 +54,7 @@ async function buildSessionSpec(ccsId, paths, opts = {}) {
     schema: 'ccs.sessionspec/1', ccsId, name: launch.name, runtimeDir: paths.runtimeDir, stateFile: paths.stateFile(ccsId),
     claude: { argv: launch.argv, resumeArgv: launch.resumeArgv, env: launch.env, cwd: launch.cwd, version: launch.version },
     pty, configFile: paths.configFile, agent: agent.id,
+    termColors: (rec.intent && rec.intent.termColors) || null,
   });
 }
 

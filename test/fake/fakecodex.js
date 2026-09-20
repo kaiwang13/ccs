@@ -13,6 +13,11 @@
  * Env: CCS_FAKE_CODEX_DB (optional) — path to a sqlite file to insert one `threads` row into, shaped like
  *   src/codex/threads.js reads (REQUIRED_COLUMNS), so a discovery test has something real to find. Left
  *   unset, this fake never touches sqlite, so the basic session-lifecycle test does not depend on it.
+ * Env: CCS_FAKE_CODEX_ASK_COLORS=1 (optional) — mimics the real codex binary's startup behaviour that
+ *   motivated this fake's colour support: query the terminal's default fg/bg with OSC 10/11 right after the
+ *   greeting, then record every byte received on stdin afterwards to the file named by
+ *   CCS_FAKE_CODEX_COLOR_REPLY_FILE (if set). Gated behind the env var so every existing test — none of
+ *   which expects this fake to write anything to its own stdin's holder-side responder — is unaffected.
  * Exit: stdin close (EOF) or SIGTERM/SIGHUP — always exit 0, never needs to be force-killed.
  */
 const fs = require('node:fs');
@@ -50,6 +55,19 @@ if (process.env.CCS_FAKE_CODEX_DB) {
 
 // ---- minimal TUI: just enough for the emulator to have something to render ------------------------------------
 write(`\x1b[1mFake Codex\x1b[22m\r\n\x1b[2m${cwd}\x1b[22m\r\n\r\n› `);
+
+// ---- optional: ask the terminal for its default colours at startup, and record whatever answers -----------------
+// Mirrors the real codex binary's confirmed behaviour that this feature exists for: it asks OSC 10/11 once at
+// startup and never again, so the fake asks once here too, immediately after the greeting above.
+if (process.env.CCS_FAKE_CODEX_ASK_COLORS === '1') {
+  write('\x1b]10;?\x1b\\\x1b]11;?\x1b\\');
+  const replyFile = process.env.CCS_FAKE_CODEX_COLOR_REPLY_FILE;
+  if (replyFile) {
+    process.stdin.on('data', (/** @type {Buffer} */ d) => {
+      try { fs.appendFileSync(replyFile, d); } catch { /* best effort */ }
+    });
+  }
+}
 
 // ---- stay alive until stdin closes or SIGTERM/SIGHUP; always exit 0, never force-killed -----------------------------
 let exiting = false;
