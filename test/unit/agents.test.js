@@ -45,3 +45,23 @@ test('the unknown-agent message has one source of truth', () => {
   try { require('../../src/agents/index.js').getAgent('gpt-9'); assert.fail('should throw'); }
   catch (e) { assert.equal(e.message, msg); }
 });
+
+test('codex is registered and satisfies the same interface as claude', () => {
+  const { getAgent, KNOWN_AGENTS } = require('../../src/agents/index.js');
+  assert.ok(KNOWN_AGENTS.includes('codex'));
+  const c = getAgent('codex');
+  assert.equal(c.id, 'codex');
+  for (const fn of ['resolveBin', 'buildLaunch', 'writeSettingsFile', 'observe', 'preflight', 'doctorChecks']) {
+    assert.equal(typeof c[fn], 'function', `codex.${fn} must be a function`);
+  }
+  // The two agents must disagree about capabilities — that is the whole point of the field.
+  assert.notEqual(getAgent('codex').capabilities.liveStatus, getAgent('claude').capabilities.liveStatus);
+});
+
+test('an absent agent still means claude now that a second agent exists', () => {
+  // The compatibility guarantee must survive KNOWN_AGENTS.length > 1 — this is the "accidental default
+  // flip" the spec warned about, and it only becomes falsifiable once codex is registered.
+  const { getAgent } = require('../../src/agents/index.js');
+  assert.equal(getAgent(undefined).id, 'claude');
+  assert.equal(getAgent(null).id, 'claude');
+});

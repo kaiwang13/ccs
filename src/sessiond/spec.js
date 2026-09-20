@@ -3,8 +3,10 @@
 /**
  * @typedef {{schema: 'ccs.sessionspec/1', ccsId: string, name: string, runtimeDir: string, stateFile: string|null,
  *   claude: {argv: string[], resumeArgv: string[], env: Record<string, string>, cwd: string, version: string},
- *   pty: {cols: number, rows: number}, configFile: string|null}} SessionSpec
+ *   pty: {cols: number, rows: number}, configFile: string|null, agent: string}} SessionSpec
  */
+
+const { KNOWN_AGENTS } = require('../agents/index.js');
 
 class SpecError extends Error {
   /** @param {string} field @param {string} why */
@@ -38,6 +40,8 @@ function validateSessionSpec(obj) {
   if (!runtimeDir.startsWith('/')) throw new SpecError('runtimeDir', 'must be absolute');
   const stateFile = absOrNull(obj.stateFile, 'stateFile');
   const configFile = absOrNull(obj.configFile, 'configFile');
+  const agent = obj.agent === undefined || obj.agent === null ? 'claude' : obj.agent;
+  if (!KNOWN_AGENTS.includes(agent)) throw new SpecError('agent', `must be one of ${KNOWN_AGENTS.join(', ')}`);
   const c = obj.claude;
   if (!c || typeof c !== 'object') throw new SpecError('claude', 'must be an object');
   const argv = strArray(c.argv, 'claude.argv');
@@ -51,7 +55,7 @@ function validateSessionSpec(obj) {
   if (!obj.pty || typeof obj.pty !== 'object') throw new SpecError('pty', 'must be an object');
   const cols = int(obj.pty.cols, 'pty.cols', 40, 240);
   const rows = int(obj.pty.rows, 'pty.rows', 10, 150);
-  return { schema: 'ccs.sessionspec/1', ccsId, name, runtimeDir, stateFile, configFile,
+  return { schema: 'ccs.sessionspec/1', ccsId, name, runtimeDir, stateFile, configFile, agent,
     claude: { argv: [...argv], resumeArgv: [...resumeArgv], env: { ...c.env }, cwd, version }, pty: { cols, rows } };
 }
 

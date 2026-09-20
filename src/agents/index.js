@@ -27,6 +27,7 @@ const DEFAULT_AGENT = 'claude';
 /** @type {Record<string, () => Agent>} */
 const REGISTRY = {
   claude: () => require('./claude.js'),
+  codex: () => require('./codex.js'),
 };
 
 const KNOWN_AGENTS = Object.keys(REGISTRY);

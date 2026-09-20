@@ -38,12 +38,12 @@ async function buildSessionSpec(ccsId, paths, opts = {}) {
   const timeoutMs = config.registry.nfsTimeoutMs;
   const rec = opts.rec || await createRegistry(paths, { nfsTimeoutMs: timeoutMs }).get(ccsId);
   if (!rec) throw new Error(`no registry entry for session ${ccsId}`);
-  const bin = opts.bin || getAgent(rec.intent.agent).resolveBin(paths, config);
-  if (!bin) throw new LaunchError('CLAUDE_MISSING', 'no claude binary found');
+  const agent = getAgent(rec.intent.agent);
+  const bin = opts.bin || agent.resolveBin(paths, config);
+  if (!bin) throw new LaunchError('AGENT_BINARY_MISSING', `no ${agent.label} binary found`);
   const sessionId = (rec.state && rec.state.lastSessionId) || rec.intent.initialSessionId;
   const claudeSettings = await runNfsOp({ kind: 'readJson', args: [paths.claudeSettings, { retries: 1, retryDelayMs: 50 }] }, timeoutMs);
   const transcript = await runNfsOp({ kind: 'findTranscript', args: [paths.claudeProjectsDir, sessionId] }, timeoutMs);
-  const agent = getAgent(rec.intent.agent);
   const launch = agent.buildLaunch({ intent: { ...rec.intent, ccsId }, state: rec.state, paths, config, claudeSettings, transcriptExists: transcript !== null, bin });
   agent.writeSettingsFile(launch.settingsFile, launch.theme);
   const last = rec.state && rec.state.pty;
@@ -53,7 +53,7 @@ async function buildSessionSpec(ccsId, paths, opts = {}) {
   return validateSessionSpec({
     schema: 'ccs.sessionspec/1', ccsId, name: launch.name, runtimeDir: paths.runtimeDir, stateFile: paths.stateFile(ccsId),
     claude: { argv: launch.argv, resumeArgv: launch.resumeArgv, env: launch.env, cwd: launch.cwd, version: launch.version },
-    pty, configFile: paths.configFile,
+    pty, configFile: paths.configFile, agent: agent.id,
   });
 }
 
@@ -185,7 +185,7 @@ async function startMain(argv, env = process.env, deps = {}) {
     spec = await buildSessionSpec(id, paths, { config, rec, bin: /** @type {any} */ (bin) });
   } catch (e) {
     pf.release();
-    const code = (/** @type {any} */ (e)).code === 'CLAUDE_MISSING' ? 'CLAUDE_MISSING' : 'LAUNCH_FAILED';
+    const code = (/** @type {any} */ (e)).code || 'LAUNCH_FAILED';
     await registry.writeState(id, { ...base, lifecycle: 'BLOCKED', lifecycleSince: new Date().toISOString(), blocked: { code, detail: { message: String((/** @type {any} */ (e)).message) }, at: new Date().toISOString() } });
     log.error('start.launch_failed', { code, message: String((/** @type {any} */ (e)).message) });
     return 2;

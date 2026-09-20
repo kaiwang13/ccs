@@ -4,7 +4,7 @@ const assert = require('node:assert/strict');
 const { validateSessionSpec, resumeArgvFor, SpecError } = require('../../src/sessiond/spec');
 
 const good = () => ({
-  schema: 'ccs.sessionspec/1', ccsId: 'k3f9x2ab', name: 'cnv-gwas', runtimeDir: '/tmp/ccst-abc', stateFile: null, configFile: null,
+  schema: 'ccs.sessionspec/1', ccsId: 'k3f9x2ab', name: 'cnv-gwas', runtimeDir: '/tmp/ccst-abc', stateFile: null, configFile: null, agent: 'claude',
   claude: { argv: ['/bin/claude', '--session-id', 'u1', '-n', 'cnv-gwas'], resumeArgv: ['/bin/claude', '--resume', '{sessionId}', '-n', 'cnv-gwas'],
     env: { HOME: '/home/x' }, cwd: '/home/x', version: '2.1.267' },
   pty: { cols: 120, rows: 40 },
@@ -39,3 +39,11 @@ for (const [label, mutate, field] of /** @type {Array<[string, (s: any) => void,
     assert.throws(() => validateSessionSpec(s), (e) => e instanceof SpecError && e.field === field);
   });
 }
+
+test('the session spec carries an optional agent, defaulting to claude', () => {
+  const base = good();
+  assert.equal(validateSessionSpec({ ...base, agent: undefined }).agent, 'claude',
+    'a spec written before multi-agent must validate and mean claude');
+  assert.equal(validateSessionSpec({ ...base, agent: 'codex' }).agent, 'codex');
+  assert.throws(() => validateSessionSpec({ ...base, agent: 'gpt-9' }), /agent/);
+});

@@ -34,3 +34,26 @@ test('startspec resolves the binary through the agent, not a direct launcher imp
     'startspec must resolve the binary via the agent — a Codex session must not resolve a Claude binary');
   assert.match(src, /getAgent\([^)]*\)\.resolveBin\(/, 'expected an agent.resolveBin call');
 });
+
+test('a resolution failure names the actual agent, not always "claude" (spec §7)', async () => {
+  // A regression test for a real bug: since bin resolution became agent-generic, the old hardcoded
+  // CLAUDE_MISSING/"no claude binary found" would fire for ANY agent's resolution failure.
+  const { getAgent } = require('../../src/agents/index.js');
+  const codex = getAgent('codex');
+  const originalResolveBin = codex.resolveBin;
+  codex.resolveBin = () => null; // simulate: no codex binary installed
+  try {
+    // Exercise buildSessionSpec's own bin-resolution guard directly via a minimal fake rec, matching
+    // how the function already loads and uses opts.rec elsewhere in this file's existing tests.
+    const { buildSessionSpec } = require('../../src/sessiond/startspec.js');
+    await assert.rejects(
+      buildSessionSpec('aaaa1111', /** @type {any} */ ({}), { config: /** minimal config the existing tests in this file already use */ require('../../src/common/config.js').DEFAULTS,
+        rec: { intent: { agent: 'codex', cwd: '/w', claudeArgs: [], env: {} }, state: null } }),
+      (e) => {
+        assert.equal(/** @type {any} */ (e).code, 'AGENT_BINARY_MISSING');
+        assert.match(/** @type {any} */ (e).message, /codex/i, 'must name codex, not claude, when codex resolution fails');
+        return true;
+      },
+    );
+  } finally { codex.resolveBin = originalResolveBin; }
+});

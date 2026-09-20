@@ -14,6 +14,7 @@ const { SuspendNet } = require('./suspendnet');
 const { ClaudeWatch } = require('./claudewatch');
 const { matchSetup } = require('./screens');
 const { resumeArgvFor } = require('./spec');
+const { getAgent } = require('../agents/index.js');
 
 /** @typedef {import('../common/types').Lifecycle} Lifecycle */
 /** @typedef {import('./pipeline').AnnotatedChunk} AnnotatedChunk */
@@ -312,6 +313,10 @@ class Supervisor extends EventEmitter {
 
   // ---------------------------------------------------------------------------------------------------- claudewatch, setup gate
   _startWatch() {
+    // Codex publishes no per-session status file; constructing a ClaudeWatch for it would poll a path
+    // that never appears. Agents declare whether live status exists rather than the supervisor asking
+    // which agent this is.
+    if (!getAgent(this.spec.agent).capabilities.liveStatus) return;
     if (this.watch) this.watch.stop();
     const claude = this.hello.claude;
     this.watch = new ClaudeWatch({ claudeHome: this.paths.claudeHome, clock: this.clock, census: this.tracker.census, intervalMs: this.timers.claudeWatchMs,
