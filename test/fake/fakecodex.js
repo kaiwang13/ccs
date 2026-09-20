@@ -13,7 +13,7 @@
  * Env: CCS_FAKE_CODEX_DB (optional) — path to a sqlite file to insert one `threads` row into, shaped like
  *   src/codex/threads.js reads (REQUIRED_COLUMNS), so a discovery test has something real to find. Left
  *   unset, this fake never touches sqlite, so the basic session-lifecycle test does not depend on it.
- * Exit: stdin close (EOF) or SIGTERM/SIGHUP — always exit 0, never needs SIGKILL.
+ * Exit: stdin close (EOF) or SIGTERM/SIGHUP — always exit 0, never needs to be force-killed.
  */
 const fs = require('node:fs');
 const path = require('node:path');
@@ -51,7 +51,7 @@ if (process.env.CCS_FAKE_CODEX_DB) {
 // ---- minimal TUI: just enough for the emulator to have something to render ------------------------------------
 write(`\x1b[1mFake Codex\x1b[22m\r\n\x1b[2m${cwd}\x1b[22m\r\n\r\n› `);
 
-// ---- stay alive until stdin closes or SIGTERM/SIGHUP; always exit 0, never SIGKILL -----------------------------
+// ---- stay alive until stdin closes or SIGTERM/SIGHUP; always exit 0, never force-killed -----------------------------
 let exiting = false;
 function exitNow() {
   if (exiting) return;
