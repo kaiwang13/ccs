@@ -80,8 +80,8 @@ function checkPlatform() {
   if (!p.orphanScan) {
     out.push({
       level: 'warn',
-      label: 'orphan scan',
-      detail: `unavailable on ${p.name}: another process's environment cannot be read, so an agent orphaned by a crashed session is not detected before starting`,
+      label: 'env reads',
+      detail: `unavailable on ${p.name}: another process's environment cannot be read, so (a) an agent orphaned by a crashed session is not detected before starting, and (b) a client already running inside a session is not refused with NESTED`,
     });
   }
   return out;

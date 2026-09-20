@@ -38,7 +38,7 @@ against real `claude` and `codex` binaries pass. See [Limitations](#limitations)
 
 ### Platform differences on macOS
 
-`ccs doctor` reports both of these as warnings. Neither blocks a session; they narrow two safety checks
+`ccs doctor` reports the first two as warnings. None of them blocks a session; they narrow safety checks
 that depend on Linux facilities macOS does not have.
 
 - **Cross-host writer detection.** Claude writes `pidDomain` as `linux:<machine-id>:pid:[<ns>]` on Linux,
@@ -50,6 +50,10 @@ that depend on Linux facilities macOS does not have.
 - **Orphan detection.** `ccs` finds an agent left over from a crashed session by reading that process's
   environment and argv. macOS does not expose another process's environment, so this scan cannot run and
   `ccs` says so rather than reporting a clean result it did not actually verify.
+- **Refusing to attach a session from inside itself.** `ccs` refuses when the attaching client is already
+  running inside the session, which it detects from that client's environment — so the same limitation
+  applies and the check cannot fire on macOS. It is not replaced with a process-tree test, because a
+  genuine client and the agent share the holder as an ancestor and that test would refuse valid attaches.
 
 ## Install
 
