@@ -7,7 +7,7 @@ const cp = require('child_process');
 const { createRegistry } = require('../../src/common/registry.js');
 const { probeSocket } = require('../../src/common/ctlclient.js');
 const { closeNfsWorker } = require('../../src/common/nfsworker.js');
-const { makeCcsEnv, waitFor, spawnSessiond, REPO } = require('../helpers/ccsenv.js');
+const { makeCcsEnv, waitFor, spawnSessiond, runCcs, REPO } = require('../helpers/ccsenv.js');
 const { spawnInTerminal, sleep } = require('../helpers/ptyterm.js');
 const { startFakeCtl } = require('../helpers/fakectl.js');
 
@@ -142,4 +142,45 @@ test('attach (scripted host): BYE CLIENT_EXIT prints its text and exits 0; OVERF
   assert.equal((await term2.exited).exitCode, 0);
   const lines = await term2.lines();
   assert.ok(lines.some((l) => l.includes('you ran /exit — the session keeps running')));
+});
+
+test('four terminals attach to one session at once, all render, all detach, the session survives', { timeout: 120000 }, async (t) => {
+  // The product's central claim is several terminals on one conversation, and it exercises more of
+  // the platform at once than any single-client test: four ctl.sock joins through the arbiter, four
+  // pty masters, four peer-uid checks, and the size arbitration between them. A port that broke any
+  // of those would still pass every single-client test.
+  const ctx = makeCcsEnv(t);
+  const rec = await startSession(t, ctx, 'attach-multi');
+  const terms = [];
+  for (let i = 0; i < 4; i++) terms.push(attachInTerminal(t, ctx, rec.id, 'attach-multi'));
+
+  // Every client must render the session, not just connect: waiting for the banner in each one
+  // proves the join snapshot and the per-client view reached all four.
+  for (const term of terms) await term.waitText(/attach-multi/, 30000);
+
+  // Settle first: a session that is still STARTING has no clients counted yet.
+  await waitFor(() => {
+    try { return JSON.parse(fs.readFileSync(ctx.paths.stateFile(rec.id), 'utf8')).lifecycle === 'RUNNING'; } catch { return false; }
+  }, 30000, 'the session to reach RUNNING');
+
+  const rows = JSON.parse((await runCcs(ctx, ['ls', '--json'])).stdout);
+  assert.equal(rows[0].clients, 4, 'the registry must count all four attached clients');
+  assert.equal(rows[0].lifecycle, 'RUNNING');
+
+  // One client's input reaches the agent, and its output reaches the others.
+  terms[0].write('shared-line\r');
+  await terms[0].waitText(/RECEIVED: shared-line/, 10000);
+  await terms[1].waitText(/RECEIVED: shared-line/, 10000);
+
+  // Detaching every client must leave the session running for the next attach.
+  for (const term of terms) term.write('\x1a'); // Ctrl+Z detaches
+  for (const term of terms) await term.exited;
+  await waitFor(() => {
+    try {
+      return JSON.parse(fs.readFileSync(ctx.paths.stateFile(rec.id), 'utf8')).lifecycle === 'RUNNING';
+    } catch { return false; }
+  }, 20000, 'the session to stay RUNNING after every client detached');
+  const after = JSON.parse((await runCcs(ctx, ['ls', '--json'])).stdout);
+  assert.equal(after[0].clients, 0);
+  assert.equal(after[0].lifecycle, 'RUNNING');
 });

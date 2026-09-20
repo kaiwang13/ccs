@@ -14,16 +14,19 @@ const assert = require('node:assert/strict');
 test('node satisfies the version pinned in package.json engines', () => {
   const engines = require('../../package.json').engines;
   assert.ok(engines && typeof engines.node === 'string', 'package.json must declare engines.node');
-  const want = String(engines.node).trim();
+  const want = String(engines.node).trim().replace(/^v/, '');
+  const got = process.version.replace(/^v/, '');
   const wantMajor = want.split('.')[0];
-  const gotMajor = process.version.slice(1).split('.')[0];
+  const gotMajor = got.split('.')[0];
   assert.equal(
     gotMajor,
     wantMajor,
     `running Node ${process.version} but package.json pins ${want}: the native addons are built for ABI ${wantMajor}, so a different major cannot load them`,
   );
-  if (process.version === want) return;
-  const allowed = process.env.CCS_ALLOW_NODE_DRIFT === process.version;
+  if (got === want) return;
+  // process.version carries a leading 'v' and engines.node does not, which is why both are
+  // normalised above -- otherwise an exact match would still report drift.
+  const allowed = (process.env.CCS_ALLOW_NODE_DRIFT || '').replace(/^v/, '') === got;
   assert.ok(
     allowed,
     `running Node ${process.version}; package.json pins the exact version ${want}. Install ${want}, or set CCS_ALLOW_NODE_DRIFT=${process.version} to record that this minor drift is understood (the ABI is unchanged within a major).`,
