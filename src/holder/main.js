@@ -417,6 +417,7 @@ async function runHolder(specPath) {
 module.exports = { runHolder, validateHolderSpec, shutdownCorroborated, DEFAULT_TIMERS };
 
 if (require.main === module) {
+  require('../common/warnings.js').suppressExperimentalSqliteWarning();
   const i = process.argv.indexOf('--spec');
   if (i < 0 || !process.argv[i + 1]) { process.stderr.write('usage: node src/holder/main.js --spec <holder-spec.json>\n'); process.exit(2); }
   runHolder(path.resolve(process.argv[i + 1])).then(

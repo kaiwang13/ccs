@@ -144,6 +144,7 @@ module.exports = { runSession, startSession };
 // src/sessiond/startspec.js, which builds the session spec from registry + preflight + launcher and calls
 // runSession(spec, {recover, sessiondArgv, stateWriter}). Any argv with --start/--recover and no --spec goes to startMain, which
 // prints its own usage and returns 64 for a malformed id (plan 02's `--spec <file> --recover` still reaches plan 02's block).
+if (require.main === module) require('../common/warnings.js').suppressExperimentalSqliteWarning();
 const plan03StartArgs = require.main === module && !process.argv.includes('--spec') && (process.argv.includes('--start') || process.argv.includes('--recover'));
 if (plan03StartArgs) {
   require('./startspec.js').startMain(process.argv.slice(2)).then(

@@ -2,6 +2,7 @@
 'use strict';
 // ccs entry point. Installed for M1 as ~/.local/bin/ccs, a sh wrapper that sets UV_THREADPOOL_SIZE=16 and
 // runs this file with the absolute node path (docs/RUNBOOK.md).
+require('../src/common/warnings.js').suppressExperimentalSqliteWarning();
 const { main } = require('../src/cli/main.js');
 
 main(process.argv.slice(2)).then(
