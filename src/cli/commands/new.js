@@ -10,6 +10,7 @@
  */
 const fs = require('fs');
 const path = require('path');
+const platform = require('../../common/platform/index.js');
 const { parseArgs, UsageError } = require('../args.js');
 const { normalizeName, sanitizeName } = require('../../common/registry.js');
 const { KNOWN_AGENTS, DEFAULT_AGENT, formatUnknownAgent, getAgent } = require('../../agents/index.js');
@@ -71,7 +72,10 @@ async function run(argv, ctx) {
   try { validateExtraArgs(rest, getAgent(agent).extraArgsAllow(ctx.config)); } catch (e) { ctx.err.write(`ccs: ${(/** @type {any} */ (e)).message}\n`); return 2; }
 
   let hidepid = false;
-  try { hidepid = hidepidEnabled(fs.readFileSync('/proc/mounts', 'utf8')); } catch { /* assume off: the safe default */ }
+  // mountsText is null where there is no /proc/mounts (macOS). That falls through to the same
+  // conservative default as an unreadable table: assume argv is world-readable.
+  const mounts = platform.mountsText();
+  if (mounts !== null) hidepid = hidepidEnabled(mounts);
   /** @type {string|null} */
   let name = null;
   if (positional.length >= 1) {

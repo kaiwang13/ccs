@@ -81,6 +81,12 @@ class ControlServer {
     if (lc === 'STOPPING' || lc === 'STOPPED' || lc === 'STOP_STUCK') { this._refuse(fsock, 'STOPPING', `session '${name}' is stopping`); return; }
     if (lc === 'BLOCKED') { this._refuse(fsock, 'BLOCKED', `session '${name}' is blocked (${this.sup.blockedCode}); check 'ccs doctor', then: ccs restart ${name}`); return; }
     if (Number.isInteger(h.pid) && h.pid > 0) {
+      // Refuse a client that is itself running inside this session (a shell started from claude
+      // running `ccs a <name>`). This needs the attaching process's environment, which macOS does
+      // not expose (handoff brief §5a) -- so the guard cannot fire there and `ccs doctor` reports
+      // it. Walking the process tree instead is not a substitute: a genuine client is spawned by
+      // the user's shell and shares the holder as an ancestor with claude, so a parent-chain test
+      // would refuse legitimate attaches. Not offering the check is better than a wrong one.
       const env = procinfo.readEnviron(h.pid);
       if (env && env.CCS_ID === this.ccsId) { this._refuse(fsock, 'NESTED', 'refusing to attach a session from inside itself'); return; }
     }

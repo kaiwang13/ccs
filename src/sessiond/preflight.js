@@ -18,7 +18,8 @@ const fs = require('fs');
 const path = require('path');
 const { runNfsOp, NfsTimeoutError } = require('../common/nfsworker.js');
 const { tryLock } = require('../common/locks.js');
-const { isSameProcess, machineId, parsePidDomain, readEnviron, listPids } = require('../common/procinfo.js');
+const procinfo = require('../common/procinfo.js');
+const { isSameProcess, machineId, parsePidDomain, readEnviron, readArgv, listPids } = procinfo;
 
 const SIX_HOURS_MS = 6 * 3600 * 1000;
 const BACKUP_KEEP = 20;
@@ -155,14 +156,14 @@ async function backupClaudeJson({ paths, text, op, nowMs = Date.now(), batchId =
   return { taken: true, reason: null, file };
 }
 
-/** pid namespace inode of this process, e.g. '4026531836'. */
+/** pid namespace inode of this process, e.g. '4026531836'. Null on macOS, which has no namespaces. */
 function localPidNs() {
-  try { const m = /\[(\d+)\]/.exec(fs.readlinkSync('/proc/self/ns/pid')); return m ? m[1] : null; } catch { return null; }
+  return procinfo.pidNs(process.pid);
 }
 
 /** @param {number} pid */
 function ttyOf(pid) {
-  try { const t = fs.readlinkSync(`/proc/${pid}/fd/0`); return t.startsWith('/dev/') && t !== '/dev/null' ? t : null; } catch { return null; }
+  return procinfo.ttyOf(pid);
 }
 
 /**
@@ -215,20 +216,28 @@ async function scanSecondWriters({ paths, sessionId, op, nowMs = Date.now(), rem
  * CCS_ID but not that argv, so they never block a start. Other users' /proc/<pid>/environ is unreadable
  * (EACCES → null), so only our own processes are considered. Also catches an orphan stuck in onboarding,
  * which never writes a session json.
+ *
+ * Returns `{found, supported}`: `supported` is false when this platform cannot read another process's
+ * environment (macOS, whose availability under SIP is still unmeasured -- handoff brief §5a). The
+ * distinction matters because an empty `found` on an unsupported platform means "could not look",
+ * not "nothing there": `runPreflight` therefore warns rather than reporting a clean scan.
  * @param {{ccsId: string, settingsFile: string, ownPid?: number}} a
+ * @returns {{found: Array<{pid: number, argv0: string}>, supported: boolean}}
  */
 function scanOrphans({ ccsId, settingsFile, ownPid = process.pid }) {
   const found = [];
+  let supported = false;
   for (const pid of listPids()) {
     if (pid === ownPid) continue;
     const env = readEnviron(pid);
+    if (env) supported = true;
     if (!env || env.CCS_ID !== ccsId) continue;
-    let argv;
-    try { argv = fs.readFileSync(`/proc/${pid}/cmdline`, 'utf8').split('\0').filter(Boolean); } catch { continue; }
+    const argv = readArgv(pid);
+    if (!argv) continue;
     if (!argv.some((a, i) => a === '--settings' && argv[i + 1] === settingsFile)) continue;
     found.push({ pid, argv0: path.basename(argv[0] || '?') });
   }
-  return found;
+  return { found, supported };
 }
 
 /** sha256 of oauthAccount.accountUuid (spec §3.11 item 6). @param {any} claudeJson */
@@ -298,9 +307,12 @@ async function runPreflight(ctx) {
       return block('SECOND_WRITER_REMOTE', { machineId: w.machineId, cwd: w.cwd, ageSec: w.ageSec, sessionId: ctx.sessionId });
     }
     for (const w of writers.staleRemote) warnings.push(`SECOND_WRITER_REMOTE_STALE machine ${w.machineId} updated ${w.ageSec}s ago`);
-    // 5. Orphans.
-    const orphans = scanOrphans({ ccsId: ctx.ccsId, settingsFile: paths.settingsFile(ctx.ccsId) });
+    // 5. Orphans. Note the warning, not a silent pass: on a platform where another process's
+    // environment cannot be read, an empty result means "could not look", not "nothing there".
+    // Reporting it as a warning keeps the safety check honest instead of quietly becoming a no-op.
+    const { found: orphans, supported: orphansScannable } = scanOrphans({ ccsId: ctx.ccsId, settingsFile: paths.settingsFile(ctx.ccsId) });
     if (orphans.length) return block('ORPHAN_ALIVE', { pid: orphans[0].pid, argv0: orphans[0].argv0 });
+    if (!orphansScannable) warnings.push('ORPHAN_SCAN_UNAVAILABLE this platform cannot read other processes\' environments, so an orphaned agent would not be detected');
     // 6. Account hash.
     const accountHash = hashAccount(guard.obj);
     if (ctx.state && ctx.state.accountHash && accountHash && ctx.state.accountHash !== accountHash) {

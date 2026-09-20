@@ -15,7 +15,6 @@
  * Local Ctrl+Z / Ctrl+\ detection uses the same decoder port as the host (plan 01), so a detach works
  * even while the host is hung; everything else is sent as INPUT and filtered authoritatively by sessiond.
  */
-const fs = require('fs');
 const net = require('net');
 const { FramedSocket, T, CTL_PROTO } = require('../common/proto.js');
 const { onControl } = require('../common/ctlclient.js');
@@ -23,6 +22,7 @@ const { InputTokenizer } = require('../common/vt/inputtok.js');
 const { decodeInputToken, classify } = require('../common/vt/keys.js');
 const { realClock } = require('../common/clock.js');
 const { loadConfig } = require('../common/config.js');
+const platform = require('../common/platform/index.js');
 
 const BACKOFF_MS = [500, 1000, 2000, 4000, 5000];
 const RECONNECT_WINDOW_MS = 120000;
@@ -285,7 +285,7 @@ class AttachClient {
     this.phase = 'connecting';
     const { stdout, env } = this.io;
     let tty = null;
-    try { tty = fs.readlinkSync('/proc/self/fd/0'); } catch { /* not a /proc system */ }
+    try { tty = platform.selfTty(); } catch { /* no controlling terminal */ }
     const s = net.createConnection(this.paths.ctlSock(this.id));
     const fsock = new FramedSocket(s);
     this.sock = fsock;
