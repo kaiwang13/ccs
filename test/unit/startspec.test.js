@@ -26,3 +26,11 @@ test('the session spec is built through the agent selected by intent.agent', asy
   // A record explicitly marked claude resolves to the same agent as an absent field.
   assert.equal(getAgent('claude').id, getAgent(undefined).id);
 });
+
+test('startspec resolves the binary through the agent, not a direct launcher import', () => {
+  const src = require('node:fs').readFileSync(require.resolve('../../src/sessiond/startspec.js'), 'utf8');
+  // resolveClaudeBin must no longer appear: bin resolution goes through getAgent(...).resolveBin.
+  assert.ok(!/resolveClaudeBin/.test(src),
+    'startspec must resolve the binary via the agent — a Codex session must not resolve a Claude binary');
+  assert.match(src, /getAgent\([^)]*\)\.resolveBin\(/, 'expected an agent.resolveBin call');
+});

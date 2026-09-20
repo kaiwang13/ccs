@@ -23,7 +23,7 @@ const { createRegistry } = require('../common/registry.js');
 const { controlRequest } = require('../common/ctlclient.js');
 const { validateSessionSpec } = require('./spec.js');
 const { getAgent } = require('../agents/index.js');
-const { resolveClaudeBin, LaunchError } = require('./launcher.js');
+const { LaunchError } = require('./launcher.js');
 
 const ID_RE = /^[0-9a-f]{8}$/;
 const SETTLED = new Set(['RUNNING', 'SETUP_GATED', 'SUSPENDED', 'BLOCKED', 'FAILED', 'EXITED', 'STOPPING', 'STOPPED', 'STOP_STUCK']);
@@ -38,7 +38,7 @@ async function buildSessionSpec(ccsId, paths, opts = {}) {
   const timeoutMs = config.registry.nfsTimeoutMs;
   const rec = opts.rec || await createRegistry(paths, { nfsTimeoutMs: timeoutMs }).get(ccsId);
   if (!rec) throw new Error(`no registry entry for session ${ccsId}`);
-  const bin = opts.bin || resolveClaudeBin(paths, config);
+  const bin = opts.bin || getAgent(rec.intent.agent).resolveBin(paths, config);
   if (!bin) throw new LaunchError('CLAUDE_MISSING', 'no claude binary found');
   const sessionId = (rec.state && rec.state.lastSessionId) || rec.intent.initialSessionId;
   const claudeSettings = await runNfsOp({ kind: 'readJson', args: [paths.claudeSettings, { retries: 1, retryDelayMs: 50 }] }, timeoutMs);
@@ -166,7 +166,7 @@ async function startMain(argv, env = process.env, deps = {}) {
   }
   if (rec.intent.desired !== 'running') { log.info('start.not_desired', { desired: rec.intent.desired }); return 0; }
 
-  const bin = resolveClaudeBin(paths, config);
+  const bin = getAgent(rec.intent.agent).resolveBin(paths, config);
   const sessionId = (rec.state && rec.state.lastSessionId) || rec.intent.initialSessionId;
   const base = {
     ...(rec.state || {}), bootId: bootId(), writer: { pid: process.pid, procStart: procStart(process.pid) },
