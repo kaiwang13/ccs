@@ -9,7 +9,7 @@ const { UsageError } = require('./args.js');
 
 const USAGE = `usage:
   ccs                                   picker on a terminal, otherwise ccs ls
-  ccs new [NAME] [--cwd DIR] [--no-attach] [--allow-setup] [--resume SESSION_ID] [--name-from-cwd] [-- --model opus …]
+  ccs new [NAME] [--cwd DIR] [--no-attach] [--allow-setup] [--resume SESSION_ID] [--name-from-cwd] [--agent AGENT] [-- --model opus …]
   ccs attach|a [NAME] [--shrink] [--allow-setup]
   ccs ls [--json]
   ccs stop NAME|--all

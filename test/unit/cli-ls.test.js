@@ -1,7 +1,7 @@
 'use strict';
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { statusView, claudeStatusView, sessionRow, formatTable, formatAge, tildify } = require('../../src/cli/ls.js');
+const { statusView, claudeStatusView, sessionRow, formatTable, formatAge, tildify, codexActivityText } = require('../../src/cli/ls.js');
 const { parseArgs, UsageError } = require('../../src/cli/args.js');
 
 test('claude status mapping treats status and waitingFor as open enums (H7.2)', () => {
@@ -107,4 +107,19 @@ test('parseArgs', () => {
   assert.deepEqual(parseArgs(['x', '--cwd', '/d', '--no-attach', '--', '--model', 'opus'], { bool: ['--no-attach'], value: ['--cwd'] }), { flags: { '--cwd': '/d', '--no-attach': true }, positional: ['x'], rest: ['--model', 'opus'] });
   assert.throws(() => parseArgs(['--bogus'], {}), UsageError);
   assert.throws(() => parseArgs(['--cwd'], { value: ['--cwd'] }), UsageError);
+});
+
+test('every row carries an agent, defaulting to claude for a record written before multi-agent', () => {
+  const row = sessionRow({ id: 'aaaa1111', rec: { intent: { cwd: '/w', desired: 'running' }, state: null }, live: false, status: null });
+  assert.equal(row.agent, 'claude', 'an intent with no agent field must render as claude');
+  const codexRow = sessionRow({ id: 'bbbb2222', rec: { intent: { cwd: '/w', desired: 'running', agent: 'codex' }, state: null }, live: false, status: null });
+  assert.equal(codexRow.agent, 'codex');
+});
+
+test('codex activity is honest about what it does and does not know', () => {
+  const now = 1_000_000_000;
+  assert.equal(codexActivityText(now - 30_000, now), 'active now');
+  assert.equal(codexActivityText(now - 3 * 60_000, now), 'active 3m');
+  assert.equal(codexActivityText(now - 5 * 3600_000, now), 'idle', 'stale means idle, not a fake status');
+  assert.equal(codexActivityText(null, now), 'idle', 'no thread yet is idle, never "working"');
 });

@@ -12,6 +12,7 @@ const fs = require('fs');
 const path = require('path');
 const { parseArgs, UsageError } = require('../args.js');
 const { normalizeName, sanitizeName } = require('../../common/registry.js');
+const { KNOWN_AGENTS, DEFAULT_AGENT, formatUnknownAgent, getAgent } = require('../../agents/index.js');
 const { runNfsOp } = require('../../common/nfsworker.js');
 const { captureIntentEnv } = require('../../sessiond/env.js');
 const { validateExtraArgs } = require('../../sessiond/launcher.js');
@@ -47,13 +48,16 @@ function nameFromCwdByDefault(config, hidepid) {
 
 /** @param {string[]} argv @param {any} ctx */
 async function run(argv, ctx) {
-  const { flags, positional, rest } = parseArgs(argv, { bool: ['--no-attach', '--allow-setup', '--name-from-cwd'], value: ['--cwd', '--resume'] });
+  const { flags, positional, rest } = parseArgs(argv, { bool: ['--no-attach', '--allow-setup', '--name-from-cwd'], value: ['--cwd', '--resume', '--agent'] });
   if (positional.length > 1) throw new UsageError('ccs new takes at most one NAME (put claude arguments after --)');
   const io = { stdin: ctx.stdin, stdout: ctx.out, stderr: ctx.err, env: ctx.env };
   if (!flags['--no-attach']) {
     const refused = attachPrecheck(io);
     if (refused) { ctx.err.write(`${refused.message} (use --no-attach)\n`); return refused.code; }
   }
+
+  const agent = flags['--agent'] || (ctx.config.defaultAgent || DEFAULT_AGENT);
+  if (!KNOWN_AGENTS.includes(agent)) { ctx.err.write(`ccs: ${formatUnknownAgent(agent)}\n`); return 2; }
 
   let cwd;
   try {
@@ -75,7 +79,7 @@ async function run(argv, ctx) {
   } else if (flags['--name-from-cwd'] || nameFromCwdByDefault(ctx.config, hidepid)) {
     name = sanitizeName(path.basename(cwd));
   }
-  if (name && !hidepid) {
+  if (name && !hidepid && getAgent(agent).capabilities.nameInArgv) {
     ctx.err.write(`ccs: note: /proc on this host has no hidepid, so the session name '${name}' is visible to every account in the process list\n`);
   }
   // validateExtraArgs above only polices dash-prefixed tokens (several allowlisted flags are variadic, so a
@@ -111,7 +115,7 @@ async function run(argv, ctx) {
   const trusted = !!(projectEntry && projectEntry.hasTrustDialogAccepted === true);
 
   const env = captureIntentEnv(ctx.env, { passthrough: ctx.config.env.passthrough });
-  const rec = await ctx.registry.create({ name, cwd, claudeArgs: rest, env, trustExpected: !trusted, initialSessionId });
+  const rec = await ctx.registry.create({ name, cwd, claudeArgs: rest, env, trustExpected: !trusted, initialSessionId, agent });
   const finalName = rec.intent.nameAtCreate;
   if (!trusted) {
     ctx.err.write(`ccs: ${tildify(cwd)} is not trusted by Claude yet — its trust dialog will appear; ${flags['--no-attach'] ? `answer it with: ccs a ${finalName} --allow-setup` : 'answer it in this terminal'}\n`);
