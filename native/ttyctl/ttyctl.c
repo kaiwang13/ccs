@@ -48,10 +48,14 @@
 #define CCS_INQ_IOCTL FIONREAD
 #define CCS_PEERCRED_LEVEL SOL_LOCAL
 #define CCS_PEERCRED_OPT LOCAL_PEERCRED
+#define CCS_PEERCRED_STRUCT struct xucred
+#define CCS_PEERCRED_UID cred.cr_uid
 #else
 #define CCS_INQ_IOCTL TIOCINQ
 #define CCS_PEERCRED_LEVEL SOL_SOCKET
 #define CCS_PEERCRED_OPT SO_PEERCRED
+#define CCS_PEERCRED_STRUCT struct ucred
+#define CCS_PEERCRED_UID cred.uid
 #endif
 
 static const char *errno_name(int e) {
@@ -229,14 +233,12 @@ static napi_value PeerUid(napi_env env, napi_callback_info info) {
   napi_value argv[1];
   int fd;
   if (!get_args(env, info, 1, argv) || !get_fd(env, argv[0], &fd)) return NULL;
-#if defined(__APPLE__)
-  struct xucred cred;
-#else
-  struct ucred cred;
-#endif
+  // The struct differs by name AND by field: macOS's xucred carries cr_uid, Linux's ucred carries
+  // uid. Both are named through the macros above so this function has one body.
+  CCS_PEERCRED_STRUCT cred;
   socklen_t len = sizeof cred;
   if (getsockopt(fd, CCS_PEERCRED_LEVEL, CCS_PEERCRED_OPT, &cred, &len) != 0) return throw_errno(env, "getsockopt(CCS_PEERCRED_OPT)", errno);
-  return make_int(env, cred.cr_uid);
+  return make_int(env, CCS_PEERCRED_UID);
 }
 
 #if defined(__APPLE__)
