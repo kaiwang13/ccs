@@ -1,0 +1,63 @@
+'use strict';
+const test = require('node:test');
+const assert = require('node:assert/strict');
+const codex = require('../../src/agents/codex.js');
+
+const BIN = { path: '/opt/codex/0.155.0/bin/codex', version: '0.155.0', tested: true, source: 'install' };
+const CONFIG = { codex: { extraArgsAllow: ['--model', '--sandbox'] }, env: { passthrough: [], sshAuthSock: null } };
+
+function ctx(over = {}) {
+  return {
+    intent: { ccsId: 'abcd1234', nameAtCreate: 'demo', cwd: '/w/proj', claudeArgs: [], env: { PATH: '/usr/bin' }, ...over.intent },
+    state: over.state === undefined ? null : over.state,
+    paths: { runtimeDir: '/tmp/ccs-1' },
+    config: CONFIG,
+    bin: BIN,
+  };
+}
+
+test('capabilities state what Codex actually does, not what Claude does', () => {
+  const c = codex.capabilities;
+  assert.equal(c.liveStatus, false, 'Codex exposes no per-session status file');
+  assert.equal(c.assignableSessionId, false, 'Codex mints its own id; ccs discovers it afterwards');
+  assert.equal(c.nameInArgv, false, 'Codex takes no -n NAME, so the ccs name never reaches /proc');
+  assert.equal(c.remoteControl, 'daemon');
+  assert.equal(codex.id, 'codex');
+});
+
+test('a new session launches with -C cwd and no session id', () => {
+  const l = codex.buildLaunch(ctx());
+  assert.deepEqual(l.argv, ['/opt/codex/0.155.0/bin/codex', '-C', '/w/proj']);
+  assert.equal(l.mode, 'new');
+  assert.equal(l.sessionId, null, 'no id exists until Codex creates the thread');
+  assert.equal(l.settingsFile, null, 'ccs never writes Codex config');
+  assert.equal(l.cwd, '/w/proj');
+  assert.equal(l.version, '0.155.0');
+});
+
+test('a known thread id resumes it', () => {
+  const l = codex.buildLaunch(ctx({ state: { lastSessionId: '01a0ba74-15de-7763-9852-1b5466afc64c' } }));
+  assert.deepEqual(l.argv, ['/opt/codex/0.155.0/bin/codex', 'resume', '01a0ba74-15de-7763-9852-1b5466afc64c', '-C', '/w/proj']);
+  assert.equal(l.mode, 'resume');
+  assert.equal(l.sessionId, '01a0ba74-15de-7763-9852-1b5466afc64c');
+});
+
+test('resumeArgv always carries the {sessionId} token the session spec requires', () => {
+  for (const c of [ctx(), ctx({ state: { lastSessionId: 'abc' } })]) {
+    assert.ok(codex.buildLaunch(c).resumeArgv.includes('{sessionId}'),
+      'spec.js rejects a resumeArgv without this token');
+  }
+});
+
+test('allowed extra args pass through; a disallowed flag is refused', () => {
+  const ok = codex.buildLaunch(ctx({ intent: { claudeArgs: ['--model', 'gpt-5.6-luna'] } }));
+  assert.deepEqual(ok.argv.slice(-2), ['--model', 'gpt-5.6-luna']);
+  assert.throws(() => codex.buildLaunch(ctx({ intent: { claudeArgs: ['--dangerously-bypass-approvals-and-sandbox'] } })),
+    /not allowed/i, 'a flag outside codex.extraArgsAllow must be refused, not silently passed to codex');
+});
+
+test('writeSettingsFile is a no-op that cannot write anything', () => {
+  assert.doesNotThrow(() => codex.writeSettingsFile(null, null));
+  assert.doesNotThrow(() => codex.writeSettingsFile('/tmp/should-not-be-written', 'dark'));
+  assert.equal(require('fs').existsSync('/tmp/should-not-be-written'), false);
+});
