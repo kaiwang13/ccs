@@ -9,6 +9,7 @@
   },
   "scripts": {
     "build:native": "node-gyp rebuild --directory=native/ttyctl --nodedir=$(node -p \"require('path').dirname(require('path').dirname(process.execPath))\")",
+    "postinstall": "node tools/fix-node-pty-helper.js",
     "test": "node --test \"test/unit/**/*.test.js\" \"test/golden/**/*.test.js\" \"test/integration/**/*.test.js\"",
     "test:unit": "node --test \"test/unit/**/*.test.js\"",
     "test:golden": "node --test \"test/golden/**/*.test.js\"",

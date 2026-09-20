@@ -20,6 +20,23 @@ test('defaults derive from HOME and uid', () => {
   assert.equal(p.claudeVersionsDir, '/home/u/.local/share/claude/versions');
 });
 
+test('a hostname may be an FQDN, and the id/component cap is unchanged', () => {
+  // macOS reports names like `<host>.local` and a CI runner's generated name already exceeds Linux's
+  // HOST_NAME_MAX of 64 -- both are legitimate hostnames and were rejected before this. The
+  // character class still forbids path separators and traversal.
+  const long = 'sat12-dp149-3e05aefb-ea74-4507-9c38-0c2d3e130409-82AC1E0407B2.local';
+  const p = resolvePaths({ HOME: '/home/u', CCS_HOSTNAME: long });
+  assert.equal(p.hostname, long);
+  assert.ok(long.length > 64, 'this test is only meaningful for a name longer than the 64-char cap');
+  assert.equal(resolvePaths({ HOME: '/home/u', CCS_HOSTNAME: 'host.local' }).hostname, 'host.local');
+  for (const bad of ['../evil', 'a/b', '.hidden', 'x'.repeat(300)]) {
+    assert.throws(() => resolvePaths({ HOME: '/home/u', CCS_HOSTNAME: bad }), TypeError, bad);
+  }
+  // Session ids and log components keep the narrower bound: this widening is about hostnames only.
+  const q = resolvePaths({ HOME: '/home/u' });
+  assert.throws(() => q.sessionDir('x'.repeat(65)), TypeError);
+});
+
 test('runtime layout (local /tmp)', () => {
   const p = resolvePaths({ HOME: '/home/u', CCS_RUNTIME_DIR: '/tmp/ccst-abc' });
   assert.equal(p.sessionDir('k3f9x2ab'), '/tmp/ccst-abc/s/k3f9x2ab');
