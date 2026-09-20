@@ -47,7 +47,17 @@ async function waitFor(cond, ms = 2000) {
 }
 
 test('exports exactly the contract API', () => {
-  assert.deepEqual(Object.keys(ttyctl).sort(), ['closeFd', 'flock', 'inq', 'lflag', 'openSlave', 'peerUid', 'tcgetpgrp']);
+  // The seven calls both platforms must provide. macOS adds procInfo/listPids (libproc), because it
+  // has no /proc for darwin.js to read -- so the assertion is "at least these, and nothing
+  // unexpected", with the extra names pinned separately below.
+  const core = ['closeFd', 'flock', 'inq', 'lflag', 'openSlave', 'peerUid', 'tcgetpgrp'];
+  const keys = Object.keys(ttyctl).sort();
+  for (const k of core) assert.ok(keys.includes(k), `missing contract export: ${k}`);
+  const extra = keys.filter((k) => !core.includes(k));
+  const allowed = require('../../src/common/platform/index.js').capabilities.name === 'darwin'
+    ? ['listPids', 'procInfo']
+    : [];
+  assert.deepEqual(extra, allowed, 'unexpected extra exports from the addon');
 });
 
 test('lflag reports cooked mode for a fresh shell PTY', async (t) => {
@@ -61,22 +71,33 @@ test('lflag reports raw mode after stty raw -echo (TCGETS on the master returns 
   assert.deepEqual(ttyctl.lflag(p._fd), { icanon: false, isig: false, echo: false });
 });
 
-test('inq counts unread input on the SLAVE fd while the master fd reads 0', async (t) => {
-  // raw mode so TIOCINQ counts bytes, not complete canonical lines; sleep never reads stdin
+test('inq counts unread input on the SLAVE fd', async (t) => {
+  // raw mode so the line discipline counts bytes rather than complete canonical lines; sleep never
+  // reads stdin, so the bytes stay queued.
   const p = await spawnShell(t, 'stty raw -echo && echo ready && exec sleep 5');
   const slaveFd = ttyctl.openSlave(p.ptsName);
   t.after(() => ttyctl.closeFd(slaveFd));
   assert.equal(ttyctl.inq(slaveFd), 0);
   p.write('hello');
   assert.ok(await waitFor(() => ttyctl.inq(slaveFd) === 5), `slave inq=${ttyctl.inq(slaveFd)}`);
-  assert.equal(ttyctl.inq(p._fd), 0);
+  // On Linux the master is a tty fd whose line discipline reports nothing, so it reads 0 and the
+  // slave fd is required. On macOS the master is a socket to the pty driver with no such
+  // discipline, and FIONREAD reports the same queued count. ccs only ever asks the slave; this
+  // records the difference so nobody "fixes" the macOS number to match Linux.
+  const masterInq = ttyctl.inq(p._fd);
+  if (require('../../src/common/platform/index.js').capabilities.name === 'linux') {
+    assert.equal(masterInq, 0, 'Linux: the master reports 0 by design');
+  } else {
+    assert.equal(masterInq, 5, 'macOS: the master has no line discipline and reports the count');
+  }
 });
 
 test('tcgetpgrp on the master equals the session leader child pgid', async (t) => {
   const p = await spawnShell(t, 'echo ready; exec sleep 5');
-  const stat = fs.readFileSync(`/proc/${p.pid}/stat`, 'utf8');
-  const pgrp = Number(stat.slice(stat.lastIndexOf(')') + 2).split(' ')[2]);
-  assert.equal(pgrp, p.pid);
+  // Read the pgid through the seam rather than /proc, so this runs on macOS too.
+  const P = require('../../src/common/procinfo.js');
+  const pgrp = P.pgid(p.pid);
+  assert.equal(pgrp, p.pid, 'the child leads its own process group');
   assert.equal(ttyctl.tcgetpgrp(p._fd), p.pid);
 });
 

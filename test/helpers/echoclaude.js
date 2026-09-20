@@ -21,10 +21,14 @@ let opts = {};
 try { opts = JSON.parse(fs.readFileSync(path.join(home, 'echoclaude.json'), 'utf8')); } catch { /* defaults */ }
 const historyLines = Number.isInteger(opts.historyLines) ? opts.historyLines : 40;
 
-const statFields = fs.readFileSync('/proc/self/stat', 'utf8');
-const procStart = statFields.slice(statFields.lastIndexOf(')') + 2).split(' ')[19];
-const machineId = fs.readFileSync('/etc/machine-id', 'utf8').trim();
-const pidNs = fs.readlinkSync('/proc/self/ns/pid'); // "pid:[4026531836]"
+// Read this process's identity through the platform seam, so this fake reports the same procStart
+// and pidDomain a real claude would on this platform (/proc on Linux, libproc on macOS) and writes
+// the bare literal 'darwin' as its pidDomain on macOS. See parsePidDomain.
+const procinfo = require('../../src/common/procinfo.js');
+const procStart = procinfo.procStart(process.pid);
+const machineId = procinfo.machineId();
+const PID_NS = procinfo.pidNs(process.pid);
+const pidDomain = PID_NS === null ? 'darwin' : `linux:${machineId}:pid:[${PID_NS}]`;
 const sessDir = path.join(home, '.claude', 'sessions');
 const sessFile = path.join(sessDir, `${process.pid}.json`);
 
@@ -36,7 +40,7 @@ function writeSessionJson(status) {
   const tmp = `${sessFile}.tmp`;
   fs.writeFileSync(tmp, JSON.stringify({
     pid: process.pid, sessionId, cwd: process.cwd(), startedAt: now, procStart, version: 'echoclaude',
-    kind: 'interactive', entrypoint: 'cli', pidDomain: `linux:${machineId}:${pidNs}`,
+    kind: 'interactive', entrypoint: 'cli', pidDomain,
     messagingSocketPath: path.join(process.env.XDG_RUNTIME_DIR || '/tmp', 'cc-socks', `${process.pid}.sock`),
     name, nameSource: 'user', status, updatedAt: now, statusUpdatedAt: now,
   }));

@@ -5,7 +5,8 @@ const fs = require('fs');
 const path = require('path');
 const cp = require('child_process');
 const { resolvePaths } = require('../../src/common/paths.js');
-const { listPids, readEnviron } = require('../../src/common/procinfo.js');
+const { readEnviron } = require('../../src/common/procinfo.js');
+const { allProcessArgvs } = require('./processes.js');
 const { isLocked } = require('../../src/common/locks.js');
 const { controlRequest } = require('../../src/common/ctlclient.js');
 const { claudeJsonFixture } = require('./claudejson.js');
@@ -70,13 +71,23 @@ function makeCcsEnv(t, o = {}) {
 }
 
 /** Processes started for this env: sessiond/holder inherit CCS_RUNTIME_DIR; claude carries CCS_ID and
- *  HOME=<env home>. Only ever SIGTERM, only ever our own processes. */
+ *  HOME=<env home>. Only ever SIGTERM, only ever our own processes.
+ *
+ *  On Linux this matches on the environment, which is exact. macOS cannot read another process's
+ *  environment (handoff brief §5a), so there it matches on the command line instead: every process
+ *  this env starts is spawned with a path under ctx.root -- sessiond/holder by `--spec <root>/...`,
+ *  and claude by CCS_CLAUDE_BIN, which lives in the root. That is coarser (a process that merely
+ *  mentions the root would match) but this is only ever used to decide which of our own test
+ *  processes to signal, and every candidate it selects was started by this test. */
 function envPids(ctx) {
+  // ctx.root is created with mkdtemp, so on macOS it is already the canonical /private/tmp path
+  // while ctx.env's values may still say /tmp; match either spelling of the same directory.
+  const markers = [String(ctx.root), String(ctx.env.CCS_RUNTIME_DIR)].filter((v, i, a) => v && a.indexOf(v) === i);
   const found = [];
-  for (const pid of listPids()) {
-    if (pid === process.pid) continue;
+  for (const { pid, argv } of allProcessArgvs()) {
+    if (!markers.some((m) => argv.includes(m))) continue;
     const e = readEnviron(pid);
-    if (!e) continue;
+    if (!e) { found.push(pid); continue; } // macOS: argv matched, environment unreadable
     if (e.CCS_RUNTIME_DIR === ctx.env.CCS_RUNTIME_DIR || (e.CCS_ID && e.HOME === ctx.home)) found.push(pid);
   }
   return found;

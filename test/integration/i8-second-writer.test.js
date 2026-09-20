@@ -13,7 +13,15 @@ const { closeNfsWorker } = require('../../src/common/nfsworker.js');
 const { makeCcsEnv, waitFor, spawnSessiond, envPids, writeNodeWrapper, REPO } = require('../helpers/ccsenv.js');
 
 test.after(() => closeNfsWorker());
-const pidNs = fs.readlinkSync('/proc/self/ns/pid'); // "pid:[4026531836]"
+// Build the pidDomain a real claude writes on this platform -- "linux:<machine-id>:pid:[<ns>]" on
+// Linux, the bare literal 'darwin' on macOS -- so these tests drive the same parse path a real
+// session file does. `localDomain()` is therefore platform-aware; `foreignDomain()` deliberately
+// uses the Linux form on both platforms, because parsing it is pure string work with no platform
+// guard, and a session file written by a Linux host must still classify as remote from a Mac.
+const { pidNs: selfPidNs } = require('../../src/common/procinfo.js');
+const NS = selfPidNs(process.pid);
+const localDomain = () => (NS === null ? 'darwin' : `linux:${machineId()}:pid:[${NS}]`);
+const foreignDomain = (/** @type {string} */ id) => `linux:${id}:pid:[4026531836]`;
 
 function spyEnv(t, opts = {}) {
   const ctx = makeCcsEnv(t, opts);
@@ -37,7 +45,7 @@ test('I8: a live local claude holding the conversation blocks the start with SEC
   const other = cp.spawn(process.execPath, ['-e', 'setInterval(()=>{},1000)'], { stdio: 'ignore' });
   t.after(() => other.kill('SIGTERM'));
   await waitFor(() => procStart(other.pid), 2000, 'other process');
-  writeHolderJson(ctx, other.pid, { sessionId: rec.intent.initialSessionId, procStart: procStart(other.pid), pidDomain: `linux:${machineId()}:${pidNs}`, cwd: ctx.work, updatedAt: Date.now() });
+  writeHolderJson(ctx, other.pid, { sessionId: rec.intent.initialSessionId, procStart: procStart(other.pid), pidDomain: localDomain(), cwd: ctx.work, updatedAt: Date.now() });
   const { exited } = spawnSessiond(ctx, ['--start', rec.id]);
   assert.equal((await exited).code, 2);
   const state = await createRegistry(ctx.paths).readState(rec.id);
@@ -53,7 +61,7 @@ test('I8: a recently updated holder on another machine blocks with SECOND_WRITER
   const { ctx, marker } = spyEnv(t);
   const rec = await newRecord(ctx);
   const foreign = 'f'.repeat(32);
-  writeHolderJson(ctx, 4242, { sessionId: rec.intent.initialSessionId, procStart: '1', pidDomain: `linux:${foreign}:pid:[4026531836]`, cwd: '/remote/proj', updatedAt: Date.now() - 5000 });
+  writeHolderJson(ctx, 4242, { sessionId: rec.intent.initialSessionId, procStart: '1', pidDomain: foreignDomain(foreign), cwd: '/remote/proj', updatedAt: Date.now() - 5000 });
   const first = spawnSessiond(ctx, ['--start', rec.id]);
   assert.equal((await first.exited).code, 2);
   const state = await createRegistry(ctx.paths).readState(rec.id);
@@ -62,7 +70,7 @@ test('I8: a recently updated holder on another machine blocks with SECOND_WRITER
   assert.equal(state.blocked.detail.cwd, '/remote/proj');
   assert.equal(fs.existsSync(marker), false);
 
-  writeHolderJson(ctx, 4242, { sessionId: rec.intent.initialSessionId, procStart: '1', pidDomain: `linux:${foreign}:pid:[4026531836]`, cwd: '/remote/proj', updatedAt: Date.now() - 10 * 60 * 1000 });
+  writeHolderJson(ctx, 4242, { sessionId: rec.intent.initialSessionId, procStart: '1', pidDomain: foreignDomain(foreign), cwd: '/remote/proj', updatedAt: Date.now() - 10 * 60 * 1000 });
   spawnSessiond(ctx, ['--start', rec.id]);
   await waitFor(() => probeSocket(ctx.paths.ctlSock(rec.id), 200), 20000, 'ctl.sock after stale remote entry');
   await waitFor(() => fs.existsSync(marker), 10000, 'spy claude spawned');
@@ -74,7 +82,7 @@ test('I8: a recently updated holder on another machine blocks with SECOND_WRITER
 test('I8: a stale local entry (dead pid) does not block', async (t) => {
   const { ctx, marker } = spyEnv(t);
   const rec = await newRecord(ctx);
-  writeHolderJson(ctx, 999999, { sessionId: rec.intent.initialSessionId, procStart: '12345', pidDomain: `linux:${machineId()}:${pidNs}`, updatedAt: Date.now() });
+  writeHolderJson(ctx, 999999, { sessionId: rec.intent.initialSessionId, procStart: '12345', pidDomain: localDomain(), updatedAt: Date.now() });
   spawnSessiond(ctx, ['--start', rec.id]);
   await waitFor(() => probeSocket(ctx.paths.ctlSock(rec.id), 200), 20000, 'ctl.sock');
   await waitFor(() => fs.existsSync(marker), 10000, 'spy claude spawned');

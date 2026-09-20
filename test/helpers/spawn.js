@@ -5,6 +5,7 @@ const path = require('node:path');
 const { spawn } = require('node:child_process');
 const procinfo = require('../../src/common/procinfo');
 const { waitFor, sleep } = require('./waitfor');
+const { processesUnder } = require('./processes');
 
 const ROOT = path.resolve(__dirname, '..', '..');
 const NODE = process.execPath;
@@ -33,19 +34,6 @@ function makeSessionSpec(tmp, { id = 'sess01', name = 'fake', fakeArgs = [], ext
 /** The fake claude's record (null until written). @param {{root: string}} tmp @param {string} [id] */
 function readRecord(tmp, id = 'sess01') {
   try { return JSON.parse(fs.readFileSync(path.join(tmp.root, `fake-${id}.json`), 'utf8')); } catch { return null; }
-}
-
-/** Every process (other than this one) whose cmdline or environment mentions `root`. @param {string} root @returns {number[]} */
-function processesUnder(root) {
-  const out = [];
-  for (const pid of procinfo.listPids()) {
-    if (pid === process.pid) continue;
-    let cmd = '';
-    try { cmd = fs.readFileSync(`/proc/${pid}/cmdline`, 'utf8'); } catch { continue; }
-    const env = procinfo.readEnviron(pid);
-    if (cmd.includes(root) || (env && Object.values(env).some((v) => v.includes(root)))) out.push(pid);
-  }
-  return out;
 }
 
 /**

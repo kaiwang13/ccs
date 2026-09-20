@@ -66,7 +66,10 @@ test('create writes a 0600 intent with an opaque default name and host.json', as
   assert.equal(rec.intent.host.hostname, 'testhost');
   assert.equal(fs.statSync(paths.intentFile(rec.id)).mode & 0o777, 0o600);
   const host = JSON.parse(fs.readFileSync(path.join(paths.hostDir, 'host.json'), 'utf8'));
-  assert.equal(host.machineId, fs.readFileSync('/etc/machine-id', 'utf8').trim());
+  // Compare against the seam, not /etc/machine-id: the value is platform-dependent (Linux reads
+  // /etc/machine-id, macOS derives it from IOPlatformUUID), and what this test is actually
+  // asserting is that host.json records the machine identity the rest of ccs will compare against.
+  assert.equal(host.machineId, require('../../src/common/procinfo.js').machineId());
   const got = await reg.get(rec.id);
   assert.deepEqual(got.intent, rec.intent);
   assert.equal(got.state, null);

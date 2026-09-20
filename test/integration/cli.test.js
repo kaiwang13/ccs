@@ -58,7 +58,10 @@ test('new --no-attach → ls → stop → restart → rm refuses while running �
 
 test('default names: opaque ccs-<id6> without hidepid; --name-from-cwd prints the exposure note', async (t) => {
   const ctx = makeCcsEnv(t);
-  const hidepid = hidepidEnabled(fs.readFileSync('/proc/mounts', 'utf8'));
+  // On macOS there is no /proc/mounts; the platform seam reports no hidepid, which is the same
+  // answer a Linux host without it gives -- so the expectation below holds on both.
+  const mounts = require('../../src/common/platform/index.js').mountsText();
+  const hidepid = mounts === null ? false : hidepidEnabled(mounts);
   const a = await runCcs(ctx, ['new', '--no-attach']);
   assert.equal(a.code, 0, a.stderr);
   const b = await runCcs(ctx, ['new', '--no-attach', '--name-from-cwd']);

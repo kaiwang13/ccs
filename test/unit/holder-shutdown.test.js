@@ -9,7 +9,13 @@ const { shutdownCorroborated, validateHolderSpec } = require('../../src/holder/m
 /** @param {import('node:test').TestContext} t */
 function tmpdir(t) { const d = fs.mkdtempSync(path.join(os.tmpdir(), 'ccsu-')); t.after(() => fs.rmSync(d, { recursive: true, force: true })); return d; }
 
-test('a SIGTERM is a host shutdown only with independent evidence', (t) => {
+// The evidence this reads is systemd's (a /run/systemd/shutdown/scheduled file and
+// `systemctl is-system-running`). The port keeps the same interface everywhere but answers false
+// on macOS, which has neither -- so this test describes Linux behaviour and skips elsewhere rather
+// than asserting a false positive. The macOS answer is pinned in platform-seam.test.js.
+const isLinux = require('../../src/common/platform/index.js').capabilities.name === 'linux';
+
+test('a SIGTERM is a host shutdown only with independent evidence', { skip: isLinux ? false : 'systemd-specific: macOS has no equivalent evidence source' }, (t) => {
   const d = tmpdir(t);
   const running = path.join(d, 'systemctl-running');
   fs.writeFileSync(running, '#!/bin/sh\necho running\n', { mode: 0o755 });
