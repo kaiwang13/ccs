@@ -209,3 +209,11 @@ test('runtime dir check: missing, wrong mode, symlink', (t) => {
   fs.symlinkSync(paths.runtimeDir, link.runtimeDir);
   assert.match(checkRuntimeDir(link).detail, /is a symlink/);
 });
+
+test('doctor reports codex when it is installed, and stays silent-but-ok when it is not', async (t) => {
+  const ctx = makeCcsEnv(t);                          // existing helper in this file
+  // No codex binary in the fixture environment: doctor must still exit 0 — codex is optional.
+  const r = await runCcs(ctx, ['doctor', '--lite']);
+  assert.equal(r.code, 0, r.stdout + r.stderr);
+  assert.doesNotMatch(r.stdout, /^ {2}FAIL {2}codex/m, 'a machine without codex must not fail doctor');
+});

@@ -9,7 +9,7 @@
 const cp = require('child_process');
 const fs = require('fs');
 const path = require('path');
-const { getAgent } = require('../agents/index.js');
+const { getAgent, KNOWN_AGENTS } = require('../agents/index.js');
 const { claudeJsonGuard, checkClaudeJson, backupClaudeJson } = require('../sessiond/preflight.js');
 const { loadDecoderBaseline } = require('../claude/tested.js');
 const { tildify } = require('./ls.js');
@@ -169,6 +169,8 @@ async function runDoctorLite({ paths, config, out, acceptConfig = false, nfsTime
   if (bin) checks.push(checkDecoder(bin, decoderTimeoutMs));
   checks.push(...(await checkClaudeJsonHealth(paths, nfsTimeoutMs)));
   checks.push(checkRuntimeDir(paths));
+  // Each agent contributes its own checks; Claude's are still the inline ones above (it returns []).
+  for (const id of KNOWN_AGENTS) checks.push(...getAgent(id).doctorChecks(paths, config));
   const tag = { ok: '  ok  ', warn: '  WARN', fail: '  FAIL' };
   for (const c of checks) out.write(`${tag[c.level]}  ${c.label}: ${c.detail}\n`);
   out.write('\nrecommended client settings (spec §10.6):\n');

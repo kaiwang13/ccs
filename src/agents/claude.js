@@ -35,7 +35,10 @@ module.exports = {
    *  Note ClaudeWatch takes ONE options object ({claudeHome, clock, pidProvider, …}), not (pid, paths). */
   observe: () => { throw new Error('agent.observe is not implemented in Plan A — see src/sessiond/supervisor.js:317'); },
   preflight: (ctx) => runPreflight(ctx),
-  doctorChecks: () => [], // doctor keeps calling its own Claude checks in Plan A; Plan B moves them here
+  /** Claude's checks are still inline in src/cli/doctor.js (checkClaude/checkDecoder/checkClaudeJsonHealth).
+   *  Moving them here would be a pure refactor of working code with no behavioural gain; it is deliberately
+   *  not done. Returning [] keeps doctor's per-agent loop uniform. */
+  doctorChecks: () => [],
   /** Claude is given its session id at launch (`--session-id`) and reports it back through ClaudeWatch,
    *  so there is nothing to discover. */
   discoverSessionId: () => null,
