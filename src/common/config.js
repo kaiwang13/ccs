@@ -33,6 +33,13 @@ const DEFAULTS = deepFreeze({
     remoteControl: true,
     extraArgsAllow: ['--model', '--permission-mode', '--add-dir', '--mcp-config', '--strict-mcp-config', '--allowedTools', '--disallowedTools', '--append-system-prompt'],
   },
+  codex: {
+    binary: 'auto',
+    testedVersions: ['0.155.0'],
+    // -c can set arbitrary config keys, so it is allowlisted deliberately rather than by default.
+    extraArgsAllow: ['--model', '--sandbox', '--ask-for-approval', '--add-dir', '--profile', '--search'],
+  },
+  defaultAgent: 'claude',
   env: { passthrough: [], sshAuthSock: null },
   size: {
     floorCols: 50, hardMinCols: 40, floorRows: 15, maxCols: 240, maxRows: 150, defaultCols: 120, defaultRows: 40,
@@ -84,6 +91,11 @@ const LEAVES = {
   'claude.nameFromCwd': oneOf('auto', true, false),
   'claude.remoteControl': bool,
   'claude.extraArgsAllow': arrayOf((v) => typeof v === 'string' && /^--[A-Za-z][A-Za-z0-9-]*$/.test(v)),
+  'codex.binary': (v) => v === 'auto' || (typeof v === 'string' && v.startsWith('/')),
+  'codex.testedVersions': arrayOf((v) => typeof v === 'string' && /^\d+\.\d+\.\d+$/.test(v)),
+  'codex.extraArgsAllow': arrayOf((v) => typeof v === 'string' && /^--[A-Za-z][A-Za-z0-9-]*$/.test(v)),
+  // Validated against the registry so a typo in config fails at load, not at the next `ccs new`.
+  'defaultAgent': (v) => typeof v === 'string' && require('../agents/index.js').KNOWN_AGENTS.includes(v),
   'env.passthrough': arrayOf((v) => typeof v === 'string' && /^[A-Za-z_*][A-Za-z0-9_*]*$/.test(v)),
   'env.sshAuthSock': (v) => v === null || (typeof v === 'string' && v.startsWith('/')),
   'size.floorCols': int(40, 240),
@@ -179,11 +191,13 @@ function loadConfig(file, onInvalid = () => {}) {
   /** @type {any} */
   const out = structuredClone(DEFAULTS);
   for (const [key, value] of Object.entries(raw)) {
-    if (key === 'schema') {
-      if (LEAVES.schema(value)) out.schema = value; else report('schema', value);
+    if (!Object.hasOwn(DEFAULTS, key)) { report(key, value); continue; }
+    if (!isPlainObject(/** @type {any} */ (DEFAULTS)[key])) {
+      // Top-level scalar (e.g. schema, defaultAgent): validated directly, not per-leaf.
+      const check = LEAVES[key];
+      if (check && check(value)) out[key] = structuredClone(value); else report(key, value);
       continue;
     }
-    if (!Object.hasOwn(DEFAULTS, key)) { report(key, value); continue; }
     if (!isPlainObject(value)) { report(key, value); continue; }
     for (const [leaf, leafValue] of Object.entries(value)) {
       const dotted = `${key}.${leaf}`;

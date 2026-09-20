@@ -10,6 +10,8 @@
  *   CCS_CLAUDE_HOME  default ~/.claude                  Claude's sessions/, settings.json, projects/ (read-only)
  *   CCS_CLAUDE_JSON  default ~/.claude.json             Claude's global config (read-only)
  *   CCS_CLAUDE_BIN   default unset (null)               explicit claude binary
+ *   CCS_CODEX_HOME   default ~/.codex                    Codex's state dbs and sessions (read-only)
+ *   CCS_CODEX_BIN    default unset (null)                explicit codex binary
  *   CCS_HOSTNAME     default os.hostname()              host tag
  *
  * `~` is `env.HOME` when set, else os.homedir().
@@ -53,6 +55,7 @@ function resolvePaths(env = process.env) {
   const runtimeDir = path.resolve(env.CCS_RUNTIME_DIR || `/tmp/ccs-${uid}`);
   const stateDir = path.resolve(env.CCS_STATE_DIR || path.join(home, '.local', 'state', 'ccs'));
   const claudeHome = path.resolve(env.CCS_CLAUDE_HOME || path.join(home, '.claude'));
+  const codexHome = path.resolve(env.CCS_CODEX_HOME || path.join(home, '.codex'));
   const locksDir = path.join(runtimeDir, 'locks');
   const logDir = path.join(runtimeDir, 'log');
   const hostDir = path.join(stateDir, 'hosts', hostname);
@@ -96,6 +99,10 @@ function resolvePaths(env = process.env) {
     claudeJson: path.resolve(env.CCS_CLAUDE_JSON || path.join(home, '.claude.json')),
     claudeBin: env.CCS_CLAUDE_BIN ? path.resolve(env.CCS_CLAUDE_BIN) : null,
     claudeVersionsDir: path.join(home, '.local', 'share', 'claude', 'versions'),
+    codexHome,
+    codexStateDb: path.join(codexHome, 'state_5.sqlite'),
+    codexBin: env.CCS_CODEX_BIN ? path.resolve(env.CCS_CODEX_BIN) : null,
+    codexDefaultBin: path.join(home, '.local', 'bin', 'codex'),
   };
 }
 
