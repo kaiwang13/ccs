@@ -8,3 +8,7 @@ build/
 # Internal design/planning artifacts (kept locally, not published)
 docs/superpowers/
 .superpowers/
+
+# Local debugging artifacts: probe scripts, captured reports, screenshots. Diagnostic material is
+# never published — it is packaged and shared out of band instead.
+docs/debug/
