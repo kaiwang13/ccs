@@ -54,6 +54,17 @@ async function queryTermColors(io, timeoutMs = 200) {
   if (!stdin || !stdout || !stdin.isTTY || !stdout.isTTY) return none;
 
   const wasRaw = stdin.isRaw === true;
+  // Attaching a 'data' listener below switches a real stream into flowing mode (implicitly resuming it),
+  // which otherwise keeps a TTY read handle alive forever — the caller's process (`ccs new`/`ccs restart`)
+  // would then never exit on its own. Remembered here so the finally block can restore it, exactly like
+  // wasRaw above. NOTE: `stdin.isPaused()` is NOT the right check — on a stream nobody has ever consumed
+  // yet (the common case: a freshly started `ccs new`/`ccs restart`), Node's internal flowing state starts
+  // as null, and isPaused() reports that as false (not paused), so a wasPaused-gated pause() would never
+  // fire and this bug would still reproduce on exactly the case that matters most. `readableFlowing` is the
+  // right primitive: it distinguishes "never touched" (null) and "explicitly paused" (false) from
+  // "actively flowing, someone else is already reading this" (true) — only that last case must be left
+  // alone.
+  const wasFlowing = stdin.readableFlowing === true;
   let listening = false;
   /** @type {(chunk: Buffer) => void} */
   let onData = () => {};
@@ -84,6 +95,11 @@ async function queryTermColors(io, timeoutMs = 200) {
   } finally {
     if (listening) { try { stdin.removeListener('data', onData); } catch { /* already gone */ } }
     try { stdin.setRawMode(wasRaw); } catch { /* not raw-mode-capable */ }
+    // Only leave stdin flowing when it was ALREADY actively flowing before this call, so this stays correct
+    // if a future caller invokes queryTermColors while something else is already reading stdin (never pause
+    // a stream out from under it). Every other case — never touched, or explicitly paused — is restored to
+    // a definite paused state, exactly like wasRaw above.
+    if (!wasFlowing) { try { stdin.pause(); } catch { /* already gone */ } }
   }
 }
 
