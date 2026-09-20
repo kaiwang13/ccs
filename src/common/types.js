@@ -4,9 +4,9 @@
 /** @typedef {'OPEN'|'SETUP'|'SUSPENDED'|'COOKED'|'EXITED'|'STOPPING'} GateKind */
 /** @typedef {'STARTING'|'STARTING_SLOW'|'SETUP_GATED'|'RUNNING'|'SUSPENDED'|'EXITED'|'BACKOFF'|'STOPPING'|'STOPPED'|'STOP_STUCK'|'BLOCKED'|'FAILED'|'RECOVERING'} Lifecycle */
 /** @typedef {{liveStatus: boolean, assignableSessionId: boolean, nameInArgv: boolean,
- *             remoteControl: 'per-session'|'daemon'|false}} Capabilities */
+ *             remoteControl: 'per-session'|'daemon'|false, trustGate: boolean}} Capabilities */
 /** @typedef {{id: string, label: string, capabilities: Capabilities,
  *             resolveBin: Function, buildLaunch: Function, writeSettingsFile: Function,
  *             observe: Function, preflight: Function, doctorChecks: Function,
- *             discoverSessionId: Function}} Agent */
+ *             discoverSessionId: Function, extraArgsAllow: Function}} Agent */
 module.exports = {};

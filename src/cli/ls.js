@@ -15,7 +15,7 @@ const path = require('path');
 const { isLocked } = require('../common/locks.js');
 const { controlRequest } = require('../common/ctlclient.js');
 const { recordName } = require('../common/registry.js');
-const { DEFAULT_AGENT } = require('../agents/index.js');
+const { DEFAULT_AGENT, getAgent } = require('../agents/index.js');
 
 /** @typedef {{glyph: string, text: string, needsYou: boolean, unknown: boolean}} StatusView */
 
@@ -44,7 +44,9 @@ function blockedHint(name, blocked) {
     case 'CONFIG_UNHEALTHY':
       return `~/.claude.json looks damaged (${d.reason || 'unhealthy'}); restore it from ${d.newestBackup || 'your newest backup'} or run 'ccs doctor --accept-config', then 'ccs restart ${name}'`;
     case 'SECOND_WRITER':
-      return `claude pid ${d.pid}${d.tty ? ` (${d.tty})` : ''} already runs this conversation — /exit it there, then 'ccs restart ${name}'`;
+      return d.thread
+        ? `another ccs session (${d.heldBy}) already runs this Codex thread — stop it there, then 'ccs restart ${name}'`
+        : `claude pid ${d.pid}${d.tty ? ` (${d.tty})` : ''} already runs this conversation — /exit it there, then 'ccs restart ${name}'`;
     case 'SECOND_WRITER_REMOTE':
       return `another host (machine ${String(d.machineId || '?').slice(0, 8)}…, cwd ${d.cwd || '?'}) runs this conversation — /exit it there, then 'ccs restart ${name}'`;
     case 'ORPHAN_ALIVE':
@@ -188,14 +190,20 @@ async function collectSessions({ paths, registry, statusTimeoutMs = 2000 }) {
     rows.push(sessionRow({ id, rec, live, status }));
   }
   for (const r of rows) {
-    if (r.agent !== 'codex' || !r.sessionId) continue;
+    if (getAgent(r.agent).capabilities.liveStatus || !r.sessionId) continue;
     const t = require('../codex/threads.js').getThread(paths, r.sessionId);
     if (!t) continue;
     // Thread names/titles are derived from the user's own prompts, so they stay OUT of the table and are
     // exposed only in --json (spec §6): printing them would put work descriptions on a shared screen.
     r.threadName = t.name;
     r.threadTitle = t.title;
-    if (!r.blocked) r.text = codexActivityText(t.updatedAtMs, Date.now());
+    // Only the one lifecycle where statusView() falls through to its generic default text (live && RUNNING)
+    // should be replaced with the honest activity text below — every other lifecycle already produced its
+    // own correct glyph/text/remedy in sessionRow (STOPPED's "⏎ resumes", EXITED's "ccs restart", BLOCKED's
+    // hint, …), and overwriting those with a fabricated "active Nm" is exactly the kind of fabricated status
+    // this column exists to avoid (spec §6, §9) — just in the opposite direction (false-positive, not the
+    // false-negative Task 13a fixed).
+    if (r.live && r.lifecycle === 'RUNNING' && !r.blocked) r.text = codexActivityText(t.updatedAtMs, Date.now());
   }
   rows.sort((a, b) => a.name.localeCompare(b.name));
   return { rows, registryError };

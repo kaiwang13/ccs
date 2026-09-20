@@ -63,3 +63,36 @@ test('a codex session does not get the /proc name-exposure warning', async (t) =
   const r = await runCcs(ctx, ['new', 'readable-name', '--agent', 'codex', '--no-attach']);
   assert.doesNotMatch(r.stderr, /visible to every account/i);
 });
+
+// I3: `ccs new` used to validate extra args against Claude's allowlist for every agent, regardless of
+// --agent. --sandbox is only in config.codex.extraArgsAllow (not claude's), so a Codex session used to be
+// rejected by `ccs new` itself before it could even reach codex.buildLaunch's own (correct) check.
+test('I3: --agent codex extra args are validated against config.codex.extraArgsAllow, not claude\'s', async (t) => {
+  const ctx = makeCcsEnv(t);
+  const r = await runCcs(ctx, ['new', 'x-codex', '--agent', 'codex', '--no-attach', '--', '--sandbox', 'workspace-write']);
+  // No CCS_CODEX_BIN is configured in this env, so the session fails later (CODEX_MISSING) — that failure
+  // is expected and not what this test is about. What matters is that it got PAST the extra-args check:
+  // the "is not allowed" message (src/sessiond/launcher.js's validateExtraArgs) must never appear.
+  assert.doesNotMatch(r.stderr, /is not allowed/, `--sandbox must be accepted for --agent codex; got: ${r.stderr}`);
+});
+
+// Regression guard, the other direction: --sandbox is NOT in config.claude.extraArgsAllow, so a claude
+// session (the default agent) must still be rejected by this same check — proving the fix is
+// agent-selective (I3), not agent-blind in the direction that would silently widen claude's allowlist.
+test('I3 regression guard: --agent claude (and the default agent) still rejects --sandbox via claude\'s own allowlist', async (t) => {
+  const ctx = makeCcsEnv(t);
+  const r = await runCcs(ctx, ['new', 'x-claude', '--agent', 'claude', '--no-attach', '--', '--sandbox', 'workspace-write']);
+  assert.equal(r.code, 2);
+  assert.match(r.stderr, /claude argument '--sandbox' is not allowed/);
+});
+
+// I5: `ccs new` used to read ~/.claude.json and print Claude's own trust-dialog message unconditionally,
+// even for a Codex session, which has no trust-dialog concept at all (capabilities.trustGate is false for
+// it). `trustedWork: false` is the same makeCcsEnv fixture the existing Claude-path trust test in
+// test/integration/cli.test.js ('an untrusted cwd is announced and recorded as trustExpected') uses to
+// mark the work dir untrusted in ~/.claude.json.
+test('I5: --agent codex never prints Claude\'s trust-dialog message, even in a directory ~/.claude.json marks untrusted', async (t) => {
+  const ctx = makeCcsEnv(t, { trustedWork: false });
+  const r = await runCcs(ctx, ['new', 'x-codex-trust', '--agent', 'codex', '--no-attach']);
+  assert.doesNotMatch(r.stderr, /is not trusted by Claude yet/, `codex has no trust-dialog concept; got: ${r.stderr}`);
+});

@@ -24,6 +24,7 @@ const capabilities = {
   assignableSessionId: false, // no --session-id equivalent; the id is discovered after launch
   nameInArgv: false,          // no -n NAME: the ccs name stays local to the registry
   remoteControl: 'daemon',    // `codex remote-control start` is a daemon, not a per-session flag (spec §9)
+  trustGate: false,           // Codex has no equivalent trust-dialog concept ccs can read or gate on
 };
 
 /**
@@ -64,6 +65,7 @@ module.exports = {
   label: 'codex',
   capabilities,
   resolveBin: (paths, config) => resolveCodexBin(paths, config),
+  extraArgsAllow: (config) => config.codex.extraArgsAllow,
   buildLaunch,
   /** Deliberately inert. Codex configures via ~/.codex/config.toml and `-c key=value`; ccs does not
    *  write Codex's configuration, the same way it never writes ~/.claude.json. startspec calls this

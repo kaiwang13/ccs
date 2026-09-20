@@ -20,6 +20,7 @@ const capabilities = {
   assignableSessionId: true,  // claude accepts --session-id, so ccs mints the id before launch
   nameInArgv: true,           // claude receives -n NAME: visible to every account when /proc lacks hidepid
   remoteControl: 'per-session',
+  trustGate: true,            // an untrusted cwd shows Claude's own trust dialog in ~/.claude.json
 };
 
 /** @type {Agent} */
@@ -28,6 +29,7 @@ module.exports = {
   label: 'claude',
   capabilities,
   resolveBin: (paths, config) => resolveClaudeBin(paths, config),
+  extraArgsAllow: (config) => config.claude.extraArgsAllow,
   buildLaunch: (ctx) => buildLaunch(ctx),
   writeSettingsFile: (file, theme) => writeSettingsFile(file, theme),
   /** Plan A does not route observation through the agent — the supervisor constructs ClaudeWatch

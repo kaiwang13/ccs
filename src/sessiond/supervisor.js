@@ -57,7 +57,7 @@ class Supervisor extends EventEmitter {
    *   connectHolder: (sockPath: string) => Promise<import('./holderclient').HolderClient>,
    *   clientsInfo?: () => object[], timers?: Partial<typeof DEFAULT_TIMERS>}} o
    */
-  constructor({ spec, config, clock, log, paths, screens, recover = false, startHolder, connectHolder, clientsInfo = () => [], timers = {}, stateWriter = defaultStateWriter }) {
+  constructor({ spec, config, clock, log, paths, screens, recover = false, startHolder, connectHolder, clientsInfo = () => [], timers = {}, stateWriter = defaultStateWriter, initialState = null }) {
     super();
     this.spec = spec;
     this.stateWriter = stateWriter;
@@ -110,8 +110,15 @@ class Supervisor extends EventEmitter {
     this.watch = null;
     /** @type {import('./claudewatch').Observed|null} */
     this.observed = null;
-    /** @type {string|null} */
-    this.lastSessionId = null;
+    /** Seeded from the registry's persisted state when this supervisor is rebuilt after a recover (or a
+     *  fresh restart of a previously-run session) — without this, an already-discovered Codex thread id
+     *  (which the constructor otherwise has no way to know) is silently lost on the very next state write.
+     *  @type {string|null} */
+    this.lastSessionId = (initialState && initialState.lastSessionId) || null;
+    /** Same reasoning as lastSessionId above — without a seeded value, discoverSessionId's cwd+time
+     *  correlation on recover receives `undefined` and can never succeed.
+     *  @type {number|undefined} */
+    this.launchedAtMs = (initialState && initialState.launchedAtMs) || undefined;
     this.lastName = spec.name;
     /** @type {string|null} */
     this.lastBridgeSessionId = null;
@@ -235,7 +242,14 @@ class Supervisor extends EventEmitter {
       if (this.suspendNet && chunk.text) this.suspendNet.onText(chunk.text);
       this.emit('chunk', chunk);
       for (const r of chunk.resets) this.emit('reset', r.offset);
-      if (this.lifecycle === 'RECOVERING' && chunk.endOffset >= this.replayUntil) this._setLifecycle('STARTING');
+      if (this.lifecycle === 'RECOVERING' && chunk.endOffset >= this.replayUntil) {
+        this._setLifecycle('STARTING');
+        // Mirrors _armStartTimers()'s liveStatus guard for the one case it cannot reach: when this method
+        // ran (inside _adopt(), before replay), lifecycle was still RECOVERING, not STARTING, so it
+        // returned without transitioning. No per-session status file exists for this agent (Codex) either
+        // way — once replay has caught up, a connected pty holder is the only "started" signal available.
+        if (this.setupKind === null && !getAgent(this.spec.agent).capabilities.liveStatus) this._setLifecycle('RUNNING');
+      }
     }
     if (chunks.length) this._answerCpr();
   }
@@ -344,6 +358,7 @@ class Supervisor extends EventEmitter {
   /** Agents that mint their own session id (Codex) are polled for it after launch; the existing
    *  lastSessionId field and _writeState persistence are reused, so nothing new is stored. */
   _startDiscovery(attempt = 0) {
+    this._clearTimer('discovery');
     const agent = getAgent(this.spec.agent);
     if (!shouldDiscover(agent, this.lastSessionId)) return;
     const delay = nextDiscoveryDelayMs(attempt);
@@ -588,6 +603,7 @@ class Supervisor extends EventEmitter {
       holder: h ? { pid: h.pid, procStart: h.procStart, gen: h.gen, proto: h.proto } : null,
       claude: h ? { pid: h.claude.pid, procStart: h.claude.procStart, version: this.spec.claude.version } : null,
       observed: this.observed, lastSessionId: this.lastSessionId, lastName: this.lastName, lastBridgeSessionId: this.lastBridgeSessionId,
+      launchedAtMs: this.launchedAtMs || null,
       pty: this.pty, clients: this.clientsInfo(), restarts: { attributed: this.restarts.attributed, lastExit: this.lastExit },
       census: { ...this.tracker.census }, historyTruncatedBefore: this.historyTruncatedBefore, updatedAt: new Date().toISOString(),
     };

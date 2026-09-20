@@ -25,12 +25,15 @@ const HOLDER_MAIN = path.join(__dirname, '..', 'holder', 'main.js');
  * Builds and starts one session engine (refinement R7): ctl.sock, supervisor (holder + claude), client registry, arbiter,
  * input router. Resolves once the holder is connected; `done` resolves when the session stopped.
  * @param {any} rawSpec a SessionSpec (validated here)
- * @param {{recover?: boolean, sessiondArgv?: string[], clock?: import('../common/types').Clock, supervisorTimers?: object, holderTimers?: object, stateWriter?: (file: string, st: object) => (void|Promise<void>)}} [o]
+ * @param {{recover?: boolean, sessiondArgv?: string[], clock?: import('../common/types').Clock, supervisorTimers?: object, holderTimers?: object, stateWriter?: (file: string, st: object) => (void|Promise<void>), initialState?: object}} [o]
  *   sessiondArgv: the argv that started this sessiond (default process.argv); with any --recover removed and --recover
  *   appended it becomes the holder's sessiondCmd (plan 03 starts sessiond with --start <ccsId>, plan 02 with --spec <file>).
  *   supervisorTimers/holderTimers shorten internal timers in tests only.
+ *   initialState: the registry's persisted state.json for this session, if any (seeds
+ *   Supervisor.lastSessionId/launchedAtMs across a recover or restart, so an already-discovered agent
+ *   session id is never silently lost).
  */
-async function startSession(rawSpec, { recover = false, sessiondArgv = [process.execPath, ...process.argv.slice(1)], clock = realClock, supervisorTimers = {}, holderTimers, stateWriter } = {}) {
+async function startSession(rawSpec, { recover = false, sessiondArgv = [process.execPath, ...process.argv.slice(1)], clock = realClock, supervisorTimers = {}, holderTimers, stateWriter, initialState } = {}) {
   const spec = validateSessionSpec(rawSpec);
   const paths = resolvePaths({ ...process.env, CCS_RUNTIME_DIR: spec.runtimeDir });
   ensureRuntime(paths);
@@ -57,7 +60,7 @@ async function startSession(rawSpec, { recover = false, sessiondArgv = [process.
 
   /** @type {ClientRegistry|null} */
   let registryRef = null;
-  const supervisor = new Supervisor({ spec, config, clock, log, paths, screens, recover, startHolder, timers: supervisorTimers, ...(stateWriter ? { stateWriter } : {}),
+  const supervisor = new Supervisor({ spec, config, clock, log, paths, screens, recover, startHolder, timers: supervisorTimers, ...(stateWriter ? { stateWriter } : {}), ...(initialState ? { initialState } : {}),
     connectHolder: (sockPath) => connectHolder(sockPath), clientsInfo: () => (registryRef ? registryRef.info() : []) });
   const registry = new ClientRegistry({ config, clock, log, supervisor });
   registryRef = registry;
@@ -125,12 +128,12 @@ async function startSession(rawSpec, { recover = false, sessiondArgv = [process.
  * Entry point for other plans (plan 03's `--start <ccsId>`). It installs the same process signal handling as this
  * file's `--spec` CLI block: SIGHUP is ignored (a closed controlling terminal must never end a session) and SIGTERM
  * sends `BYE{SESSION_ENDING, autoRejoin}` and exits 0, leaving Claude to the holder, which respawns sessiond.
- * @param {any} spec @param {{recover?: boolean, sessiondArgv?: string[], stateWriter?: (file: string, st: object) => (void|Promise<void>)}} [o]
+ * @param {any} spec @param {{recover?: boolean, sessiondArgv?: string[], stateWriter?: (file: string, st: object) => (void|Promise<void>), initialState?: object}} [o]
  * @returns {Promise<void>} resolves when the session stopped
  */
-async function runSession(spec, { recover = false, sessiondArgv, stateWriter } = {}) {
+async function runSession(spec, { recover = false, sessiondArgv, stateWriter, initialState } = {}) {
   process.on('SIGHUP', () => {});
-  const s = await startSession(spec, { recover, ...(sessiondArgv ? { sessiondArgv } : {}), ...(stateWriter ? { stateWriter } : {}) });
+  const s = await startSession(spec, { recover, ...(sessiondArgv ? { sessiondArgv } : {}), ...(stateWriter ? { stateWriter } : {}), ...(initialState ? { initialState } : {}) });
   process.on('SIGTERM', () => { s.shutdown().then(() => process.exit(0)); });
   await s.done;
 }

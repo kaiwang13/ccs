@@ -51,3 +51,36 @@ test('the start lock is genuinely held: a second preflight cannot take it while 
   assert.equal(second.code, 'START_LOCK_TIMEOUT');
   first.release();
 });
+
+// I4: this check was dead code — the only production caller (startspec.js's startMain) never passed
+// `registry` in the preflight ctx, so two ccs sessions could resume and write to the same Codex thread
+// simultaneously. These tests exercise the check directly with a registry stub, the way startspec now
+// wires it (ctx.registry).
+test('SECOND_WRITER: another live ccs session already holds this Codex thread', async (t) => {
+  const { paths, config } = env(t);
+  const registry = { list: async () => [
+    { id: 'other0001', state: { lastSessionId: 'thread-xyz', lifecycle: 'RUNNING' } },
+  ] };
+  const pf = await runCodexPreflight({ paths, config, ccsId: 'aaaa1111', bin: BIN, sessionId: 'thread-xyz', registry });
+  assert.equal(pf.ok, false);
+  assert.equal(pf.code, 'SECOND_WRITER');
+  assert.deepEqual(pf.detail, { thread: 'thread-xyz', heldBy: 'other0001' });
+  // The start lock must have been released on this blocked path too, proven the same way the file's other
+  // blocking test proves release: a fresh preflight for a different session takes the lock immediately
+  // instead of timing out.
+  const after = await runCodexPreflight({ paths, config, ccsId: 'bbbb2222', bin: BIN, sessionId: null, lockWaitMs: 500 });
+  assert.equal(after.ok, true, 'the lock must have been released by the SECOND_WRITER block path');
+  after.release();
+});
+
+test('SECOND_WRITER does not fire for a STOPPED/EXITED/FAILED clash — only a live one blocks', async (t) => {
+  const { paths, config } = env(t);
+  for (const lifecycle of ['STOPPED', 'EXITED', 'FAILED']) {
+    const registry = { list: async () => [
+      { id: 'other0002', state: { lastSessionId: 'thread-xyz', lifecycle } },
+    ] };
+    const pf = await runCodexPreflight({ paths, config, ccsId: 'aaaa1111', bin: BIN, sessionId: 'thread-xyz', registry });
+    assert.equal(pf.ok, true, `a ${lifecycle} clash must not block`);
+    pf.release();
+  }
+});

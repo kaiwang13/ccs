@@ -35,7 +35,7 @@ const DEFAULTS = deepFreeze({
   },
   codex: {
     binary: 'auto',
-    testedVersions: ['0.155.0'],
+    testedVersions: ['0.155.0', '0.155.1'],
     // -c can set arbitrary config keys, so it is allowlisted deliberately rather than by default.
     extraArgsAllow: ['--model', '--sandbox', '--ask-for-approval', '--add-dir', '--profile', '--search'],
   },

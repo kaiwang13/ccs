@@ -1,8 +1,14 @@
 'use strict';
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { statusView, claudeStatusView, sessionRow, formatTable, formatAge, tildify, codexActivityText } = require('../../src/cli/ls.js');
+const fs = require('node:fs');
+const os = require('node:os');
+const path = require('node:path');
+const { DatabaseSync } = require('node:sqlite');
+const { statusView, claudeStatusView, sessionRow, collectSessions, formatTable, formatAge, tildify, codexActivityText, blockedHint } = require('../../src/cli/ls.js');
 const { parseArgs, UsageError } = require('../../src/cli/args.js');
+const { tryLock } = require('../../src/common/locks.js');
+const { REQUIRED_COLUMNS } = require('../../src/codex/threads.js');
 
 test('claude status mapping treats status and waitingFor as open enums (H7.2)', () => {
   const cases = [
@@ -162,4 +168,71 @@ test('an over-long STATUS hint no longer pushes the trailing columns off the row
 test('a short status produces no continuation line', () => {
   const lines = formatTable(rows(), { cols: 120, home: '/home/u' }).trimEnd().split('\n');
   assert.equal(lines.length, 3, 'header + two rows, nothing extra');
+});
+
+/** Build a throwaway threads.sqlite, the same shape test/unit/codex-threads.test.js uses. */
+function makeThreadsDb(t, rows) {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'ccsls-'));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const file = path.join(root, 'state_5.sqlite');
+  const d = new DatabaseSync(file);
+  d.exec(`CREATE TABLE threads (${REQUIRED_COLUMNS.map((c) => `${c} TEXT`).join(', ')})`);
+  for (const r of rows) {
+    const vals = REQUIRED_COLUMNS.map((c) => (r[c] === undefined ? null : r[c]));
+    d.prepare(`INSERT INTO threads (${REQUIRED_COLUMNS.join(', ')}) VALUES (${REQUIRED_COLUMNS.map(() => '?').join(', ')})`).run(...vals);
+  }
+  d.close();
+  return file;
+}
+
+// I2: collectSessions used to overwrite a Codex row's text with fabricated activity ("active Nm") for
+// every lifecycle, not just the one (live && RUNNING) where statusView() has nothing better to say. A
+// STOPPED session — the common case right after `ccs stop` — rendered as falsely "active".
+test('I2: collectSessions only substitutes the honest Codex activity text for a live, RUNNING, unblocked row', async (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'ccsls-'));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const now = Date.now();
+  const codexStateDb = makeThreadsDb(t, [
+    { id: 'thread-stopped', cwd: '/w', created_at_ms: String(now - 200000), updated_at_ms: String(now - 120000), name: 'n1', title: 't1', cli_version: '0.155.1', archived: '0' },
+    { id: 'thread-running', cwd: '/w', created_at_ms: String(now - 200000), updated_at_ms: String(now - 30000), name: 'n2', title: 't2', cli_version: '0.155.1', archived: '0' },
+  ]);
+  const paths = {
+    runtimeDir: root,                                    // no 's' subdir: fs.readdirSync throws, caught, localIds stays []
+    sessiondLock: (id) => path.join(root, `${id}.lock`),
+    ctlSock: (id) => path.join(root, `${id}.sock`),       // never listens: controlRequest fails fast and falls back to state.json
+    codexStateDb,
+  };
+  // Make 'bbbbbbbb' look live exactly as a real sessiond would: hold the same flock isLocked() probes.
+  const lock = tryLock(paths.sessiondLock('bbbbbbbb'));
+  t.after(() => lock.release());
+  const registry = {
+    list: async () => [
+      { id: 'aaaaaaaa', intent: { cwd: '/w', desired: 'running', agent: 'codex', nameAtCreate: 'stopped-codex' },
+        state: { lifecycle: 'STOPPED', lastSessionId: 'thread-stopped', lifecycleSince: new Date(now - 500000).toISOString() } },
+      { id: 'bbbbbbbb', intent: { cwd: '/w', desired: 'running', agent: 'codex', nameAtCreate: 'running-codex' },
+        state: { lifecycle: 'RUNNING', lastSessionId: 'thread-running', lifecycleSince: new Date(now - 500000).toISOString() } },
+    ],
+  };
+  const { rows: got } = await collectSessions({ paths, registry, statusTimeoutMs: 500 });
+  const stopped = got.find((r) => r.id === 'aaaaaaaa');
+  const running = got.find((r) => r.id === 'bbbbbbbb');
+  assert.equal(stopped.live, false);
+  assert.equal(stopped.lifecycle, 'STOPPED');
+  assert.equal(stopped.text, 'stopped · ⏎ resumes', 'a STOPPED Codex row must show its honest stopped text, never a fabricated "active"');
+  assert.doesNotMatch(stopped.text, /^active/);
+  assert.equal(running.live, true);
+  assert.equal(running.lifecycle, 'RUNNING');
+  assert.match(running.text, /^active/, 'a live, RUNNING, unblocked Codex row still gets the honest activity text (regression guard)');
+});
+
+// I4: runCodexPreflight's SECOND_WRITER detail shape is {thread, heldBy} (no pid/tty) — Claude's is
+// {pid, tty}. blockedHint used to render Claude's shape unconditionally, so a Codex SECOND_WRITER block
+// (dead code until I4 wired `registry` into the preflight call) would have rendered "claude pid undefined
+// already runs this conversation" the first time it was ever reached.
+test('I4: blockedHint renders Codex\'s {thread, heldBy} SECOND_WRITER detail honestly, and still renders Claude\'s {pid, tty} shape as before', () => {
+  const codexText = blockedHint('cx1', { code: 'SECOND_WRITER', detail: { thread: 'thread-xyz', heldBy: 'other0001' } });
+  assert.match(codexText, /another ccs session \(other0001\) already runs this Codex thread/);
+  assert.doesNotMatch(codexText, /claude pid/);
+  const claudeText = blockedHint('cl1', { code: 'SECOND_WRITER', detail: { pid: 51234, tty: '/dev/pts/12' } });
+  assert.match(claudeText, /claude pid 51234 \(\/dev\/pts\/12\) already runs this conversation/);
 });

@@ -67,7 +67,7 @@ async function run(argv, ctx) {
     ctx.err.write(`ccs: --cwd ${flags['--cwd'] || process.cwd()} is not an existing directory\n`);
     return 2;
   }
-  try { validateExtraArgs(rest, ctx.config.claude.extraArgsAllow); } catch (e) { ctx.err.write(`ccs: ${(/** @type {any} */ (e)).message}\n`); return 2; }
+  try { validateExtraArgs(rest, getAgent(agent).extraArgsAllow(ctx.config)); } catch (e) { ctx.err.write(`ccs: ${(/** @type {any} */ (e)).message}\n`); return 2; }
 
   let hidepid = false;
   try { hidepid = hidepidEnabled(fs.readFileSync('/proc/mounts', 'utf8')); } catch { /* assume off: the safe default */ }
@@ -108,11 +108,15 @@ async function run(argv, ctx) {
   }
 
   // Trust is read, never written (spec §4.14): an untrusted directory means Claude will show its trust
-  // dialog, which only an --allow-setup client may answer.
+  // dialog, which only an --allow-setup client may answer. Codex has no equivalent gate to check
+  // (capabilities.trustGate is false for it), so `trusted` is unconditionally true and none of this applies.
+  const trustGated = getAgent(agent).capabilities.trustGate;
   let claudeJson = null;
-  try { claudeJson = await runNfsOp({ kind: 'readJson', args: [ctx.paths.claudeJson, { retries: 1, retryDelayMs: 50 }] }, ctx.nfsTimeoutMs); } catch { /* preflight will report it */ }
+  if (trustGated) {
+    try { claudeJson = await runNfsOp({ kind: 'readJson', args: [ctx.paths.claudeJson, { retries: 1, retryDelayMs: 50 }] }, ctx.nfsTimeoutMs); } catch { /* preflight will report it */ }
+  }
   const projectEntry = claudeJson && claudeJson.projects && typeof claudeJson.projects === 'object' ? claudeJson.projects[cwd] : null;
-  const trusted = !!(projectEntry && projectEntry.hasTrustDialogAccepted === true);
+  const trusted = !trustGated || !!(projectEntry && projectEntry.hasTrustDialogAccepted === true);
 
   const env = captureIntentEnv(ctx.env, { passthrough: ctx.config.env.passthrough });
   const rec = await ctx.registry.create({ name, cwd, claudeArgs: rest, env, trustExpected: !trusted, initialSessionId, agent });

@@ -35,6 +35,19 @@ test('startspec resolves the binary through the agent, not a direct launcher imp
   assert.match(src, /getAgent\([^)]*\)\.resolveBin\(/, 'expected an agent.resolveBin call');
 });
 
+// I4: runCodexPreflight's SECOND_WRITER check ("one writer per thread", spec §7) only runs when
+// `ctx.sessionId && ctx.registry` are both present — but startMain, the only production caller, never
+// passed `registry` in the preflight ctx object, so the check was dead code: two ccs sessions could
+// resume and write to the same Codex thread simultaneously. This is a source-shape assertion (matching
+// this file's existing style just above) because exercising the real bug end-to-end needs a running
+// sessiond; codex-preflight.test.js separately proves runCodexPreflight's own SECOND_WRITER logic is
+// correct once it actually receives a registry.
+test('I4: startMain\'s preflight call passes `registry` through, so runCodexPreflight\'s SECOND_WRITER check can actually run', () => {
+  const src = require('node:fs').readFileSync(require.resolve('../../src/sessiond/startspec.js'), 'utf8');
+  assert.match(src, /\.preflight\(\{[^}]*\bregistry\b[^}]*\}\)/,
+    'the preflight ctx object must include `registry` — runCodexPreflight only runs its SECOND_WRITER check when ctx.sessionId && ctx.registry are both present');
+});
+
 test('a resolution failure names the actual agent, not always "claude" (spec §7)', async () => {
   // A regression test for a real bug: since bin resolution became agent-generic, the old hardcoded
   // CLAUDE_MISSING/"no claude binary found" would fire for ANY agent's resolution failure.

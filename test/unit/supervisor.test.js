@@ -41,8 +41,8 @@ class FakeHolder extends EventEmitter {
   names() { return this.calls.map((c) => c[0]); }
 }
 
-/** @param {import('node:test').TestContext} t @param {{timers?: object, config?: any, agent?: string}} [o] */
-function setup(t, { timers = {}, config = DEFAULTS, stateWriter, agent } = {}) {
+/** @param {import('node:test').TestContext} t @param {{timers?: object, config?: any, agent?: string, recover?: boolean, initialState?: object|null}} [o] */
+function setup(t, { timers = {}, config = DEFAULTS, stateWriter, agent, recover = false, initialState = null } = {}) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ccsu-'));
   t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
   const claudeHome = path.join(dir, 'claude');
@@ -61,6 +61,7 @@ function setup(t, { timers = {}, config = DEFAULTS, stateWriter, agent } = {}) {
   /** @type {any[]} */
   const events = [];
   const sup = new Supervisor({ spec, config, clock, log, paths, screens: loadScreens('2.1.267'), timers, ...(stateWriter ? { stateWriter } : {}),
+    recover, ...(initialState ? { initialState } : {}),
     startHolder: async (o) => { started.push(o); holders.push(new FakeHolder(o.gen)); },
     connectHolder: async () => holders[holders.length - 1] });
   for (const ev of ['lifecycle', 'notice', 'clientExit', 'clientNotice', 'stopped', 'pty']) sup.on(ev, (v) => events.push([ev, v]));
@@ -112,6 +113,33 @@ test('codex (capabilities.liveStatus false): no session json ever appears, but t
   await s.tickAndSettle(70000, 5000);                                            // past both startingSlowMs and sessionJsonSlowMs
   assert.equal(s.sup.lifecycle, 'RUNNING', 'never STARTING_SLOW, never BLOCKED for an agent with no session file to wait for');
   assert.equal(s.sup.blockedCode, null);
+  s.sup.dispose();
+});
+
+// I1: on `sessiond --recover` the Supervisor is reconstructed from scratch. A previously-discovered Codex
+// thread id (lastSessionId) and launchedAtMs must be seeded from the registry's persisted state, not lost —
+// and when the recovering holder's ring still has unreplayed bytes (the normal case; unlike the 13a test
+// above, whose FakeHolder ring is {start:0, end:0} and so never actually exercises RECOVERING),
+// _armStartTimers() runs while lifecycle is still RECOVERING (not STARTING/STARTING_SLOW), so its
+// liveStatus-false branch cannot move it off RECOVERING — only _chunks(), once replay catches up, can.
+test('I1: recover with unreplayed ring bytes seeds lastSessionId/launchedAtMs, stays RECOVERING until replay catches up, then reaches RUNNING; the seeded thread id survives _writeState', async (t) => {
+  const s = setup(t, { agent: 'codex', recover: true, initialState: { lastSessionId: 'seed-thread-id', launchedAtMs: 555555 } });
+  // recover:true means Supervisor.start() never calls startHolder() (no fresh holder is spawned) — it just
+  // connects to the already-running one, so the fixture must supply it directly, the same FakeHolder this
+  // file already uses elsewhere.
+  const fh = new FakeHolder(1);
+  fh.hello.ring = { start: 0, end: 40 };                    // NOT wrapped (start:0) but 40 unreplayed bytes: the normal recover case
+  s.holders.push(fh);
+  await s.sup.start();
+  assert.equal(s.sup.lifecycle, 'RECOVERING', 'unreplayed ring bytes must keep it RECOVERING through _adopt() and _armStartTimers()');
+  assert.equal(s.sup.lastSessionId, 'seed-thread-id', 'seeded from initialState, not reset to null by the constructor');
+  assert.equal(s.sup.launchedAtMs, 555555, 'seeded from initialState so discoverSessionId\'s cwd+time correlation is never handed undefined');
+  fh.data('x'.repeat(80));                                  // replay: pipeline emits a chunk whose endOffset (80) >= replayUntil (40)
+  await s.settle();
+  assert.equal(s.sup.lifecycle, 'RUNNING', 'once replay catches up, a connected holder alone moves a liveStatus:false agent to RUNNING — never stuck at RECOVERING or STARTING');
+  const st = JSON.parse(fs.readFileSync(path.join(s.dir, 'state.json'), 'utf8'));
+  assert.equal(st.lastSessionId, 'seed-thread-id', 'the already-known thread id must survive _writeState, not be erased to null on the next write');
+  assert.equal(st.launchedAtMs, 555555);
   s.sup.dispose();
 });
 
