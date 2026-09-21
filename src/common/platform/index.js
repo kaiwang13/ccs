@@ -26,6 +26,7 @@
  *   mountsText(): string|null,
  *   selfTty(): string|null,
  *   shutdownCorroborated(o?: any): boolean,
+ *   sameProcStart(recorded: string, live: string): boolean,
  *   name: string,
  *   platformReportsZombieParent: boolean,
  *   hangupOnMasterClose: boolean,

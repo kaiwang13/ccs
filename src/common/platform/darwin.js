@@ -29,8 +29,43 @@ function pidNs() {
   return null;
 }
 
+const DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+/** @param {number} n */
+const pad2 = (n) => String(n).padStart(2, '0');
+
 /**
- * Process start time as `"<sec>.<usec>"`, or null when the pid is not live.
+ * ctime rendering in UTC, which is the exact format claude itself writes into
+ * `~/.claude/sessions/<pid>.json` on macOS, e.g. "Mon Sep 21 01:13:03 2026".
+ *
+ * This is what makes `claudewatch` work on this platform at all, so it is worth being precise about
+ * why it is a format and not an arbitrary choice:
+ *
+ *   `claudewatch` decides whether a session json belongs to the process it is watching by comparing
+ *   `pid` and `procStart` as STRINGS against the values ccs computes. On Linux both sides are clock
+ *   ticks since boot, so that comparison is trivially consistent. On macOS the two sides come from
+ *   different producers -- ccs from libproc, claude from its own clock -- and a real claude writes
+ *   this ctime form. Emitting anything else (an epoch number, a different layout) means the strings
+ *   never match, the watch reports `missing` forever, and the session never leaves STARTING. That is
+ *   not hypothetical: it is exactly what happened with a `"<sec>.<usec>"` encoding.
+ *
+ *   It is rendered in UTC because that is what the observed file contains; the machine's local zone
+ *   (+08 here) does not appear. Verified against a real claude's own session json.
+ *
+ * The cost is resolution: ctime has one-second granularity, where libproc offers microseconds. Two
+ * processes started in the same second on the same pid are therefore indistinguishable to
+ * `isSameProcess`. That is the same tradeoff claude itself forces by writing this format, and the
+ * pid+start pair still distinguishes anything that started at a different second.
+ * @param {number} ms @returns {string}
+ */
+function ctimeUtc(ms) {
+  const d = new Date(ms);
+  return `${DAYS[d.getUTCDay()]} ${MONTHS[d.getUTCMonth()]} ${pad2(d.getUTCDate())} `
+    + `${pad2(d.getUTCHours())}:${pad2(d.getUTCMinutes())}:${pad2(d.getUTCSeconds())} ${d.getUTCFullYear()}`;
+}
+
+/**
+ * Process start time in the format claude writes, or null when the pid is not live.
  *
  * A zombie has no readable start time (libproc reports ESRCH for it), so this returns null there.
  * That is the same answer Linux gives for a pid whose /proc/<pid>/stat read fails, and it is the
@@ -46,7 +81,7 @@ function procStart(pid) {
     return null;
   }
   if (!info || info.zombie) return null;
-  return `${info.startSec}.${String(info.startUsec).padStart(6, '0')}`;
+  return ctimeUtc(info.startSec * 1000);
 }
 
 /** @param {number} pid @returns {'alive'|'zombie'|'gone'} */
@@ -194,6 +229,18 @@ function selfTty() {
 }
 
 /**
+ * Do a recorded `procStart` and a live one refer to the same process?
+ *
+ * A plain string comparison, same as Linux -- but on macOS that only works because `procStart` above
+ * is rendered in exactly the form claude writes. Both values therefore agree by construction rather
+ * than by luck; see the note on `ctimeUtc`.
+ * @param {string} recorded @param {string} live @returns {boolean}
+ */
+function sameProcStart(recorded, live) {
+  return String(recorded) === String(live);
+}
+
+/**
  * macOS has no OOM score adjustment: the memory-pressure killer is not steerable per process.
  * null means "skip this step", which is why the call site guards on it.
  */
@@ -233,5 +280,5 @@ const hangupOnMasterClose = false;
 module.exports = {
   procStart, procState, pgid, procSid, ppid,
   bootId, machineId, readEnviron, listPids, readArgv, pidNs, ttyOf,
-  mountsText, selfTty, shutdownCorroborated, oomScoreAdjPath, name, platformReportsZombieParent, hangupOnMasterClose,
+  mountsText, selfTty, shutdownCorroborated, sameProcStart, oomScoreAdjPath, name, platformReportsZombieParent, hangupOnMasterClose,
 };

@@ -154,6 +154,16 @@ function selfTty() {
   try { return fs.readlinkSync('/proc/self/fd/0'); } catch { return null; }
 }
 
+/**
+ * Do a recorded `procStart` and a live one refer to the same process? Linux records clock ticks since
+ * boot in both places, so this is a plain string comparison -- identical to what claudewatch used to
+ * do inline, kept here so both platforms share one call and the Linux answer cannot drift.
+ * @param {string} recorded @param {string} live @returns {boolean}
+ */
+function sameProcStart(recorded, live) {
+  return String(recorded) === String(live);
+}
+
 /** Path sessiond raises to bias the OOM killer away from itself, or null where the concept does not exist. */
 const oomScoreAdjPath = '/proc/self/oom_score_adj';
 
@@ -173,5 +183,5 @@ const hangupOnMasterClose = true;
 module.exports = {
   procStart, procState, pgid, procSid, ppid,
   bootId, machineId, readEnviron, listPids, readArgv, pidNs, ttyOf,
-  mountsText, selfTty, shutdownCorroborated, oomScoreAdjPath, name, platformReportsZombieParent, hangupOnMasterClose,
+  mountsText, selfTty, shutdownCorroborated, sameProcStart, oomScoreAdjPath, name, platformReportsZombieParent, hangupOnMasterClose,
 };

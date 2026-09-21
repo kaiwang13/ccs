@@ -118,3 +118,29 @@ test('the platform surface answers plausibly for our own process', () => {
   assert.match(P.bootId(), /\S/, 'bootId must be a non-empty string');
   assert.match(P.machineId(), /\S/, 'machineId must be a non-empty string');
 });
+
+test('procStart round-trips through the string comparison claudewatch performs', () => {
+  // claudewatch decides a session json belongs to the process it is watching by comparing pid and
+  // procStart as STRINGS against the values ccs computes. On Linux both sides are clock ticks, so
+  // that is trivially consistent. On macOS the two sides have different producers -- ccs reads
+  // libproc, claude writes its own clock -- and a real claude writes a ctime string. Getting this
+  // wrong is not subtle: the strings never match, the watch reports `missing` forever, and a real
+  // session never leaves STARTING. It cost a 120 s timeout per live test to find the first time.
+  const P = require('../../src/common/procinfo.js');
+  const live = P.procStart(process.pid);
+  assert.ok(live !== null);
+  assert.equal(P.sameProcStart(/** @type {string} */ (live), /** @type {string} */ (live)), true);
+  assert.equal(P.sameProcStart(/** @type {string} */ (live), 'a different start'), false);
+  // And the platform's own comparison agrees with the raw string equality claudewatch uses, so
+  // routing through the seam can never disagree with the code that still compares inline.
+  assert.equal(P.sameProcStart(/** @type {string} */ (live), /** @type {string} */ (live)), String(live) === String(live));
+});
+
+test('the macOS procStart encoding is the one claude writes', () => {
+  const { capabilities } = require('../../src/common/platform/index.js');
+  if (capabilities.name !== 'darwin') return; // Linux uses clock ticks; asserted in platform-linux.test.js
+  const P = require('../../src/common/procinfo.js');
+  // "Www Mmm dd hh:mm:ss yyyy", e.g. "Mon Sep 21 01:13:03 2026" -- the form observed in a real
+  // claude's session json on macOS. Rendered in UTC, which is what the file contains.
+  assert.match(String(P.procStart(process.pid)), /^[A-Z][a-z]{2} [A-Z][a-z]{2} \d{2} \d{2}:\d{2}:\d{2} \d{4}$/);
+});

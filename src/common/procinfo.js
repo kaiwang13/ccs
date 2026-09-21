@@ -54,6 +54,7 @@ module.exports = {
   hangupOnMasterClose: platform.hangupOnMasterClose,
   selfTty: platform.selfTty,
   shutdownCorroborated: platform.shutdownCorroborated,
+  sameProcStart: platform.sameProcStart,
   oomScoreAdjPath: platform.oomScoreAdjPath,
   name: platform.name,
   capabilities: platform.capabilities,

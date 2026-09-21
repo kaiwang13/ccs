@@ -17,7 +17,12 @@ const P = require('../../src/common/procinfo.js');
 test('procStart/pgid/procState for our own process', () => {
   const start = P.procStart(process.pid);
   assert.ok(start !== null, 'our own process must have a start time');
-  assert.match(String(start), /^\d/, 'start time must begin with a digit');
+  // The ENCODING is platform-specific and deliberately so: clock ticks since boot on Linux, and on
+  // macOS the ctime form claude itself writes into its session json (see darwin.js's ctimeUtc --
+  // ccs compares the two as strings, so they must be spelled identically). Asserting a digit here
+  // would be asserting Linux's encoding on every platform.
+  assert.equal(typeof start, 'string');
+  assert.ok(/** @type {string} */ (start).length > 0);
   assert.equal(P.procState(process.pid), 'alive');
   assert.equal(typeof P.pgid(process.pid), 'number');
   assert.equal(P.isSameProcess(process.pid, /** @type {string} */ (start)), true);
