@@ -47,22 +47,55 @@ function countsOf(obj) {
 }
 
 /**
- * The exact health rules of spec §3.11 item 2 (pure).
+ * Does the environment carry a credential claude can use other than the OAuth account?
+ *
+ * `~/.claude.json`'s `oauthAccount` records the *interactive subscription login* only. A machine
+ * authenticated with an API key or an auth token has no `oauthAccount` at all, yet runs claude
+ * perfectly well -- so requiring it rejected every such host, including ones already working.
+ * Both spellings are accepted because claude accepts both, and both are passed through to the
+ * hosted agent by sessiond/env.js (ALLOW_PREFIXES includes ANTHROPIC_).
+ * @param {Record<string, string|undefined>} [env]
+ */
+function hasEnvCredential(env = process.env) {
+  return Boolean(env.ANTHROPIC_API_KEY || env.ANTHROPIC_AUTH_TOKEN);
+}
+
+/**
+ * The exact health rules of spec §3.11 item 2 (pure), plus the credential rules from §3.11 item 2
+ * as amended: a healthy file is one claude can actually use, which OAuth or an env credential both
+ * satisfy.
+ *
+ * The point of this check is to catch a DAMAGED file -- the 2026-09-16 incident truncated it and
+ * dropped every new session into the onboarding wizard. So the checks that detect damage
+ * (onboarding flag, key/project counts, shrinkage against the newest backup) stay exactly as they
+ * were; only "is there a credential?" widens. A file with no credential at all is still unhealthy,
+ * because that claude really cannot run -- see `allowNoCredential` for the explicit exception.
  * @param {any} obj parsed ~/.claude.json
  * @param {{keys: number, projects: number}|null} baseline counts of the newest readable backup
+ * @param {{envCredential?: boolean, allowNoCredential?: boolean}} [o]
  */
-function checkClaudeJson(obj, baseline) {
+function checkClaudeJson(obj, baseline, o = {}) {
   if (!obj || typeof obj !== 'object' || Array.isArray(obj)) return { ok: false, reason: 'NOT_AN_OBJECT', keys: 0, projects: 0 };
   const c = countsOf(obj);
+  const envCredential = o.envCredential ?? hasEnvCredential();
   if (obj.hasCompletedOnboarding !== true) return { ok: false, reason: 'ONBOARDING_NOT_COMPLETED', ...c };
-  if (!obj.oauthAccount || typeof obj.oauthAccount !== 'object') return { ok: false, reason: 'NO_OAUTH_ACCOUNT', ...c };
+  const oauth = Boolean(obj.oauthAccount && typeof obj.oauthAccount === 'object');
+  if (!oauth && !envCredential && !o.allowNoCredential) {
+    // Distinguish "no credential anywhere" from "the OAuth record is missing", because the second
+    // is what a token-authenticated host looks like and is entirely normal.
+    return { ok: false, reason: 'NO_CREDENTIAL', ...c };
+  }
   if (c.keys < 20) return { ok: false, reason: 'TOO_FEW_KEYS', ...c };
   if (!obj.projects || typeof obj.projects !== 'object' || Array.isArray(obj.projects)) return { ok: false, reason: 'NO_PROJECTS', ...c };
   if (baseline) {
     if (c.keys < 0.7 * baseline.keys) return { ok: false, reason: 'KEYS_SHRANK', ...c };
     if (c.projects < 0.7 * baseline.projects) return { ok: false, reason: 'PROJECTS_SHRANK', ...c };
   }
-  return { ok: true, reason: null, ...c };
+  // Report which credential made this healthy, or 'none' when it was only allowed through by
+  // allowNoCredential -- so callers can warn about a session that will fail on its first request
+  // rather than implying it has working auth.
+  const credential = oauth ? 'oauth' : envCredential ? 'env' : 'none';
+  return { ok: true, reason: null, credential, ...c };
 }
 
 /** @param {number} timeoutMs */
@@ -97,9 +130,9 @@ async function newestBaseline(paths, op) {
 /**
  * Parse ~/.claude.json (1 read + 3 retries at 500 ms, for a read that races Claude's own
  * tmp+rename) and apply checkClaudeJson against the newest backup.
- * @param {{paths: any, op?: Function, sleep?: (ms: number) => Promise<void>, retries?: number, retryDelayMs?: number, nfsTimeoutMs?: number}} a
+ * @param {{paths: any, op?: Function, sleep?: (ms: number) => Promise<void>, retries?: number, retryDelayMs?: number, nfsTimeoutMs?: number, allowNoCredential?: boolean}} a
  */
-async function claudeJsonGuard({ paths, op, sleep = realSleep, retries = 3, retryDelayMs = 500, nfsTimeoutMs = 10000 }) {
+async function claudeJsonGuard({ paths, op, sleep = realSleep, retries = 3, retryDelayMs = 500, nfsTimeoutMs = 10000, allowNoCredential = false }) {
   const run = op || nfsOp(nfsTimeoutMs);
   /** @type {string|null} */ let text = null;
   /** @type {any} */ let obj;
@@ -115,7 +148,7 @@ async function claudeJsonGuard({ paths, op, sleep = realSleep, retries = 3, retr
   const common = { file: paths.claudeJson, newestBackup: baseline ? baseline.file : null, baselineKeys: baseline ? baseline.keys : null, baselineProjects: baseline ? baseline.projects : null };
   if (text === null) return { ok: false, reason: 'MISSING', keys: 0, projects: 0, ...common };
   if (!parsed) return { ok: false, reason: 'UNPARSEABLE', keys: 0, projects: 0, ...common };
-  const r = checkClaudeJson(obj, baseline);
+  const r = checkClaudeJson(obj, baseline, { allowNoCredential });
   return { ...r, ...common, text, obj, sha256: sha256(text) };
 }
 
@@ -288,7 +321,8 @@ async function runPreflight(ctx) {
 
   try {
     // 2. ~/.claude.json health.
-    const guard = await claudeJsonGuard({ paths, op, sleep });
+    const allowNoCredential = Boolean(config.claude && config.claude.allowNoCredential);
+    const guard = await claudeJsonGuard({ paths, op, sleep, allowNoCredential });
     if (!guard.ok) {
       return block('CONFIG_UNHEALTHY', { reason: guard.reason, keys: guard.keys, projects: guard.projects, baselineKeys: guard.baselineKeys, baselineProjects: guard.baselineProjects, newestBackup: guard.newestBackup, file: guard.file });
     }
@@ -323,6 +357,10 @@ async function runPreflight(ctx) {
     let real;
     try { real = fs.realpathSync(ctx.bin.path); } catch { return block('CLAUDE_MISSING', { path: ctx.bin.path }); }
     if (!ctx.bin.tested) warnings.push(`UNTESTED_CLAUDE_VERSION ${ctx.bin.version}`);
+    // Announce a session that was let through without any credential: it will start and render,
+    // but its first API request fails. Saying so here is the difference between a documented
+    // trade-off and a confusing failure later.
+    if (guard.credential === 'none') warnings.push('NO_CREDENTIAL hosting without a configured credential (claude.allowNoCredential); the first API request will fail');
     if (log) log.info('preflight.ok', { backup: backup.file, warnings: warnings.length });
     return { ok: true, release: () => lock.release(), warnings, accountHash, backup: backup.file, binary: { path: real, version: ctx.bin.version } };
   } catch (e) {

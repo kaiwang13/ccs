@@ -67,3 +67,62 @@ test('I14: a healthy file starts claude and takes exactly one 0600 backup, byte-
   assert.equal(fs.statSync(path.join(backupDir, backups[0])).mode & 0o777, 0o600);
   assert.equal(fs.readFileSync(ctx.env.CCS_CLAUDE_JSON, 'utf8'), before);
 });
+
+/** Removes every credential the launcher would pass through, so a test can choose which one exists. */
+function withoutCredentials(env) {
+  const e = { ...env };
+  for (const k of Object.keys(e)) if (k.startsWith('ANTHROPIC_')) delete e[k];
+  return e;
+}
+
+test('I14: a token-authenticated host (no oauthAccount) starts a session', async (t) => {
+  // The bug this pins: the guard required obj.oauthAccount, which only the interactive subscription
+  // login writes. A host authenticating with ANTHROPIC_AUTH_TOKEN has no oauthAccount and ran
+  // claude perfectly well, yet ccs refused to start it with CONFIG_UNHEALTHY.
+  const { ctx, marker } = spyEnv(t, {
+    claudeJson: claudeJsonFixture({ oauth: false }),
+    env: { ANTHROPIC_AUTH_TOKEN: 'sk-ant-test-not-a-real-token' },
+  });
+  const rec = await createRegistry(ctx.paths).create({ name: 'tokhost', cwd: ctx.work, env: { PATH: process.env.PATH, HOME: ctx.home } });
+  spawnSessiond(ctx, ['--start', rec.id]);
+  await waitFor(() => fs.existsSync(marker), 20000, 'claude spawned on a token-authenticated host');
+  assert.ok(fs.existsSync(marker), 'a token host must not be blocked');
+});
+
+test('I14: a host with no credential anywhere is still blocked, and says why', async (t) => {
+  // Widening "is there a credential?" must not turn into "never block": with no OAuth record and no
+  // env credential, claude genuinely cannot run, so the start is refused -- with a reason that names
+  // the real problem instead of blaming a missing OAuth record.
+  const { ctx, marker } = spyEnv(t, { claudeJson: claudeJsonFixture({ oauth: false }), env: withoutCredentials(process.env) });
+  delete ctx.env.ANTHROPIC_API_KEY;
+  delete ctx.env.ANTHROPIC_AUTH_TOKEN;
+  const rec = await createRegistry(ctx.paths).create({ name: 'nocred', cwd: ctx.work, env: { PATH: process.env.PATH, HOME: ctx.home } });
+  const s = spawnSessiond(ctx, ['--start', rec.id]);
+  assert.equal((await s.exited).code, 2, 'a credential-less start must fail');
+  assert.equal(fs.existsSync(marker), false, 'claude was never spawned');
+  const state = await createRegistry(ctx.paths).readState(rec.id);
+  assert.equal(state.lifecycle, 'BLOCKED');
+  assert.equal(state.blocked.code, 'CONFIG_UNHEALTHY');
+  assert.equal(state.blocked.detail.reason, 'NO_CREDENTIAL');
+});
+
+test('I14: claude.allowNoCredential starts it anyway, and warns that the first request will fail', async (t) => {
+  // The explicit opt-in, off by default. It does not authenticate anything or bypass claude's own
+  // login -- it only stops ccs refusing to host a binary whose credential it cannot see, which is
+  // what a CI runner exercising the binary needs.
+  const { ctx, marker } = spyEnv(t, {
+    claudeJson: claudeJsonFixture({ oauth: false }),
+    env: withoutCredentials(process.env),
+    config: { claude: { allowNoCredential: true } },
+  });
+  delete ctx.env.ANTHROPIC_API_KEY;
+  delete ctx.env.ANTHROPIC_AUTH_TOKEN;
+  const rec = await createRegistry(ctx.paths).create({ name: 'nocredok', cwd: ctx.work, env: { PATH: process.env.PATH, HOME: ctx.home } });
+  spawnSessiond(ctx, ['--start', rec.id]);
+  await waitFor(() => fs.existsSync(marker), 20000, 'claude spawned with allowNoCredential');
+  const state = await createRegistry(ctx.paths).readState(rec.id);
+  assert.ok(
+    (state.warnings || []).some((w) => w.startsWith('NO_CREDENTIAL')),
+    `expected a NO_CREDENTIAL warning, got ${JSON.stringify(state.warnings)}`,
+  );
+});

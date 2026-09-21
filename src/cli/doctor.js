@@ -188,7 +188,7 @@ const CLIENT_TIPS = [
  */
 async function runDoctorLite({ paths, config, out, acceptConfig = false, nfsTimeoutMs = 10000, decoderTimeoutMs = 60000 }) {
   if (acceptConfig) {
-    const g = await claudeJsonGuard({ paths, nfsTimeoutMs });
+    const g = await claudeJsonGuard({ paths, nfsTimeoutMs, allowNoCredential: Boolean(config.claude && config.claude.allowNoCredential) });
     if (g.obj === undefined) { out.write(`ccs: cannot accept ${paths.claudeJson}: ${g.reason}\n`); return 1; }
     const abs = checkClaudeJson(g.obj, null);
     if (!abs.ok) {

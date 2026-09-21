@@ -31,6 +31,11 @@ const DEFAULTS = deepFreeze({
     runtimeDir: 'ccs',
     nameFromCwd: 'auto',
     remoteControl: true,
+    // Start even though no credential is configured anywhere. Off by default: a session hosted
+    // this way starts and renders, but its first API request fails, so it is for environments that
+    // exercise the binary without talking to the API (CI) rather than for normal use. It does NOT
+    // bypass anything -- claude's own login still gates whatever it gates.
+    allowNoCredential: false,
     extraArgsAllow: ['--model', '--permission-mode', '--add-dir', '--mcp-config', '--strict-mcp-config', '--allowedTools', '--disallowedTools', '--append-system-prompt'],
   },
   codex: {
@@ -90,6 +95,7 @@ const LEAVES = {
   'claude.runtimeDir': oneOf('ccs', 'system'),
   'claude.nameFromCwd': oneOf('auto', true, false),
   'claude.remoteControl': bool,
+  'claude.allowNoCredential': bool,
   'claude.extraArgsAllow': arrayOf((v) => typeof v === 'string' && /^--[A-Za-z][A-Za-z0-9-]*$/.test(v)),
   'codex.binary': (v) => v === 'auto' || (typeof v === 'string' && v.startsWith('/')),
   'codex.testedVersions': arrayOf((v) => typeof v === 'string' && /^\d+\.\d+\.\d+$/.test(v)),

@@ -49,7 +49,18 @@ test('checkClaudeJson applies every rule of spec §3.11 item 2', () => {
   assert.equal(pf.checkClaudeJson(good, null).ok, true);
   assert.equal(pf.checkClaudeJson([], null).reason, 'NOT_AN_OBJECT');
   assert.equal(pf.checkClaudeJson(claudeJsonFixture({ onboarding: false }), null).reason, 'ONBOARDING_NOT_COMPLETED');
-  assert.equal(pf.checkClaudeJson(claudeJsonFixture({ oauth: false }), null).reason, 'NO_OAUTH_ACCOUNT');
+  // A token/API-key host has no oauthAccount but is healthy when a credential is in the environment
+  // -- this is what a machine authenticating with ANTHROPIC_API_KEY / ANTHROPIC_AUTH_TOKEN looks
+  // like, and requiring OAuth specifically used to refuse to host it.
+  assert.equal(pf.checkClaudeJson(claudeJsonFixture({ oauth: false }), null, { envCredential: true }).ok, true);
+  assert.equal(pf.checkClaudeJson(claudeJsonFixture({ oauth: false }), null, { envCredential: true }).credential, 'env');
+  // With no credential anywhere it is still unhealthy, and the reason says so rather than blaming OAuth.
+  assert.equal(pf.checkClaudeJson(claudeJsonFixture({ oauth: false }), null, { envCredential: false }).reason, 'NO_CREDENTIAL');
+  // The explicit opt-in lets it through, and reports that there was no credential.
+  const optedIn = pf.checkClaudeJson(claudeJsonFixture({ oauth: false }), null, { envCredential: false, allowNoCredential: true });
+  assert.equal(optedIn.ok, true);
+  assert.equal(optedIn.credential, 'none');
+  assert.equal(pf.checkClaudeJson(claudeJsonFixture(), null, { envCredential: false }).credential, 'oauth');
   assert.equal(pf.checkClaudeJson(claudeJsonFixture({ fillerKeys: 5 }), null).reason, 'TOO_FEW_KEYS');
   const noProjects = claudeJsonFixture(); noProjects.projects = [];
   assert.equal(pf.checkClaudeJson(noProjects, null).reason, 'NO_PROJECTS');
