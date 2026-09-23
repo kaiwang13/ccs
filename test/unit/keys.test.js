@@ -129,6 +129,8 @@ test('decodeKey legacy names match Claude (spot checks)', () => {
   assert.equal(decodeKey(`${E}${E}[A`).option, true);
   assert.equal(decodeKey(`${E}[<64;1;1M`).name, 'wheelup');
   assert.equal(decodeKey(`${E}[<0;1;1M`).name, 'mouse');
+  assert.equal(decodeKey(`${E}[<64;-2;-9M`).name, 'wheelup');   // negative coords: drag past the origin
+  assert.equal(decodeKey(`${E}[<0;-5;3m`).name, 'mouse');
   assert.equal(decodeKey().name, '');
 });
 

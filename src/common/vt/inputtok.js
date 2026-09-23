@@ -72,7 +72,12 @@ function charLen(buf, i) {
  */
 function csiLen(buf, i) {
   let j = i + 2;
-  while (j < buf.length && buf[j] >= 0x30 && buf[j] <= 0x3f) j++;
+  // SGR mouse (prefix '<') reports negative coordinates when a drag leaves the grid, and Claude's
+  // own decoder matches /^\x1b\[<[\d;-]*[Mm]/ -- so 0x2d continues the parameter run there. Under
+  // the strict ECMA-48 split it is an intermediate byte, which ends the run and leaves the final
+  // M/m to be re-examined as a keypress; every other CSI keeps that strict behaviour.
+  const sgrMouse = buf[i + 2] === 0x3c;
+  while (j < buf.length && ((buf[j] >= 0x30 && buf[j] <= 0x3f) || (sgrMouse && buf[j] === 0x2d))) j++;
   while (j < buf.length && buf[j] >= 0x20 && buf[j] <= 0x2f) j++;
   if (j - i > MAX_CSI) return -(MAX_CSI) - 2;
   if (j >= buf.length) return INCOMPLETE;

@@ -40,6 +40,16 @@ test('escape sequence shapes', () => {
   ]);
 });
 
+test('SGR mouse with negative coordinates stays one token (Claude 2.1.280 allows -)', () => {
+  const { tok } = make();
+  // A drag past the terminal origin reports negative coordinates. Claude's own decoder matches
+  // /^\x1b\[<(\d+);(-?\d+);(-?\d+)([Mm])$/, so '-' has to keep the CSI parameter run going
+  // for the '<' prefix; otherwise the sequence is shredded and its final M/m reads as a keypress.
+  assert.deepEqual(summary(tok.feed(B(`${E}[<0;-5;3M${E}[<64;-2;-9m`))), [
+    ['seq', `${E}[<0;-5;3M`], ['seq', `${E}[<64;-2;-9m`],
+  ]);
+});
+
 test('a byte that cannot continue a sequence ends it and is re-examined', () => {
   const { tok } = make();
   assert.deepEqual(summary(tok.feed(B(`${E}[12\x1a${E}O\x03x`))), [

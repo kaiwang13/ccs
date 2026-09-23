@@ -122,7 +122,10 @@ const META_KEY_RE = /^(?:\x1b)([a-zA-Z0-9])$/; // ES
 const FN_KEY_RE = /^(?:\x1b+)(O|N|\[|\[\[)(?:(\d+)(?:;(\d+))?([~^$])|(?:1;)?(\d+)?([a-zA-Z]))/; // xS
 const KITTY_RE = /^\x1b\[(\d+)(?::(\d*)(?::(\d+))?)?(?:;(\d+))?u/; // xf
 const MOK_RE = /^\x1b\[27;(\d+);(\d+)~/; // Cf
-const SGR_MOUSE_RE = /^\x1b\[<(\d+);(\d+);(\d+)([Mm])$/; // Mf
+// Coordinates may be negative (a drag off the grid); the button never is. This tracks Claude
+// 2.1.280, which widened both coordinate groups to (-?\d+); 2.1.267 -- the version still in
+// decoder-baseline.json -- accepts only non-negative, so the two differ on exactly this input.
+const SGR_MOUSE_RE = /^\x1b\[<(\d+);(-?\d+);(-?\d+)([Mm])$/; // Mf
 /** @type {Record<string, string>} */
 const KEY_NAMES = { // YS
   OP: 'f1', OQ: 'f2', OR: 'f3', OS: 'f4', Op: '0', Oq: '1', Or: '2', Os: '3', Ot: '4', Ou: '5', Ov: '6', Ow: '7', Ox: '8', Oy: '9',
