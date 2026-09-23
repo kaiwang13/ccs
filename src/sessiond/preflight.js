@@ -54,6 +54,9 @@ function countsOf(obj) {
  * perfectly well -- so requiring it rejected every such host, including ones already working.
  * Both spellings are accepted because claude accepts both, and both are passed through to the
  * hosted agent by sessiond/env.js (ALLOW_PREFIXES includes ANTHROPIC_).
+ *
+ * Note this reads the env of the ccs PROCESS, which is the env the hosted agent inherits. A
+ * variable exported only inside some other terminal is deliberately not visible here.
  * @param {Record<string, string|undefined>} [env]
  */
 function hasEnvCredential(env = process.env) {
@@ -72,17 +75,18 @@ function hasEnvCredential(env = process.env) {
  * because that claude really cannot run -- see `allowNoCredential` for the explicit exception.
  * @param {any} obj parsed ~/.claude.json
  * @param {{keys: number, projects: number}|null} baseline counts of the newest readable backup
- * @param {{envCredential?: boolean, allowNoCredential?: boolean}} [o]
+ * @param {{envCredential?: boolean, storedCredential?: boolean, allowNoCredential?: boolean}} [o]
  */
 function checkClaudeJson(obj, baseline, o = {}) {
   if (!obj || typeof obj !== 'object' || Array.isArray(obj)) return { ok: false, reason: 'NOT_AN_OBJECT', keys: 0, projects: 0 };
   const c = countsOf(obj);
   const envCredential = o.envCredential ?? hasEnvCredential();
+  const storedCredential = o.storedCredential ?? false;
   if (obj.hasCompletedOnboarding !== true) return { ok: false, reason: 'ONBOARDING_NOT_COMPLETED', ...c };
   const oauth = Boolean(obj.oauthAccount && typeof obj.oauthAccount === 'object');
-  if (!oauth && !envCredential && !o.allowNoCredential) {
+  if (!oauth && !envCredential && !storedCredential && !o.allowNoCredential) {
     // Distinguish "no credential anywhere" from "the OAuth record is missing", because the second
-    // is what a token-authenticated host looks like and is entirely normal.
+    // is what a token- or keychain-authenticated host looks like and is entirely normal.
     return { ok: false, reason: 'NO_CREDENTIAL', ...c };
   }
   if (c.keys < 20) return { ok: false, reason: 'TOO_FEW_KEYS', ...c };
@@ -94,7 +98,7 @@ function checkClaudeJson(obj, baseline, o = {}) {
   // Report which credential made this healthy, or 'none' when it was only allowed through by
   // allowNoCredential -- so callers can warn about a session that will fail on its first request
   // rather than implying it has working auth.
-  const credential = oauth ? 'oauth' : envCredential ? 'env' : 'none';
+  const credential = oauth ? 'oauth' : storedCredential ? 'store' : envCredential ? 'env' : 'none';
   return { ok: true, reason: null, credential, ...c };
 }
 
@@ -133,6 +137,10 @@ async function newestBaseline(paths, op) {
  * @param {{paths: any, op?: Function, sleep?: (ms: number) => Promise<void>, retries?: number, retryDelayMs?: number, nfsTimeoutMs?: number, allowNoCredential?: boolean}} a
  */
 async function claudeJsonGuard({ paths, op, sleep = realSleep, retries = 3, retryDelayMs = 500, nfsTimeoutMs = 10000, allowNoCredential = false }) {
+  // Claude keeps its login in the platform credential store (macOS Keychain, or
+  // <claudeHome>/.credentials.json on Linux) rather than in ~/.claude.json, so a fully logged-in
+  // host can have no oauthAccount at all. Existence is checked; the secret is never read.
+  const storedCredential = procinfo.hasStoredCredential(paths.claudeHome);
   const run = op || nfsOp(nfsTimeoutMs);
   /** @type {string|null} */ let text = null;
   /** @type {any} */ let obj;
@@ -148,7 +156,7 @@ async function claudeJsonGuard({ paths, op, sleep = realSleep, retries = 3, retr
   const common = { file: paths.claudeJson, newestBackup: baseline ? baseline.file : null, baselineKeys: baseline ? baseline.keys : null, baselineProjects: baseline ? baseline.projects : null };
   if (text === null) return { ok: false, reason: 'MISSING', keys: 0, projects: 0, ...common };
   if (!parsed) return { ok: false, reason: 'UNPARSEABLE', keys: 0, projects: 0, ...common };
-  const r = checkClaudeJson(obj, baseline, { allowNoCredential });
+  const r = checkClaudeJson(obj, baseline, { allowNoCredential, storedCredential });
   return { ...r, ...common, text, obj, sha256: sha256(text) };
 }
 

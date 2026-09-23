@@ -56,6 +56,13 @@ test('checkClaudeJson applies every rule of spec §3.11 item 2', () => {
   assert.equal(pf.checkClaudeJson(claudeJsonFixture({ oauth: false }), null, { envCredential: true }).credential, 'env');
   // With no credential anywhere it is still unhealthy, and the reason says so rather than blaming OAuth.
   assert.equal(pf.checkClaudeJson(claudeJsonFixture({ oauth: false }), null, { envCredential: false }).reason, 'NO_CREDENTIAL');
+  // The case that actually matters on macOS: claude keeps its login in the platform credential
+  // store (Keychain there, <claudeHome>/.credentials.json on Linux), so a fully logged-in host has
+  // NO oauthAccount and NO ANTHROPIC_* in a normal shell. Treating that as unhealthy refused to
+  // host a working install -- which is exactly what happened before this.
+  const stored = pf.checkClaudeJson(claudeJsonFixture({ oauth: false }), null, { envCredential: false, storedCredential: true });
+  assert.equal(stored.ok, true);
+  assert.equal(stored.credential, 'store');
   // The explicit opt-in lets it through, and reports that there was no credential.
   const optedIn = pf.checkClaudeJson(claudeJsonFixture({ oauth: false }), null, { envCredential: false, allowNoCredential: true });
   assert.equal(optedIn.ok, true);

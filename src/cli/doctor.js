@@ -152,7 +152,13 @@ function checkClaude(paths, config) {
 async function checkClaudeJsonHealth(paths, nfsTimeoutMs) {
   const g = await claudeJsonGuard({ paths, nfsTimeoutMs });
   const backup = g.newestBackup ? `newest backup ${tildify(g.newestBackup)}` : 'no backup yet (the first start takes one)';
-  if (g.ok) return [{ level: 'ok', label: '~/.claude.json', detail: `${g.keys} keys, ${g.projects} projects, onboarding complete; ${backup}` }];
+  if (g.ok) {
+    // Naming the credential source is the difference between "why won't this start?" and an answer:
+    // on macOS a normally logged-in machine has no oauthAccount at all, so "store" here is what
+    // tells a puzzled user that ccs did find their Keychain login.
+    const where = { oauth: 'oauthAccount', store: 'platform credential store (macOS Keychain / .credentials.json)', env: 'ANTHROPIC_* in the environment', none: 'NONE — claude.allowNoCredential is on; the first API request will fail' }[g.credential] || g.credential;
+    return [{ level: g.credential === 'none' ? 'warn' : 'ok', label: '~/.claude.json', detail: `${g.keys} keys, ${g.projects} projects, onboarding complete; credential: ${where}; ${backup}` }];
+  }
   const vs = g.baselineKeys != null ? ` (baseline ${g.baselineKeys} keys, ${g.baselineProjects} projects)` : '';
   // MISSING/UNPARSEABLE happen inside claudeJsonGuard before checkClaudeJson ever runs — there is no
   // parsed object at all, so `ccs doctor --accept-config` cannot do anything with it (it would just
@@ -190,7 +196,12 @@ async function runDoctorLite({ paths, config, out, acceptConfig = false, nfsTime
   if (acceptConfig) {
     const g = await claudeJsonGuard({ paths, nfsTimeoutMs, allowNoCredential: Boolean(config.claude && config.claude.allowNoCredential) });
     if (g.obj === undefined) { out.write(`ccs: cannot accept ${paths.claudeJson}: ${g.reason}\n`); return 1; }
-    const abs = checkClaudeJson(g.obj, null);
+    const abs = checkClaudeJson(g.obj, null, {
+      // Same credential rules the sessiond will apply, or --accept-config could bless a file that
+      // then refuses to start (and vice versa).
+      storedCredential: require('../common/procinfo.js').hasStoredCredential(paths.claudeHome),
+      allowNoCredential: Boolean(config.claude && config.claude.allowNoCredential),
+    });
     if (!abs.ok) {
       out.write(`ccs: cannot accept ${tildify(paths.claudeJson)}: ${abs.reason} fails a check that does not depend on the baseline — restore it from ${g.newestBackup ? tildify(g.newestBackup) : 'a backup'}\n`);
       return 1;

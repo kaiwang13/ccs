@@ -27,6 +27,7 @@
  *   selfTty(): string|null,
  *   shutdownCorroborated(o?: any): boolean,
  *   sameProcStart(recorded: string, live: string): boolean,
+ *   hasStoredCredential(claudeHome: string): boolean,
  *   name: string,
  *   platformReportsZombieParent: boolean,
  *   hangupOnMasterClose: boolean,

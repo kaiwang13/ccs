@@ -55,6 +55,7 @@ module.exports = {
   selfTty: platform.selfTty,
   shutdownCorroborated: platform.shutdownCorroborated,
   sameProcStart: platform.sameProcStart,
+  hasStoredCredential: platform.hasStoredCredential,
   oomScoreAdjPath: platform.oomScoreAdjPath,
   name: platform.name,
   capabilities: platform.capabilities,

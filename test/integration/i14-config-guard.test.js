@@ -75,6 +75,23 @@ function withoutCredentials(env) {
   return e;
 }
 
+/**
+ * Can this machine actually present a host with NO credential at all?
+ *
+ * Stripping ANTHROPIC_* is not enough: claude also keeps a login in the platform credential store,
+ * and on macOS that store is the user's Keychain, which is global and cannot be redirected by
+ * CCS_CLAUDE_HOME the way Linux's <claudeHome>/.credentials.json can. So on a developer Mac that is
+ * logged into Claude, "no credential anywhere" is simply not arrangeable, and the two tests below
+ * would be asserting against a premise that is false.
+ *
+ * They are skipped there rather than weakened -- on CI, and on any machine without a stored login,
+ * the premise holds and they run for real.
+ */
+const { hasStoredCredential } = require('../../src/common/procinfo.js');
+const credentiallessImpossible = hasStoredCredential(path.join(require('os').homedir(), '.claude'))
+  ? 'this machine has a stored Claude login (macOS Keychain), so a credential-less host cannot be simulated'
+  : false;
+
 test('I14: a token-authenticated host (no oauthAccount) starts a session', async (t) => {
   // The bug this pins: the guard required obj.oauthAccount, which only the interactive subscription
   // login writes. A host authenticating with ANTHROPIC_AUTH_TOKEN has no oauthAccount and ran
@@ -89,7 +106,7 @@ test('I14: a token-authenticated host (no oauthAccount) starts a session', async
   assert.ok(fs.existsSync(marker), 'a token host must not be blocked');
 });
 
-test('I14: a host with no credential anywhere is still blocked, and says why', async (t) => {
+test('I14: a host with no credential anywhere is still blocked, and says why', { skip: credentiallessImpossible }, async (t) => {
   // Widening "is there a credential?" must not turn into "never block": with no OAuth record and no
   // env credential, claude genuinely cannot run, so the start is refused -- with a reason that names
   // the real problem instead of blaming a missing OAuth record.
@@ -106,7 +123,7 @@ test('I14: a host with no credential anywhere is still blocked, and says why', a
   assert.equal(state.blocked.detail.reason, 'NO_CREDENTIAL');
 });
 
-test('I14: claude.allowNoCredential starts it anyway, and warns that the first request will fail', async (t) => {
+test('I14: claude.allowNoCredential starts it anyway, and warns that the first request will fail', { skip: credentiallessImpossible }, async (t) => {
   // The explicit opt-in, off by default. It does not authenticate anything or bypass claude's own
   // login -- it only stops ccs refusing to host a binary whose credential it cannot see, which is
   // what a CI runner exercising the binary needs.

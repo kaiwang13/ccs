@@ -30,12 +30,16 @@ against real `claude` and `codex` binaries pass. See [Limitations](#limitations)
   support additionally needs Node's built-in `node:sqlite` (Node 22.5+)
 - **gcc/clang, make, python3** — `node-gyp` builds `node-pty` and the bundled `ttyctl` addon from source
   (on macOS: `xcode-select --install`)
-- **Claude Code** installed and logged in — by subscription login, or with `ANTHROPIC_API_KEY` /
-  `ANTHROPIC_AUTH_TOKEN` in the environment. Either counts as authenticated; ccs hosts a
-  token-authenticated Claude exactly as it hosts a subscription one. Tested against **2.1.267** and
-  **2.1.278**; other versions run but report `UNTESTED_CLAUDE_VERSION` (a warning, never a block).
-  Setting `claude.allowNoCredential` hosts a Claude with no credential at all — it starts and renders,
-  but its first request fails, so that is for exercising the binary (CI) rather than for use.
+- **Claude Code** installed and logged in. `ccs` accepts any credential Claude itself can use, and
+  checks for them in this order: the `oauthAccount` record in `~/.claude.json`; the platform
+  credential store (the **macOS Keychain**, or `~/.claude/.credentials.json` on Linux); or
+  `ANTHROPIC_API_KEY` / `ANTHROPIC_AUTH_TOKEN` in the environment. Only existence is checked — no
+  secret is ever read. This matters on macOS, where a normally logged-in machine has **no**
+  `oauthAccount` and no environment variable, because Claude keeps its login in the Keychain.
+  Tested against **2.1.267**–**2.1.280**; other versions run but report `UNTESTED_CLAUDE_VERSION`
+  (a warning, never a block). Setting `claude.allowNoCredential` hosts a Claude with no credential
+  at all — it starts and renders, but its first request fails, so that is for exercising the binary
+  (CI) rather than for use.
 - **Codex CLI** — optional. Tested against **0.155.0**/**0.155.1**; other versions run but report
   `UNTESTED_CODEX_VERSION`. Codex not being installed is never a doctor failure — it's simply unavailable
   until you install it

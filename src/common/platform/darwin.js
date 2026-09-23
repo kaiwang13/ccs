@@ -258,6 +258,30 @@ function shutdownCorroborated() {
   return false;
 }
 
+/**
+ * Does the platform's credential store hold Claude's login?
+ *
+ * On macOS, Claude Code keeps its OAuth credentials in the login Keychain under the service
+ * "Claude Code-credentials" -- NOT in ~/.claude.json's oauthAccount, and not in the environment. A
+ * perfectly logged-in Mac therefore has no oauthAccount and no ANTHROPIC_* variable in a normal
+ * shell, which is exactly the state that used to be reported as an unhealthy config and refused.
+ *
+ * Existence only: `security find-generic-password` is called WITHOUT `-w`, so it prints metadata
+ * and never the secret, and stdout is discarded regardless. ccs has no business reading the
+ * credential -- it only needs to know whether claude will find one.
+ * @param {string} _claudeHome @returns {boolean}
+ */
+function hasStoredCredential(_claudeHome) {
+  try {
+    execFileSync('/usr/bin/security', ['find-generic-password', '-s', 'Claude Code-credentials'], {
+      stdio: ['ignore', 'ignore', 'ignore'], timeout: 5000,
+    });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 /** This implementation's platform name, for `ccs doctor`. */
 const name = 'darwin';
 
@@ -280,5 +304,6 @@ const hangupOnMasterClose = false;
 module.exports = {
   procStart, procState, pgid, procSid, ppid,
   bootId, machineId, readEnviron, listPids, readArgv, pidNs, ttyOf,
-  mountsText, selfTty, shutdownCorroborated, sameProcStart, oomScoreAdjPath, name, platformReportsZombieParent, hangupOnMasterClose,
+  mountsText, selfTty, shutdownCorroborated, sameProcStart, hasStoredCredential,
+  oomScoreAdjPath, name, platformReportsZombieParent, hangupOnMasterClose,
 };

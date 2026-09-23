@@ -10,6 +10,7 @@
  * on `procStart`.
  */
 const fs = require('node:fs');
+const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 
 /** @param {number} pid @returns {string[]|null} fields 3.. of /proc/<pid>/stat (index 0 = field 3) */
@@ -167,6 +168,22 @@ function sameProcStart(recorded, live) {
 /** Path sessiond raises to bias the OOM killer away from itself, or null where the concept does not exist. */
 const oomScoreAdjPath = '/proc/self/oom_score_adj';
 
+/**
+ * Does the platform's credential store hold Claude's login?
+ *
+ * On Linux, Claude Code writes them to <claudeHome>/.credentials.json (macOS uses the Keychain
+ * instead -- see darwin.js). Existence only: the file is never opened, because ccs has no business
+ * reading the credential and only needs to know whether claude will find one.
+ * @param {string} claudeHome @returns {boolean}
+ */
+function hasStoredCredential(claudeHome) {
+  try {
+    return fs.existsSync(path.join(claudeHome, '.credentials.json'));
+  } catch {
+    return false;
+  }
+}
+
 /** This implementation's platform name, for `ccs doctor`. */
 const name = 'linux';
 
@@ -183,5 +200,6 @@ const hangupOnMasterClose = true;
 module.exports = {
   procStart, procState, pgid, procSid, ppid,
   bootId, machineId, readEnviron, listPids, readArgv, pidNs, ttyOf,
-  mountsText, selfTty, shutdownCorroborated, sameProcStart, oomScoreAdjPath, name, platformReportsZombieParent, hangupOnMasterClose,
+  mountsText, selfTty, shutdownCorroborated, sameProcStart, hasStoredCredential,
+  oomScoreAdjPath, name, platformReportsZombieParent, hangupOnMasterClose,
 };
