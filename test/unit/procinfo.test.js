@@ -68,27 +68,28 @@ test('zombie state is reported while unreaped', async (t) => {
   t.after(async () => { if (sh.exitCode === null && sh.signalCode === null) sh.kill('SIGTERM'); await exited; });
   // Whether a defunct process's parent is reportable is a property of the platform, not of this
   // shell: libproc returns ESRCH for a zombie (see procInfo in native/ttyctl/ttyctl.c), so on macOS
-  // the parent of a zombie is null and the zombie cannot be matched to this shell. Probe it rather
-  // than assuming, by watching for the first zombie and asking what its parent reads as.
+  // the parent of a zombie is null and the zombie cannot be matched to this shell.
+  //
+  // Where the platform DOES report a parent, that parent must be part of SELECTING the zombie, not
+  // checked after the fact: a real host can carry unrelated zombies (found on a server with ~1800 of
+  // them, leaked by an unrelated job), and taking the first zombie on the host then asserting its
+  // parent makes a stray fail the test rather than merely pass it. A pristine CI runner has no
+  // strays, so the weaker form passes there and fails on any busy machine.
   let zombieSeen = false;
-  let parentMatched = false;
   const deadline = Date.now() + 1500;
   while (!zombieSeen && Date.now() < deadline) {
     await new Promise((r) => setTimeout(r, 20));
     for (const pid of P.listPids()) {
       if (pid === sh.pid) continue;
       if (P.procState(pid) !== 'zombie') continue;
+      if (P.platformReportsZombieParent && P.ppid(pid) !== sh.pid) continue;   // someone else's zombie
       zombieSeen = true;
-      // Where the platform reports a parent, require it to be this shell, so an unrelated zombie
-      // elsewhere on the host cannot make this test pass.
-      if (P.ppid(pid) !== null) parentMatched = P.ppid(pid) === sh.pid;
       break;
     }
   }
-  assert.ok(zombieSeen, 'expected a zombie child of the exec-ed sleep');
-  if (P.platformReportsZombieParent) {
-    assert.ok(parentMatched, 'the platform can report a zombie parent, and it must be this shell');
-  }
+  assert.ok(zombieSeen, P.platformReportsZombieParent
+    ? 'expected a zombie child of the exec-ed sleep, parented to it'
+    : 'expected a zombie child of the exec-ed sleep');
 });
 
 test('bootId and machineId are stable non-empty strings', () => {
