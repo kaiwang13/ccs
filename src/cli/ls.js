@@ -42,6 +42,17 @@ function blockedHint(name, blocked) {
   const d = (blocked && blocked.detail) || {};
   switch (blocked && blocked.code) {
     case 'CONFIG_UNHEALTHY':
+      // NO_CREDENTIAL is not damage: the file is intact and claude simply has no login anywhere
+      // ccs can see, so pointing at a backup would send the user to fix the wrong thing.
+      //
+      // Every OTHER reason keeps the damage framing deliberately. ONBOARDING_NOT_COMPLETED in
+      // particular IS the 2026-09-16 signature -- a truncated ~/.claude.json loses
+      // hasCompletedOnboarding and drops claude into the onboarding wizard -- so "restore it from
+      // your newest backup" is the correct remedy there, and telling that user to just re-run
+      // onboarding would invite them to overwrite a config that is still recoverable.
+      if (d.reason === 'NO_CREDENTIAL') {
+        return `claude has no credential ccs can find — log in with 'claude' in a normal terminal, or set ANTHROPIC_API_KEY / ANTHROPIC_AUTH_TOKEN, then 'ccs restart ${name}'`;
+      }
       return `~/.claude.json looks damaged (${d.reason || 'unhealthy'}); restore it from ${d.newestBackup || 'your newest backup'} or run 'ccs doctor --accept-config', then 'ccs restart ${name}'`;
     case 'SECOND_WRITER':
       return d.thread
@@ -58,10 +69,18 @@ function blockedHint(name, blocked) {
   }
 }
 
-/** @param {string} name @param {any} gate */
-function setupView(name, gate) {
-  const kind = (/trust|login|onboarding/.exec(typeof gate === 'string' ? gate : JSON.stringify(gate || '')) || ['setup'])[0];
+/**
+ * The remedy depends on WHICH setup screen is up, so prefer setupKind over the gate name. The gate
+ * is only ever the string "SETUP", which matches none of the kinds and used to fall through to the
+ * "fix auth" hint -- telling a user whose session is waiting on the TRUST dialog to go fix their
+ * login, when the actual fix is to attach with --allow-setup and answer it.
+ * @param {string} name @param {any} gate @param {string|null} [setupKind]
+ */
+function setupView(name, gate, setupKind = null) {
+  const from = setupKind || gate;
+  const kind = (/trust|login|onboarding/.exec(typeof from === 'string' ? from : JSON.stringify(from || '')) || ['setup'])[0];
   if (kind === 'trust') return view('⚠', `needs setup: trust — ccs a ${name} --allow-setup`);
+  if (kind === 'setup') return view('⚠', `needs setup — attach to see which screen: ccs a ${name} --allow-setup`);
   return view('⚠', `needs setup: ${kind} — fix auth in a normal terminal, then: ccs restart ${name}`);
 }
 
@@ -92,7 +111,7 @@ function statusView(s) {
     case 'RECOVERING': return view('↻', 'recovering…');
     case 'BACKOFF': return view('↻', 'restarting…');
     case 'STOPPING': return view('↻', 'stopping…');
-    case 'SETUP_GATED': return setupView(n, s.gate);
+    case 'SETUP_GATED': return setupView(n, s.gate, s.setupKind);
     case 'SUSPENDED': return view('⚠', 'suspended — input blocked until Claude resumes');
     case 'EXITED': return view('⚠', `exited · ccs restart ${n}`);
     case 'FAILED': return view('⚠', `failed · ccs restart ${n}`);
@@ -136,7 +155,12 @@ function sessionRow({ id, rec, live, status, nowMs = Date.now() }) {
   const blocked = (status && status.blocked) || (state && state.blocked) || (blockedCode ? { code: blockedCode } : null);
   const v = statusView({
     name, live, lifecycle, observed, desired: intent ? intent.desired : null, lastExit, blocked,
-    gate: status ? status.gate : state && state.gate, hasState: !!(state || status),
+    gate: status ? status.gate : state && state.gate,
+    // The gate name is just "SETUP", which cannot say WHICH setup screen is up. setupKind can
+    // (trust vs login vs onboarding) and decides the remedy, so carry it when the live session
+    // reports it. It is not persisted to state.json, hence the fallback to gate.
+    setupKind: (status && status.setupKind) || (state && state.setupKind) || null,
+    hasState: !!(state || status),
     stuckPid: (status && status.claude && status.claude.pid) || (state && state.claude && state.claude.pid) || null,
   });
   const since = (status && status.lifecycleSince) || (state && state.lifecycleSince) || (intent && intent.createdAt) || null;

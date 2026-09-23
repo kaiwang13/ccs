@@ -1,6 +1,6 @@
 # ccs — multi-client Claude Code and Codex sessions
 
-`ccs` keeps named CLI-agent sessions — **Claude Code** and **Codex CLI** — running on a Linux host so that
+`ccs` keeps named CLI-agent sessions — **Claude Code** and **Codex CLI** — running on your machine so that
 **several terminals can attach to the same session at once and stay in sync**, each with the agent's full
 rendering in its **own native terminal scrollback**. Detach a terminal, close your laptop, come back
 tomorrow from a different machine — the session keeps running. The official Claude phone app keeps working
@@ -18,21 +18,50 @@ so you scroll with your normal mouse wheel, trackpad, and scrollbar — no prefi
 
 **Status: v0.2.0.** Adds Codex CLI hosting alongside Claude Code, on the same terms: persisted and
 displayed session type, honest (never fabricated) status, thread-id discovery and resume, per-agent
-preflight and doctor checks — with zero changes to Claude's own code paths. The automated suite (680
-tests: 495 unit, 93 integration, 92 golden) and the live suites against real `claude` and `codex` binaries
-pass. See [Limitations](#limitations) for what is not built yet.
+preflight and doctor checks — with zero changes to Claude's own code paths. Hosting runs on **Linux and
+macOS** from one codebase. The automated suite (517 unit, 98 integration, 92 golden) and the live suites
+against real `claude` and `codex` binaries pass. See [Limitations](#limitations) for what is not built yet.
 
 ## Requirements
 
-- **Linux** (uses `/proc`, AF_UNIX sockets, and a small native TTY addon)
+- **Linux or macOS.** Process information comes from `/proc` on Linux and `libproc` on macOS, behind a
+  single platform seam (`src/common/procinfo.js`); the native TTY addon builds on both.
 - **Node.js 22.x** — one interpreter, consistently: the native addons are compiled for its ABI, and Codex
   support additionally needs Node's built-in `node:sqlite` (Node 22.5+)
-- **gcc, make, python3** — `node-gyp` builds `node-pty` and the bundled `ttyctl` addon from source
-- **Claude Code** installed and logged in. Tested against **2.1.267**; other versions run but report
-  `UNTESTED_CLAUDE_VERSION` (a warning, never a block)
+- **gcc/clang, make, python3** — `node-gyp` builds `node-pty` and the bundled `ttyctl` addon from source
+  (on macOS: `xcode-select --install`)
+- **Claude Code** installed and logged in. `ccs` accepts any credential Claude itself can use, and
+  checks for them in this order: the `oauthAccount` record in `~/.claude.json`; the platform
+  credential store (the **macOS Keychain**, or `~/.claude/.credentials.json` on Linux); or
+  `ANTHROPIC_API_KEY` / `ANTHROPIC_AUTH_TOKEN` in the environment. Only existence is checked — no
+  secret is ever read. This matters on macOS, where a normally logged-in machine has **no**
+  `oauthAccount` and no environment variable, because Claude keeps its login in the Keychain.
+  Tested against **2.1.267**–**2.1.280**; other versions run but report `UNTESTED_CLAUDE_VERSION`
+  (a warning, never a block). Setting `claude.allowNoCredential` hosts a Claude with no credential
+  at all — it starts and renders, but its first request fails, so that is for exercising the binary
+  (CI) rather than for use.
 - **Codex CLI** — optional. Tested against **0.155.0**/**0.155.1**; other versions run but report
   `UNTESTED_CODEX_VERSION`. Codex not being installed is never a doctor failure — it's simply unavailable
   until you install it
+
+### Platform differences on macOS
+
+`ccs doctor` reports the first two as warnings. None of them blocks a session; they narrow safety checks
+that depend on Linux facilities macOS does not have.
+
+- **Cross-host writer detection.** Claude writes `pidDomain` as `linux:<machine-id>:pid:[<ns>]` on Linux,
+  which is how `ccs` tells "another host sharing this home has the same conversation open" from "this
+  host". On macOS the field is the bare literal `darwin` with no machine identity, so a session started on
+  a Mac is classified as local. A session file written by a *Linux* host sharing the home is still detected
+  as remote. This matters only if one home directory is shared between machines — a single-user Mac on
+  local disk is unaffected.
+- **Orphan detection.** `ccs` finds an agent left over from a crashed session by reading that process's
+  environment and argv. macOS does not expose another process's environment, so this scan cannot run and
+  `ccs` says so rather than reporting a clean result it did not actually verify.
+- **Refusing to attach a session from inside itself.** `ccs` refuses when the attaching client is already
+  running inside the session, which it detects from that client's environment — so the same limitation
+  applies and the check cannot fire on macOS. It is not replaced with a process-tree test, because a
+  genuine client and the agent share the holder as an ancestor and that test would refuse valid attaches.
 
 ## Install
 
@@ -277,7 +306,7 @@ restart, so a session created in a shell without your proxy set will never have 
 ## Tests
 
 ```bash
-npm test                  # unit + golden + integration (680)
+npm test                  # unit + golden + integration (707)
 npm run test:unit
 npm run test:golden       # terminal-emulator differential tests
 npm run test:integration
@@ -288,6 +317,23 @@ No test starts a real `claude` or touches your real `~/.claude*`, `~/.local/stat
 The live suites **do** start a real `claude` and are gated behind `CCS_LIVE=1`. They back up
 `~/.claude.json` first, run one session at a time, and verify afterwards that nothing shrank. Read
 [`docs/RUNBOOK.md`](docs/RUNBOOK.md) before running them.
+
+`test/live/real-agents.test.js` is the exception and the safer option: it points `HOME`,
+`CCS_CLAUDE_HOME`, `CCS_CLAUDE_JSON`, `CCS_CODEX_HOME`, the runtime dir and the state dir at one temp
+root, so your own `~/.claude`, `~/.claude.json` and `~/.codex` are never read or written — the real
+binaries are used, but only their state is redirected. It still makes real API calls:
+
+```sh
+CCS_LIVE=1 node --test --test-concurrency=1 test/live/real-agents.test.js
+```
+
+### Why the fake-based suites are not sufficient on their own
+
+The fakes are accurate about the protocol and the UI, but they read their own process identity
+through the same code `ccs` does, so the two can never disagree. A real agent writes its own session
+json independently, and the first run of `real-agents.test.js` found a macOS encoding mismatch that
+had made every real session stall in `STARTING` — a class of bug the fakes cannot express. Anything
+that depends on what the real binary writes needs a real binary.
 
 ## Limitations
 

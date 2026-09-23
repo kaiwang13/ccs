@@ -4,7 +4,7 @@ const fs = require('node:fs');
 const net = require('node:net');
 const os = require('node:os');
 const path = require('node:path');
-const { spawn, spawnSync } = require('node:child_process');
+const { spawn } = require('node:child_process');
 const pty = require('node-pty');
 const { resolvePaths } = require('../common/paths');
 const { tryLock } = require('../common/locks');
@@ -12,6 +12,7 @@ const { createLogger } = require('../common/log');
 const { realClock } = require('../common/clock');
 const { ttyctl } = require('../common/native');
 const procinfo = require('../common/procinfo');
+const platform = require('../common/platform/index.js');
 const { Lexer } = require('../common/vt/lexer');
 const { T, HOLDER_PROTO, encodeData, decodeWrite, FramedSocket } = require('../common/proto');
 const { Ring } = require('./ring');
@@ -39,21 +40,18 @@ function validateHolderSpec(o) {
   return o;
 }
 
-/** Field 6 (session id) of /proc/<pid>/stat. @param {number} pid @returns {number|null} */
+/** Field 6 (session id) of /proc/<pid>/stat, or the libproc equivalent on macOS. @param {number} pid @returns {number|null} */
 function procSid(pid) {
-  try { const s = fs.readFileSync(`/proc/${pid}/stat`, 'utf8'); return Number(s.slice(s.lastIndexOf(')') + 2).split(' ')[3]); } catch { return null; }
+  return procinfo.procSid(pid);
 }
 
 /**
  * Independent evidence of a host shutdown (spec §3.1 step 12): a bare SIGTERM is not enough.
+ * Delegates to the platform seam: systemd on Linux, always-false on macOS. See the note there.
  * @param {{scheduledPath?: string, systemctl?: string}} [o]
  */
-function shutdownCorroborated({ scheduledPath = '/run/systemd/shutdown/scheduled', systemctl = 'systemctl' } = {}) {
-  if (fs.existsSync(scheduledPath)) return true;
-  try {
-    const r = spawnSync(systemctl, ['is-system-running'], { encoding: 'utf8', timeout: 2000 });
-    return (r.stdout || '').trim() === 'stopping';
-  } catch { return false; }
+function shutdownCorroborated(o) {
+  return platform.shutdownCorroborated(o);
 }
 
 /** @param {number|null|undefined} sig */

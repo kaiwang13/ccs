@@ -5,6 +5,7 @@ const { connectHolder } = require('../../src/sessiond/holderclient');
 const { startHolder } = require('../helpers/holder');
 const { readRecord } = require('../helpers/spawn');
 const { waitFor, onceEvent, sleep } = require('../helpers/waitfor');
+const { hangupOnMasterClose } = require('../../src/common/platform/index.js');
 
 test('connectHolder resolves with hello; events are held until attach(); data offsets are contiguous', { timeout: 60000 }, async (t) => {
   const h = await startHolder(t);
@@ -60,7 +61,11 @@ test('queryFwd/queryReply round trip; signal; closeMaster → exit; a second cli
   hc.signal('SIGCONT');
   await waitFor(() => readRecord(h.tmp, 'hold01').signals.some((/** @type {any} */ s) => s.sig === 'SIGCONT'), { what: 'SIGCONT' });
   hc.closeMaster();
-  const e = await onceEvent(hc, 'exit', 5000);
+  // macOS does not hang the pty slave up on master close, so claude keeps running and no EXIT
+  // follows from closeMaster alone: the stop sequence escalates to SIGTERM. Linux needs only the
+  // close. Either way an EXIT must arrive, which is what this asserts.
+  if (!hangupOnMasterClose) { await sleep(1000); process.kill(hc.hello.claude.pid, 'SIGTERM'); }
+  const e = await onceEvent(hc, 'exit', 20000);
   assert.equal(e.t, 'EXIT');
   hc.release();
   await onceEvent(hc, 'close', 5000);

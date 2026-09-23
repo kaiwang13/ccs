@@ -7,6 +7,7 @@ const path = require('node:path');
 const { spawn } = require('node:child_process');
 const { T, FramedSocket, encodeWrite, decodeData } = require('../../src/common/proto');
 const procinfo = require('../../src/common/procinfo');
+const { hangupOnMasterClose } = require('../../src/common/platform/index.js');
 const { readRecord, NODE } = require('../helpers/spawn');
 const { startHolder } = require('../helpers/holder');
 const { waitFor, sleep } = require('../helpers/waitfor');
@@ -52,8 +53,8 @@ test('H_HELLO fields, ATTACH from 0 streams contiguous DATA, the fake saw both p
   assert.deepEqual(rec.probes.map((/** @type {string[]} */ p) => p.map((x) => x.split(':')[0])), [['XTVERSION', 'DA1'], ['DECRQM', 'DA1']]);
   const pid = hello.claude.pid;
   assert.equal(procinfo.pgid(pid), pid);
-  const stat = fs.readFileSync(`/proc/${pid}/stat`, 'utf8').slice(fs.readFileSync(`/proc/${pid}/stat`, 'utf8').lastIndexOf(')') + 2).split(' ');
-  assert.equal(Number(stat[3]), pid, 'sid == pid');
+  // Read sid through the seam: /proc/<pid>/stat field 6 on Linux, libproc on macOS.
+  assert.equal(procinfo.procSid(pid), pid, 'sid == pid');
   c.close();
 });
 
@@ -143,12 +144,27 @@ test('SIGNAL allows only SIGCONT and SIGTERM (procStart-checked); anything else 
 test('CLOSE_MASTER ends claude (EIO/SIGHUP); EXIT is sent; RELEASE ends the holder', { timeout: 60000 }, async (t) => {
   const h = await startHolder(t);
   const c = await rawConn(h.sock);
-  await c.waitControl('H_HELLO');
+  const hello = await c.waitControl('H_HELLO');
   c.send({ t: 'ATTACH', fromOffset: 0, pid: process.pid });
   await waitFor(() => /❯/.test(c.text()), { what: 'prompt' });
   c.send({ t: 'CLOSE_MASTER' });
-  const exit = await c.waitControl('EXIT');
-  assert.equal(exit.shuttingDown, false);
+  if (hangupOnMasterClose) {
+    // Linux: closing the master hangs the slave up, so claude takes SIGHUP and exits by itself --
+    // this is the cheap first step of the stop sequence.
+    const exit = await c.waitControl('EXIT');
+    assert.equal(exit.shuttingDown, false);
+  } else {
+    // macOS does not hang the slave up: claude is still running after CLOSE_MASTER, so no EXIT
+    // follows from it alone and the stop sequence must escalate to SIGTERM. Assert exactly that --
+    // the agent survives the close, then the next step ends it -- rather than waiting for an EXIT
+    // this platform will not produce.
+    await sleep(1000);
+    assert.equal(c.controls.filter((m) => m.t === 'EXIT').length, 0, 'macOS: CLOSE_MASTER alone leaves claude running');
+    assert.equal(procinfo.procState(hello.claude.pid), 'alive');
+    process.kill(hello.claude.pid, 'SIGTERM');
+    const exit = await c.waitControl('EXIT', undefined, 20000);
+    assert.equal(exit.shuttingDown, false);
+  }
   c.send({ t: 'RELEASE' });
   assert.equal(await h.exited, 0);
 });
@@ -156,11 +172,15 @@ test('CLOSE_MASTER ends claude (EIO/SIGHUP); EXIT is sent; RELEASE ends the hold
 test('finish() closes pty.sock synchronously: connections raced in right after RELEASE are refused, never given a full H_HELLO handshake then dropped', { timeout: 60000 }, async (t) => {
   const h = await startHolder(t);
   const c = await rawConn(h.sock);
-  await c.waitControl('H_HELLO');
+  const hello3 = await c.waitControl('H_HELLO');
   c.send({ t: 'ATTACH', fromOffset: 0, pid: process.pid });
   await waitFor(() => /❯/.test(c.text()), { what: 'prompt' });
   c.send({ t: 'CLOSE_MASTER' });
-  await c.waitControl('EXIT');
+  // macOS needs the escalation; see the CLOSE_MASTER test above for why. Give the fake a moment
+  // first: closing the master and signalling in the same tick can arrive while it is still finishing
+  // its probe round, and the point of this test is the post-RELEASE race, not that one.
+  if (!hangupOnMasterClose) { await sleep(1000); process.kill(hello3.claude.pid, 'SIGTERM'); }
+  await c.waitControl('EXIT', undefined, 20000);
   /** Dials one fresh raw connection to h.sock; resolves once it errors or closes, reporting whether H_HELLO ever arrived. */
   const attempt = () => new Promise((resolve) => {
     const sock = net.connect(h.sock);

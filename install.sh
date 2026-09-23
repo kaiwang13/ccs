@@ -39,7 +39,10 @@ need() { command -v "$1" >/dev/null 2>&1 || die "'$1' is required but not instal
 
 check_prereqs() {
   need git; need node; need npm; need make; need cc
-  case "$(uname -s)" in Linux) ;; *) die "ccs requires Linux (it uses /proc and AF_UNIX sockets)" ;; esac
+  case "$(uname -s)" in
+    Linux|Darwin) ;;
+    *) die "ccs supports Linux and macOS; found $(uname -s)" ;;
+  esac
   major=$(node -p 'process.versions.node.split(".")[0]')
   [ "$major" -ge 22 ] || die "Node 22+ required; found $(node -v)"
 }

@@ -13,6 +13,7 @@ const { getAgent, KNOWN_AGENTS } = require('../agents/index.js');
 const { claudeJsonGuard, checkClaudeJson, backupClaudeJson } = require('../sessiond/preflight.js');
 const { loadDecoderBaseline } = require('../claude/tested.js');
 const { tildify } = require('./ls.js');
+const platform = require('../common/platform/index.js');
 
 // Optional pin: the native addons (ttyctl, node-pty) are compiled for one Node ABI, so a deployment that
 // keeps several interpreters around can pin the expected one. Unset (the default) means "whatever node is
@@ -46,6 +47,42 @@ function checkNative() {
     out.push({ level: 'ok', label: 'node-pty', detail: `node-pty ${require('node-pty/package.json').version} loaded` });
   } catch (e) {
     out.push({ level: 'fail', label: 'node-pty', detail: `did not load (${(/** @type {any} */ (e)).message}) — run: npm ci` });
+  }
+  return out;
+}
+
+/**
+ * Platform-specific degradations that are *accepted* rather than fixed. They are reported here so
+ * they announce themselves instead of being discovered later as a silently missing protection.
+ *
+ * The one that matters is cross-host writer detection. `parsePidDomain` parses Claude's
+ * `pidDomain` into {machineId, pidNs} and `preflight.js` uses it to tell "another host sharing this
+ * home has the same conversation open" from "this host". On macOS Claude writes the bare literal
+ * `darwin`, which carries no machine id, so the parse returns null and every writer is classified
+ * local -- `SECOND_WRITER_REMOTE` becomes unreachable. That is acceptable for the target setup (a
+ * single-user Mac on local disk, where the protection is vacuous) but it must not be silent.
+ *
+ * Reported as WARN, not FAIL: nothing is broken, and `ccs doctor` still exits 0.
+ * @returns {Check[]}
+ */
+function checkPlatform() {
+  /** @type {Check[]} */
+  const out = [];
+  const p = platform.capabilities;
+  out.push({ level: 'ok', label: 'platform', detail: `${p.name} ${process.arch} (process info via ${p.name === 'darwin' ? 'libproc' : '/proc'})` });
+  if (!p.crossHostWriters) {
+    out.push({
+      level: 'warn',
+      label: 'cross-host writers',
+      detail: `${p.name}: Claude writes pidDomain as the bare literal "darwin" with no machine id, so a session file written on this Mac is classified local and a second Mac sharing this home would not be detected. Sessions written by a Linux host sharing the home ARE still detected as remote. Fine for a single-user Mac on local disk.`,
+    });
+  }
+  if (!p.orphanScan) {
+    out.push({
+      level: 'warn',
+      label: 'env reads',
+      detail: `unavailable on ${p.name}: another process's environment cannot be read, so (a) an agent orphaned by a crashed session is not detected before starting, and (b) a client already running inside a session is not refused with NESTED`,
+    });
   }
   return out;
 }
@@ -115,7 +152,13 @@ function checkClaude(paths, config) {
 async function checkClaudeJsonHealth(paths, nfsTimeoutMs) {
   const g = await claudeJsonGuard({ paths, nfsTimeoutMs });
   const backup = g.newestBackup ? `newest backup ${tildify(g.newestBackup)}` : 'no backup yet (the first start takes one)';
-  if (g.ok) return [{ level: 'ok', label: '~/.claude.json', detail: `${g.keys} keys, ${g.projects} projects, onboarding complete; ${backup}` }];
+  if (g.ok) {
+    // Naming the credential source is the difference between "why won't this start?" and an answer:
+    // on macOS a normally logged-in machine has no oauthAccount at all, so "store" here is what
+    // tells a puzzled user that ccs did find their Keychain login.
+    const where = { oauth: 'oauthAccount', store: 'platform credential store (macOS Keychain / .credentials.json)', env: 'ANTHROPIC_* in the environment', none: 'NONE — claude.allowNoCredential is on; the first API request will fail' }[g.credential] || g.credential;
+    return [{ level: g.credential === 'none' ? 'warn' : 'ok', label: '~/.claude.json', detail: `${g.keys} keys, ${g.projects} projects, onboarding complete; credential: ${where}; ${backup}` }];
+  }
   const vs = g.baselineKeys != null ? ` (baseline ${g.baselineKeys} keys, ${g.baselineProjects} projects)` : '';
   // MISSING/UNPARSEABLE happen inside claudeJsonGuard before checkClaudeJson ever runs — there is no
   // parsed object at all, so `ccs doctor --accept-config` cannot do anything with it (it would just
@@ -151,9 +194,14 @@ const CLIENT_TIPS = [
  */
 async function runDoctorLite({ paths, config, out, acceptConfig = false, nfsTimeoutMs = 10000, decoderTimeoutMs = 60000 }) {
   if (acceptConfig) {
-    const g = await claudeJsonGuard({ paths, nfsTimeoutMs });
+    const g = await claudeJsonGuard({ paths, nfsTimeoutMs, allowNoCredential: Boolean(config.claude && config.claude.allowNoCredential) });
     if (g.obj === undefined) { out.write(`ccs: cannot accept ${paths.claudeJson}: ${g.reason}\n`); return 1; }
-    const abs = checkClaudeJson(g.obj, null);
+    const abs = checkClaudeJson(g.obj, null, {
+      // Same credential rules the sessiond will apply, or --accept-config could bless a file that
+      // then refuses to start (and vice versa).
+      storedCredential: require('../common/procinfo.js').hasStoredCredential(paths.claudeHome),
+      allowNoCredential: Boolean(config.claude && config.claude.allowNoCredential),
+    });
     if (!abs.ok) {
       out.write(`ccs: cannot accept ${tildify(paths.claudeJson)}: ${abs.reason} fails a check that does not depend on the baseline — restore it from ${g.newestBackup ? tildify(g.newestBackup) : 'a backup'}\n`);
       return 1;
@@ -163,7 +211,7 @@ async function runDoctorLite({ paths, config, out, acceptConfig = false, nfsTime
     return 0;
   }
   /** @type {Check[]} */
-  const checks = [checkNode(), ...checkNative()];
+  const checks = [checkNode(), ...checkNative(), ...checkPlatform()];
   checks.push(checkClaude(paths, config));
   const bin = getAgent('claude').resolveBin(paths, config);
   if (bin) checks.push(checkDecoder(bin, decoderTimeoutMs));
@@ -178,4 +226,4 @@ async function runDoctorLite({ paths, config, out, acceptConfig = false, nfsTime
   return checks.some((c) => c.level === 'fail') ? 1 : 0;
 }
 
-module.exports = { runDoctorLite, checkNode, checkNative, checkClaude, checkDecoder, checkClaudeJsonHealth, checkRuntimeDir, PINNED_NODE };
+module.exports = { runDoctorLite, checkNode, checkNative, checkPlatform, checkClaude, checkDecoder, checkClaudeJsonHealth, checkRuntimeDir, PINNED_NODE };

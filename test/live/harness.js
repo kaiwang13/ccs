@@ -136,6 +136,15 @@ function createLiveEnv(pre, { remoteControl }) {
 function liveTest(name, fn, { timeoutMs = 15 * 60 * 1000, remoteControl = false } = {}) {
   test(name, { timeout: timeoutMs }, async (t) => {
     if (process.env.CCS_LIVE !== '1') { t.skip('set CCS_LIVE=1'); return; }
+    // These scenarios drive a real claude and then identify its process by reading CCS_ID out of
+    // its environment, plus /proc for its pid namespace. macOS exposes no other process's
+    // environment (handoff brief §5a), so the live suite cannot run there -- it would fail at the
+    // first `claudePid()`. Skipping loudly rather than failing keeps the signal honest: a red live
+    // suite on macOS would say "the port is broken" when it means "this harness needs /proc".
+    if (readEnviron(process.pid) === null) {
+      t.skip('live tests need another process\'s environment and /proc, which macOS does not provide');
+      return;
+    }
     const pre = await livePreflight();
     const live = createLiveEnv(pre, { remoteControl });
     let failure = null;

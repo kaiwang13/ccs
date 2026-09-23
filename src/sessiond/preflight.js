@@ -18,7 +18,8 @@ const fs = require('fs');
 const path = require('path');
 const { runNfsOp, NfsTimeoutError } = require('../common/nfsworker.js');
 const { tryLock } = require('../common/locks.js');
-const { isSameProcess, machineId, parsePidDomain, readEnviron, listPids } = require('../common/procinfo.js');
+const procinfo = require('../common/procinfo.js');
+const { isSameProcess, machineId, parsePidDomain, readEnviron, readArgv, listPids } = procinfo;
 
 const SIX_HOURS_MS = 6 * 3600 * 1000;
 const BACKUP_KEEP = 20;
@@ -46,22 +47,59 @@ function countsOf(obj) {
 }
 
 /**
- * The exact health rules of spec §3.11 item 2 (pure).
+ * Does the environment carry a credential claude can use other than the OAuth account?
+ *
+ * `~/.claude.json`'s `oauthAccount` records the *interactive subscription login* only. A machine
+ * authenticated with an API key or an auth token has no `oauthAccount` at all, yet runs claude
+ * perfectly well -- so requiring it rejected every such host, including ones already working.
+ * Both spellings are accepted because claude accepts both, and both are passed through to the
+ * hosted agent by sessiond/env.js (ALLOW_PREFIXES includes ANTHROPIC_).
+ *
+ * Note this reads the env of the ccs PROCESS, which is the env the hosted agent inherits. A
+ * variable exported only inside some other terminal is deliberately not visible here.
+ * @param {Record<string, string|undefined>} [env]
+ */
+function hasEnvCredential(env = process.env) {
+  return Boolean(env.ANTHROPIC_API_KEY || env.ANTHROPIC_AUTH_TOKEN);
+}
+
+/**
+ * The exact health rules of spec §3.11 item 2 (pure), plus the credential rules from §3.11 item 2
+ * as amended: a healthy file is one claude can actually use, which OAuth or an env credential both
+ * satisfy.
+ *
+ * The point of this check is to catch a DAMAGED file -- the 2026-09-16 incident truncated it and
+ * dropped every new session into the onboarding wizard. So the checks that detect damage
+ * (onboarding flag, key/project counts, shrinkage against the newest backup) stay exactly as they
+ * were; only "is there a credential?" widens. A file with no credential at all is still unhealthy,
+ * because that claude really cannot run -- see `allowNoCredential` for the explicit exception.
  * @param {any} obj parsed ~/.claude.json
  * @param {{keys: number, projects: number}|null} baseline counts of the newest readable backup
+ * @param {{envCredential?: boolean, storedCredential?: boolean, allowNoCredential?: boolean}} [o]
  */
-function checkClaudeJson(obj, baseline) {
+function checkClaudeJson(obj, baseline, o = {}) {
   if (!obj || typeof obj !== 'object' || Array.isArray(obj)) return { ok: false, reason: 'NOT_AN_OBJECT', keys: 0, projects: 0 };
   const c = countsOf(obj);
+  const envCredential = o.envCredential ?? hasEnvCredential();
+  const storedCredential = o.storedCredential ?? false;
   if (obj.hasCompletedOnboarding !== true) return { ok: false, reason: 'ONBOARDING_NOT_COMPLETED', ...c };
-  if (!obj.oauthAccount || typeof obj.oauthAccount !== 'object') return { ok: false, reason: 'NO_OAUTH_ACCOUNT', ...c };
+  const oauth = Boolean(obj.oauthAccount && typeof obj.oauthAccount === 'object');
+  if (!oauth && !envCredential && !storedCredential && !o.allowNoCredential) {
+    // Distinguish "no credential anywhere" from "the OAuth record is missing", because the second
+    // is what a token- or keychain-authenticated host looks like and is entirely normal.
+    return { ok: false, reason: 'NO_CREDENTIAL', ...c };
+  }
   if (c.keys < 20) return { ok: false, reason: 'TOO_FEW_KEYS', ...c };
   if (!obj.projects || typeof obj.projects !== 'object' || Array.isArray(obj.projects)) return { ok: false, reason: 'NO_PROJECTS', ...c };
   if (baseline) {
     if (c.keys < 0.7 * baseline.keys) return { ok: false, reason: 'KEYS_SHRANK', ...c };
     if (c.projects < 0.7 * baseline.projects) return { ok: false, reason: 'PROJECTS_SHRANK', ...c };
   }
-  return { ok: true, reason: null, ...c };
+  // Report which credential made this healthy, or 'none' when it was only allowed through by
+  // allowNoCredential -- so callers can warn about a session that will fail on its first request
+  // rather than implying it has working auth.
+  const credential = oauth ? 'oauth' : storedCredential ? 'store' : envCredential ? 'env' : 'none';
+  return { ok: true, reason: null, credential, ...c };
 }
 
 /** @param {number} timeoutMs */
@@ -96,9 +134,13 @@ async function newestBaseline(paths, op) {
 /**
  * Parse ~/.claude.json (1 read + 3 retries at 500 ms, for a read that races Claude's own
  * tmp+rename) and apply checkClaudeJson against the newest backup.
- * @param {{paths: any, op?: Function, sleep?: (ms: number) => Promise<void>, retries?: number, retryDelayMs?: number, nfsTimeoutMs?: number}} a
+ * @param {{paths: any, op?: Function, sleep?: (ms: number) => Promise<void>, retries?: number, retryDelayMs?: number, nfsTimeoutMs?: number, allowNoCredential?: boolean}} a
  */
-async function claudeJsonGuard({ paths, op, sleep = realSleep, retries = 3, retryDelayMs = 500, nfsTimeoutMs = 10000 }) {
+async function claudeJsonGuard({ paths, op, sleep = realSleep, retries = 3, retryDelayMs = 500, nfsTimeoutMs = 10000, allowNoCredential = false }) {
+  // Claude keeps its login in the platform credential store (macOS Keychain, or
+  // <claudeHome>/.credentials.json on Linux) rather than in ~/.claude.json, so a fully logged-in
+  // host can have no oauthAccount at all. Existence is checked; the secret is never read.
+  const storedCredential = procinfo.hasStoredCredential(paths.claudeHome);
   const run = op || nfsOp(nfsTimeoutMs);
   /** @type {string|null} */ let text = null;
   /** @type {any} */ let obj;
@@ -114,7 +156,7 @@ async function claudeJsonGuard({ paths, op, sleep = realSleep, retries = 3, retr
   const common = { file: paths.claudeJson, newestBackup: baseline ? baseline.file : null, baselineKeys: baseline ? baseline.keys : null, baselineProjects: baseline ? baseline.projects : null };
   if (text === null) return { ok: false, reason: 'MISSING', keys: 0, projects: 0, ...common };
   if (!parsed) return { ok: false, reason: 'UNPARSEABLE', keys: 0, projects: 0, ...common };
-  const r = checkClaudeJson(obj, baseline);
+  const r = checkClaudeJson(obj, baseline, { allowNoCredential, storedCredential });
   return { ...r, ...common, text, obj, sha256: sha256(text) };
 }
 
@@ -155,14 +197,14 @@ async function backupClaudeJson({ paths, text, op, nowMs = Date.now(), batchId =
   return { taken: true, reason: null, file };
 }
 
-/** pid namespace inode of this process, e.g. '4026531836'. */
+/** pid namespace inode of this process, e.g. '4026531836'. Null on macOS, which has no namespaces. */
 function localPidNs() {
-  try { const m = /\[(\d+)\]/.exec(fs.readlinkSync('/proc/self/ns/pid')); return m ? m[1] : null; } catch { return null; }
+  return procinfo.pidNs(process.pid);
 }
 
 /** @param {number} pid */
 function ttyOf(pid) {
-  try { const t = fs.readlinkSync(`/proc/${pid}/fd/0`); return t.startsWith('/dev/') && t !== '/dev/null' ? t : null; } catch { return null; }
+  return procinfo.ttyOf(pid);
 }
 
 /**
@@ -215,20 +257,28 @@ async function scanSecondWriters({ paths, sessionId, op, nowMs = Date.now(), rem
  * CCS_ID but not that argv, so they never block a start. Other users' /proc/<pid>/environ is unreadable
  * (EACCES → null), so only our own processes are considered. Also catches an orphan stuck in onboarding,
  * which never writes a session json.
+ *
+ * Returns `{found, supported}`: `supported` is false when this platform cannot read another process's
+ * environment (macOS, whose availability under SIP is still unmeasured -- handoff brief §5a). The
+ * distinction matters because an empty `found` on an unsupported platform means "could not look",
+ * not "nothing there": `runPreflight` therefore warns rather than reporting a clean scan.
  * @param {{ccsId: string, settingsFile: string, ownPid?: number}} a
+ * @returns {{found: Array<{pid: number, argv0: string}>, supported: boolean}}
  */
 function scanOrphans({ ccsId, settingsFile, ownPid = process.pid }) {
   const found = [];
+  let supported = false;
   for (const pid of listPids()) {
     if (pid === ownPid) continue;
     const env = readEnviron(pid);
+    if (env) supported = true;
     if (!env || env.CCS_ID !== ccsId) continue;
-    let argv;
-    try { argv = fs.readFileSync(`/proc/${pid}/cmdline`, 'utf8').split('\0').filter(Boolean); } catch { continue; }
+    const argv = readArgv(pid);
+    if (!argv) continue;
     if (!argv.some((a, i) => a === '--settings' && argv[i + 1] === settingsFile)) continue;
     found.push({ pid, argv0: path.basename(argv[0] || '?') });
   }
-  return found;
+  return { found, supported };
 }
 
 /** sha256 of oauthAccount.accountUuid (spec §3.11 item 6). @param {any} claudeJson */
@@ -279,7 +329,8 @@ async function runPreflight(ctx) {
 
   try {
     // 2. ~/.claude.json health.
-    const guard = await claudeJsonGuard({ paths, op, sleep });
+    const allowNoCredential = Boolean(config.claude && config.claude.allowNoCredential);
+    const guard = await claudeJsonGuard({ paths, op, sleep, allowNoCredential });
     if (!guard.ok) {
       return block('CONFIG_UNHEALTHY', { reason: guard.reason, keys: guard.keys, projects: guard.projects, baselineKeys: guard.baselineKeys, baselineProjects: guard.baselineProjects, newestBackup: guard.newestBackup, file: guard.file });
     }
@@ -298,9 +349,12 @@ async function runPreflight(ctx) {
       return block('SECOND_WRITER_REMOTE', { machineId: w.machineId, cwd: w.cwd, ageSec: w.ageSec, sessionId: ctx.sessionId });
     }
     for (const w of writers.staleRemote) warnings.push(`SECOND_WRITER_REMOTE_STALE machine ${w.machineId} updated ${w.ageSec}s ago`);
-    // 5. Orphans.
-    const orphans = scanOrphans({ ccsId: ctx.ccsId, settingsFile: paths.settingsFile(ctx.ccsId) });
+    // 5. Orphans. Note the warning, not a silent pass: on a platform where another process's
+    // environment cannot be read, an empty result means "could not look", not "nothing there".
+    // Reporting it as a warning keeps the safety check honest instead of quietly becoming a no-op.
+    const { found: orphans, supported: orphansScannable } = scanOrphans({ ccsId: ctx.ccsId, settingsFile: paths.settingsFile(ctx.ccsId) });
     if (orphans.length) return block('ORPHAN_ALIVE', { pid: orphans[0].pid, argv0: orphans[0].argv0 });
+    if (!orphansScannable) warnings.push('ORPHAN_SCAN_UNAVAILABLE this platform cannot read other processes\' environments, so an orphaned agent would not be detected');
     // 6. Account hash.
     const accountHash = hashAccount(guard.obj);
     if (ctx.state && ctx.state.accountHash && accountHash && ctx.state.accountHash !== accountHash) {
@@ -311,6 +365,10 @@ async function runPreflight(ctx) {
     let real;
     try { real = fs.realpathSync(ctx.bin.path); } catch { return block('CLAUDE_MISSING', { path: ctx.bin.path }); }
     if (!ctx.bin.tested) warnings.push(`UNTESTED_CLAUDE_VERSION ${ctx.bin.version}`);
+    // Announce a session that was let through without any credential: it will start and render,
+    // but its first API request fails. Saying so here is the difference between a documented
+    // trade-off and a confusing failure later.
+    if (guard.credential === 'none') warnings.push('NO_CREDENTIAL hosting without a configured credential (claude.allowNoCredential); the first API request will fail');
     if (log) log.info('preflight.ok', { backup: backup.file, warnings: warnings.length });
     return { ok: true, release: () => lock.release(), warnings, accountHash, backup: backup.file, binary: { path: real, version: ctx.bin.version } };
   } catch (e) {

@@ -9,7 +9,12 @@ test('I7: onboarding/login screen → SETUP_GATED(login); zero input bytes reach
   const a = await e.attach();
   await waitFor(() => e.s.supervisor.lifecycle === 'SETUP_GATED', { timeoutMs: 6000, what: 'SETUP_GATED' });
   assert.equal(e.s.supervisor.setupKind, 'login');
-  assert.ok(a.notices.some((n) => n.code === 'SETUP_REQUIRED'));
+  // SETUP_REQUIRED is emitted once when the supervisor transitions to SETUP_GATED. A client that
+  // connects before the transition sees it; one that connects after does not -- the supervisor does
+  // not replay notices to late clients. Under load the attach can race the transition and never see
+  // it. Poll for it rather than asserting immediately, to be robust to both orderings without
+  // changing what the assertion means.
+  await waitFor(() => a.notices.some((n) => n.code === 'SETUP_REQUIRED'), { timeoutMs: 3000, what: 'SETUP_REQUIRED notice' });
   a.send('1\r');
   a.send('\x03');
   a.send('\x1b[B\r');

@@ -23,6 +23,8 @@ const { performance } = require('node:perf_hooks');
 const { InputTokenizer } = require('../../src/common/vt/inputtok');
 const { decodeInputToken, classify } = require('../../src/common/vt/keys');
 const { realClock } = require('../../src/common/clock');
+const procinfo = require('../../src/common/procinfo');
+const { capabilities } = require('../../src/common/platform/index.js');
 
 const argv = process.argv.slice(2);
 const flag = (/** @type {string} */ n) => argv.includes(n);
@@ -59,13 +61,18 @@ let status = 'idle';
 let waitingFor = null;
 let sessionWritten = false;
 const startedAt = Date.now();
-function procStart() { const s = fs.readFileSync(`/proc/${process.pid}/stat`, 'utf8'); return s.slice(s.lastIndexOf(')') + 2).split(' ')[19]; }
+// Match what the real claude writes on this platform, so the fake exercises the same pidDomain
+// parse path the real thing does: the structured linux: form on Linux, the bare literal on macOS
+// (see parsePidDomain). Hard-coding the linux: form would make the fake pass on macOS in cases
+// where a real claude would behave differently.
+const FAKE_PID_DOMAIN = capabilities.name === 'linux' ? 'linux:fake:pid:[0]' : 'darwin';
+function procStart() { return procinfo.procStart(process.pid); }
 function writeSession() {
   sessionWritten = true;
   fs.mkdirSync(path.dirname(sessionFile), { recursive: true });
   const now = Date.now();
   const obj = { pid: process.pid, sessionId, cwd: process.cwd(), startedAt, procStart: procStart(), version: '2.1.267', kind: 'interactive', entrypoint: 'cli',
-    pidDomain: 'linux:fake:pid:[0]', messagingSocketPath: sockPath, name, nameSource: 'user', status, waitingFor: waitingFor ?? undefined,
+    pidDomain: FAKE_PID_DOMAIN, messagingSocketPath: sockPath, name, nameSource: 'user', status, waitingFor: waitingFor ?? undefined,
     bridgeSessionId: `session_fake_${sessionId.slice(0, 8)}`, updatedAt: now, statusUpdatedAt: now };
   fs.writeFileSync(`${sessionFile}.tmp`, JSON.stringify(obj));
   fs.renameSync(`${sessionFile}.tmp`, sessionFile);

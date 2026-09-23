@@ -8,7 +8,9 @@ const { DEFAULTS } = require('../../src/common/config.js');
 const L = require('../../src/sessiond/launcher.js');
 
 function setup(t, extraEnv = {}) {
-  const root = fs.mkdtempSync('/tmp/ccst-');
+  // realpath: macOS's /tmp is a symlink to /private/tmp, and resolveClaudeBin realpaths the binary it
+  // finds. Canonicalising the root once here keeps every expectation comparable on both platforms.
+  const root = fs.realpathSync(fs.mkdtempSync('/tmp/ccst-'));
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));
   const home = path.join(root, 'home');
   fs.mkdirSync(path.join(home, '.claude', 'projects'), { recursive: true });

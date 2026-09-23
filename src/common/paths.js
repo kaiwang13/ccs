@@ -36,9 +36,20 @@ const path = require('node:path');
 
 const SAFE_SEGMENT = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
 
-/** @param {string} kind @param {string} value */
-function segment(kind, value) {
-  if (typeof value !== 'string' || !SAFE_SEGMENT.test(value)) {
+/**
+ * A hostname may be an FQDN, so it needs the DNS bound rather than Linux's HOST_NAME_MAX (64).
+ * macOS reports names like `<host>.local`, and a CI runner's generated name is already longer than
+ * 64 characters -- both are legitimate and were rejected before this. The character class is
+ * unchanged: this is still a single path segment, never a path separator.
+ */
+const SAFE_HOSTNAME = /^[A-Za-z0-9][A-Za-z0-9._-]{0,252}$/;
+
+/**
+ * @param {string} kind @param {string} value
+ * @param {RegExp} [re] the shape to accept; defaults to a 64-character segment
+ */
+function segment(kind, value, re = SAFE_SEGMENT) {
+  if (typeof value !== 'string' || !re.test(value)) {
     throw new TypeError(`invalid ${kind}: ${JSON.stringify(value)}`);
   }
   return value;
@@ -51,7 +62,7 @@ function segment(kind, value) {
 function resolvePaths(env = process.env) {
   const uid = /** @type {() => number} */ (process.getuid)();
   const home = env.HOME || os.homedir();
-  const hostname = segment('hostname', env.CCS_HOSTNAME || os.hostname());
+  const hostname = segment('hostname', env.CCS_HOSTNAME || os.hostname(), SAFE_HOSTNAME);
   const runtimeDir = path.resolve(env.CCS_RUNTIME_DIR || `/tmp/ccs-${uid}`);
   const stateDir = path.resolve(env.CCS_STATE_DIR || path.join(home, '.local', 'state', 'ccs'));
   const claudeHome = path.resolve(env.CCS_CLAUDE_HOME || path.join(home, '.claude'));

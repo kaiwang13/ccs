@@ -19,7 +19,10 @@ test('doctor --lite on a healthy fixture: no FAIL lines, exit 0, client tips pri
   assert.match(r.stdout, /^ {2}ok {4}node-pty: node-pty 1\.1\.0 loaded$/m);
   assert.match(r.stdout, /^ {2}ok {4}claude: .* version 2\.1\.267 \(tested\)$/m);
   assert.match(r.stdout, /^ {2}WARN {2}decoder: not checked: CCS_CLAUDE_BIN override in effect/m);
-  assert.match(r.stdout, /^ {2}ok {4}~\/\.claude\.json: 26 keys, 11 projects, onboarding complete; no backup yet/m);
+  // The line now names WHICH credential made the file healthy. That is the signal a user needs when
+  // a start is refused with NO_CREDENTIAL: on macOS a logged-in machine has no oauthAccount at all,
+  // so "credential: platform credential store" is what says ccs did find the Keychain login.
+  assert.match(r.stdout, /^ {2}ok {4}~\/\.claude\.json: 26 keys, 11 projects, onboarding complete; credential: oauthAccount; no backup yet/m);
   assert.match(r.stdout, /terminal\.integrated\.scrollback": 20000/);
   assert.doesNotMatch(r.stdout, /FAIL/);
 });

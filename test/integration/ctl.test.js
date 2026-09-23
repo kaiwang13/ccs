@@ -39,9 +39,18 @@ test('REFUSE: PROTO, BELOW_FLOOR (with need), --shrink floor 40, TOO_SHORT, NEST
   assert.equal((await hello(e.sockPath, { cols: 39, flags: { shrink: true } })).code, 'BELOW_FLOOR');
   assert.equal((await hello(e.sockPath, { cols: 45, flags: { shrink: true } })).t, 'WELCOME');
   assert.equal((await hello(e.sockPath, { rows: 10 })).code, 'TOO_SHORT');
-  const nested = spawn('sleep', ['20'], { env: { ...process.env, CCS_ID: 'sess01' } });
-  t.after(() => nested.kill('SIGTERM'));
-  assert.equal((await hello(e.sockPath, { pid: nested.pid })).code, 'NESTED');
+  // NESTED needs the attaching process's environment, which macOS does not expose (handoff brief
+  // §5a). The guard is documented as unavailable there and reported by `ccs doctor`, so the
+  // assertion is made only where it can actually run -- it is not deleted, because the Linux
+  // behaviour is the one this test is responsible for.
+  const canReadEnviron = require('../../src/common/procinfo.js').readEnviron(process.pid) !== null;
+  if (!canReadEnviron) {
+    t.diagnostic('NESTED not asserted: this platform cannot read another process\'s environment');
+  } else {
+    const nested = spawn('sleep', ['20'], { env: { ...process.env, CCS_ID: 'sess01' } });
+    t.after(() => nested.kill('SIGTERM'));
+    assert.equal((await hello(e.sockPath, { pid: nested.pid })).code, 'NESTED');
+  }
 });
 
 test('REFUSE BLOCKED when the session json never appeared', { timeout: 60000 }, async (t) => {

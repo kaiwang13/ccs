@@ -40,8 +40,10 @@ test('probes twice in order, writes the session json with a real procStart, serv
   assert.deepEqual(f.rec().probes, [['XTVERSION:\\u001bP>|xterm.js(6.0.0)\\u001b\\\\', 'DA1:\\u001b[?1;2c'], ['DECRQM:\\u001b[?2026;2$y', 'DA1:\\u001b[?1;2c']]);
   const file = path.join(f.tmp.claudeHome, 'sessions', `${f.p.pid}.json`);
   const s = JSON.parse(fs.readFileSync(file, 'utf8'));
-  const stat = fs.readFileSync(`/proc/${f.p.pid}/stat`, 'utf8');
-  assert.equal(s.procStart, stat.slice(stat.lastIndexOf(')') + 2).split(' ')[19]);
+  // The point of the assertion is that the fake writes the *real* start time for its own pid, so
+  // that ccs's pid+procStart identity check behaves as it does against a real claude. Compare
+  // through the seam (which reads /proc on Linux, libproc on macOS) rather than /proc directly.
+  assert.equal(s.procStart, require('../../src/common/procinfo.js').procStart(f.p.pid));
   assert.deepEqual([s.pid, s.sessionId, s.name, s.status], [f.p.pid, 'aaaaaaaa-1111-4222-8333-444444444444', 'unit', 'idle']);
   assert.equal(s.messagingSocketPath, path.join(f.tmp.root, 'run', 'cc-socks', `${f.p.pid}.sock`));
   const send = (/** @type {object} */ m) => new Promise((resolve) => { const c = net.connect(s.messagingSocketPath, () => { c.end(JSON.stringify(m) + '\n'); }); c.on('close', resolve); });

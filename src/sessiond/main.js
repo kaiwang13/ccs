@@ -10,6 +10,7 @@ const { createLogger } = require('../common/log');
 const { writeAtomic } = require('../common/atomic');
 const { tryLock } = require('../common/locks');
 const { realClock } = require('../common/clock');
+const procinfo = require('../common/procinfo');
 const { validateSessionSpec } = require('./spec');
 const { loadScreens } = require('./screens');
 const { connectHolder } = require('./holderclient');
@@ -43,7 +44,9 @@ async function startSession(rawSpec, { recover = false, sessiondArgv = [process.
   const config = spec.configFile ? loadConfig(spec.configFile, (key) => log.warn('config.invalid', { key })) : DEFAULTS;
   const lock = tryLock(paths.sessiondLock(spec.ccsId));
   if (!lock) throw Object.assign(new Error(`a sessiond already runs for ${spec.ccsId}`), { code: 'SESSIOND_LOCKED' });
-  try { fs.writeFileSync('/proc/self/oom_score_adj', '300'); } catch { /* raising it needs no privilege; ignore if refused */ }
+  // Linux-only: bias the OOM killer away from sessiond. macOS has no /proc and no oom_score_adj,
+  // and simply skips it -- the brief's §7 lists this as the one "free" porting item.
+  if (procinfo.oomScoreAdjPath) { try { fs.writeFileSync(procinfo.oomScoreAdjPath, '300'); } catch { /* raising it needs no privilege; ignore if refused */ } }
   /** the holder re-runs exactly this after sessiond dies (spec §4.10) */
   const sessiondCmd = [...sessiondArgv.filter((a) => a !== '--recover'), '--recover'];
   const screens = loadScreens(spec.claude.version);
