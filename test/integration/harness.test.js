@@ -34,6 +34,10 @@ test('envPids sees a --start sessiond and its helpers, whose argv names no path 
     return !!e && e.CCS_RUNTIME_DIR === ctx.env.CCS_RUNTIME_DIR;
   });
   assert.ok(carrying.includes(/** @type {number} */ (s.child.pid)), 'the sessiond must carry the env');
-  assert.deepEqual(envPids(ctx).sort((a, b) => a - b), carrying.sort((a, b) => a - b),
-    'envPids must see every process carrying this env, not only those whose argv mentions the root');
+  // Containment, not equality: the session is still starting (the sessiond spawns its holder, the holder
+  // spawns claude), so a second scan can legitimately find MORE processes than the first. What must never
+  // happen is a process that carries the env, and is still alive, going unseen.
+  const seen = new Set(envPids(ctx));
+  const missed = carrying.filter((pid) => !seen.has(pid) && readEnviron(pid) !== null);
+  assert.deepEqual(missed, [], 'envPids must see every process carrying this env, not only those whose argv mentions the root');
 });
