@@ -4,9 +4,9 @@
  * `ccs new [NAME] [--cwd DIR] [--no-attach] [--allow-setup] [--resume SESSION_ID] [--name-from-cwd] [-- extra]`
  * (spec §3.14, §4.1).
  *
- * Default name: /proc on this host has no hidepid, so every account can read every process's argv —
- * including claude's `-n NAME --remote-control NAME`. Unless hidepid is on (or config says otherwise) the
- * default name is therefore the opaque `ccs-<id6>`, not the directory name (spec §8 item 6, decision 53).
+ * Default name: where other accounts can read process command lines (the platform says so), every account
+ * can see claude's `-n NAME --remote-control NAME`, so unless they can't (or config says otherwise) the
+ * default name is the opaque `ccs-<id6>`, not the directory name (spec §8 item 6, decision 53).
  */
 const fs = require('fs');
 const path = require('path');
@@ -25,27 +25,12 @@ const { tildify } = require('../ls.js');
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-/** True when /proc is mounted with hidepid (anything but 0/off). When /proc is mounted more than once the
- *  last entry is the one actually in effect, so the last matching line wins rather than the first hidepid-on
- *  one — an earlier mount's hidepid must not mask a later mount without it.
- *  @param {string} mountsText contents of /proc/mounts */
-function hidepidEnabled(mountsText) {
-  let enabled = false;
-  for (const line of mountsText.split('\n')) {
-    const f = line.split(' ');
-    if (f.length < 4 || f[1] !== '/proc' || f[2] !== 'proc') continue;
-    const m = /(?:^|,)hidepid=([^,]+)/.exec(f[3]);
-    enabled = !!(m && m[1] !== '0' && m[1] !== 'off');
-  }
-  return enabled;
-}
-
-/** @param {any} config @param {boolean} hidepid */
-function nameFromCwdByDefault(config, hidepid) {
+/** @param {any} config @param {boolean} argvHidden */
+function nameFromCwdByDefault(config, argvHidden) {
   const v = config.claude && config.claude.nameFromCwd;
   if (v === true) return true;
   if (v === false) return false;
-  return hidepid;
+  return argvHidden;
 }
 
 /** @param {string[]} argv @param {any} ctx */
@@ -71,21 +56,18 @@ async function run(argv, ctx) {
   }
   try { validateExtraArgs(rest, getAgent(agent).extraArgsAllow(ctx.config)); } catch (e) { ctx.err.write(`ccs: ${(/** @type {any} */ (e)).message}\n`); return 2; }
 
-  let hidepid = false;
-  // mountsText is null where there is no /proc/mounts (macOS). That falls through to the same
-  // conservative default as an unreadable table: assume argv is world-readable.
-  const mounts = platform.mountsText();
-  if (mounts !== null) hidepid = hidepidEnabled(mounts);
+  // Whether other accounts can read claude's argv (-n NAME --remote-control NAME) is a platform question.
+  const argvHidden = !platform.argvVisibleToOthers();
   /** @type {string|null} */
   let name = null;
   if (positional.length >= 1) {
     name = normalizeName(positional[0]);
     if (!name) { ctx.err.write(`ccs: invalid name '${positional[0]}': use 1–40 characters from a-z 0-9 . _ -, starting with a letter or digit\n`); return 2; }
-  } else if (flags['--name-from-cwd'] || nameFromCwdByDefault(ctx.config, hidepid)) {
+  } else if (flags['--name-from-cwd'] || nameFromCwdByDefault(ctx.config, argvHidden)) {
     name = sanitizeName(path.basename(cwd));
   }
-  if (name && !hidepid && getAgent(agent).capabilities.nameInArgv) {
-    ctx.err.write(`ccs: note: /proc on this host has no hidepid, so the session name '${name}' is visible to every account in the process list\n`);
+  if (name && !argvHidden && getAgent(agent).capabilities.nameInArgv) {
+    ctx.err.write(`ccs: note: other accounts on this host can read process command lines, so the session name '${name}' is visible to them in the process list\n`);
   }
   // validateExtraArgs above only polices dash-prefixed tokens (several allowlisted flags are variadic, so a
   // bare value legitimately follows one); it cannot tell a flag's own value apart from a trailing positional
@@ -142,4 +124,4 @@ async function run(argv, ctx) {
   return attach({ paths: ctx.paths, id: rec.id, name: finalName, flags: { shrink: false, allowSetup: !!flags['--allow-setup'] || !trusted }, io });
 }
 
-module.exports = { run, hidepidEnabled, nameFromCwdByDefault };
+module.exports = { run, nameFromCwdByDefault };

@@ -69,12 +69,12 @@ function checkPlatform() {
   /** @type {Check[]} */
   const out = [];
   const p = platform.capabilities;
-  out.push({ level: 'ok', label: 'platform', detail: `${p.name} ${process.arch} (process info via ${p.name === 'darwin' ? 'libproc' : '/proc'})` });
+  out.push({ level: 'ok', label: 'platform', detail: `${p.name} ${process.arch} (process info via ${p.procSource})` });
   if (!p.crossHostWriters) {
     out.push({
       level: 'warn',
       label: 'cross-host writers',
-      detail: `${p.name}: Claude writes pidDomain as the bare literal "darwin" with no machine id, so a session file written on this Mac is classified local and a second Mac sharing this home would not be detected. Sessions written by a Linux host sharing the home ARE still detected as remote. Fine for a single-user Mac on local disk.`,
+      detail: `${p.name}: ${p.crossHostWritersNote}`,
     });
   }
   if (!p.orphanScan) {

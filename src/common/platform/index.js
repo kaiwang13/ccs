@@ -23,7 +23,9 @@
  *   listPids(): number[],
  *   pidNs(pid: number): string|null,
  *   ttyOf(pid: number): string|null,
- *   mountsText(): string|null,
+ *   argvVisibleToOthers(mountsFile?: string): boolean,
+ *   procSource: string,
+ *   crossHostWritersNote: string|null,
  *   selfTty(): string|null,
  *   shutdownCorroborated(o?: any): boolean,
  *   sameProcStart(recorded: string, live: string): boolean,
@@ -59,6 +61,8 @@ if (process.platform === 'darwin') {
  *   hangupOnMasterClose: boolean,
  *   crossHostWriters: boolean,
  *   orphanScan: boolean,
+ *   procSource: string,
+ *   crossHostWritersNote: string|null,
  * }}
  */
 const capabilities = {
@@ -74,6 +78,9 @@ const capabilities = {
   // Whether another process's environment can be read at all, which is what the orphan scan is
   // built on. Unmeasured on macOS (handoff brief §5a), so it reports false there.
   orphanScan: process.platform === 'linux',
+  // Stated by the implementation, like hangupOnMasterClose: doctor prints these instead of testing the OS.
+  procSource: impl.procSource,
+  crossHostWritersNote: impl.crossHostWritersNote,
 };
 
 // A fresh object: writing `capabilities` onto `impl` would mutate linux.js's (or darwin.js's) own exports,

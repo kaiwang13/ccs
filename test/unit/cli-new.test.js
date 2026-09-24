@@ -4,7 +4,7 @@ const assert = require('node:assert/strict');
 const fs = require('fs');
 const path = require('path');
 const { DatabaseSync } = require('node:sqlite');
-const { hidepidEnabled, nameFromCwdByDefault } = require('../../src/cli/commands/new.js');
+const { nameFromCwdByDefault } = require('../../src/cli/commands/new.js');
 const { validateExtraArgs } = require('../../src/sessiond/launcher.js');
 const { DEFAULTS } = require('../../src/common/config.js');
 const { REQUIRED_COLUMNS } = require('../../src/codex/threads.js');
@@ -24,30 +24,10 @@ function seedCodexThread(ctx, id) {
 }
 
 test('hidepid detection from /proc/mounts and the default-name rule', () => {
-  assert.equal(hidepidEnabled('proc /proc proc rw,nosuid,nodev,noexec,relatime 0 0\n'), false);
-  assert.equal(hidepidEnabled('proc /proc proc rw,nosuid,hidepid=2 0 0\n'), true);
-  assert.equal(hidepidEnabled('proc /proc proc rw,hidepid=invisible,gid=5 0 0\n'), true);
-  assert.equal(hidepidEnabled('proc /proc proc rw,hidepid=0 0 0\n'), false);
-  assert.equal(hidepidEnabled('proc /proc proc rw,hidepid=off 0 0\n'), false);
-  assert.equal(hidepidEnabled('proc /other proc rw,hidepid=2 0 0\n'), false);
   assert.equal(nameFromCwdByDefault({ claude: { nameFromCwd: 'auto' } }, false), false);
   assert.equal(nameFromCwdByDefault({ claude: { nameFromCwd: 'auto' } }, true), true);
   assert.equal(nameFromCwdByDefault({ claude: { nameFromCwd: true } }, false), true);
   assert.equal(nameFromCwdByDefault({ claude: { nameFromCwd: false } }, true), false);
-});
-
-test('hidepidEnabled: when /proc is mounted more than once, the LAST entry wins, not the first hidepid-on one', () => {
-  // Regression for Finding 3 (task-9-review.md): the old implementation returned true as soon as it saw
-  // any hidepid-on /proc line, even when a later — and therefore actually effective — mount turned it back
-  // off. That is a fail-open in exactly the direction that matters for this privacy fail-safe. This is the
-  // RED that failed against the pre-fix implementation (it returned true here).
-  assert.equal(hidepidEnabled('proc /proc proc rw,hidepid=2 0 0\nproc /proc proc rw,relatime 0 0\n'), false);
-  // The mirror direction still correctly reports on: last mount is the one with hidepid.
-  assert.equal(hidepidEnabled('proc /proc proc rw,relatime 0 0\nproc /proc proc rw,hidepid=2 0 0\n'), true);
-  // Single-mount cases (kept/extended alongside the table above): last-entry semantics degrade correctly
-  // to first-and-only-entry semantics when there is exactly one /proc line.
-  assert.equal(hidepidEnabled('proc /proc proc rw,nosuid,nodev,noexec,relatime 0 0\n'), false);
-  assert.equal(hidepidEnabled('proc /proc proc rw,hidepid=2 0 0\n'), true);
 });
 
 test('validateExtraArgs (launcher.js): pinned M1 behaviour — a bare token immediately after an allowed flag is accepted', () => {

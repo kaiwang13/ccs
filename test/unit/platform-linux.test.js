@@ -75,10 +75,13 @@ test('ttyOf resolves a process fd 0 through /proc', { skip }, () => {
   assert.ok(t === null || typeof t === 'string');
 });
 
-test('mountsText exposes /proc/mounts and hidepid parsing reads it', { skip }, () => {
-  const text = platform.mountsText();
-  assert.equal(typeof text, 'string');
-  assert.match(text, /\/proc/);
+test('argvVisibleToOthers reads /proc/mounts through the hidepid parser', { skip }, () => {
+  const { hidepidEnabled } = require('../../src/common/platform/linux-mounts.js');
+  assert.equal(platform.argvVisibleToOthers(), !hidepidEnabled(fs.readFileSync('/proc/mounts', 'utf8')));
+});
+
+test('argvVisibleToOthers is conservative when the mount table cannot be read', { skip }, () => {
+  assert.equal(platform.argvVisibleToOthers('/nonexistent/ccs-mounts'), true);
 });
 
 test('shutdownCorroborated reads systemd state and honours the scheduled file', { skip }, async (t) => {

@@ -119,7 +119,7 @@ function createRegistry(paths, opts = {}) {
     const mid = machineId();
     if (h) {
       if (h.machineId !== mid) {
-        throw new RegistryError('HOST_MISMATCH', `${file} belongs to machine ${h.machineId} but /etc/machine-id is ${mid}; two hosts share the hostname '${paths.hostname}' — set CCS_HOSTNAME on one of them`);
+        throw new RegistryError('HOST_MISMATCH', `${file} belongs to machine ${h.machineId} but this host's machine id is ${mid}; two hosts share the hostname '${paths.hostname}' — set CCS_HOSTNAME on one of them`);
       }
       hostVerified = true;
     } else if (createIfMissing) {

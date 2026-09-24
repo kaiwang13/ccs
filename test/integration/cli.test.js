@@ -6,7 +6,6 @@ const path = require('path');
 const { createRegistry } = require('../../src/common/registry.js');
 const { isLocked } = require('../../src/common/locks.js');
 const { closeNfsWorker } = require('../../src/common/nfsworker.js');
-const { hidepidEnabled } = require('../../src/cli/commands/new.js');
 const { claudeJsonFixture } = require('../helpers/claudejson.js');
 const { makeCcsEnv, runCcs, REPO } = require('../helpers/ccsenv.js');
 const { spawnInTerminal } = require('../helpers/ptyterm.js');
@@ -58,10 +57,7 @@ test('new --no-attach → ls → stop → restart → rm refuses while running �
 
 test('default names: opaque ccs-<id6> without hidepid; --name-from-cwd prints the exposure note', async (t) => {
   const ctx = makeCcsEnv(t);
-  // On macOS there is no /proc/mounts; the platform seam reports no hidepid, which is the same
-  // answer a Linux host without it gives -- so the expectation below holds on both.
-  const mounts = require('../../src/common/platform/index.js').mountsText();
-  const hidepid = mounts === null ? false : hidepidEnabled(mounts);
+  const hidepid = !require('../../src/common/platform/index.js').argvVisibleToOthers();
   const a = await runCcs(ctx, ['new', '--no-attach']);
   assert.equal(a.code, 0, a.stderr);
   const b = await runCcs(ctx, ['new', '--no-attach', '--name-from-cwd']);
@@ -71,8 +67,8 @@ test('default names: opaque ccs-<id6> without hidepid; --name-from-cwd prints th
   else {
     assert.equal(names.filter((n) => /^ccs-[0-9a-f]{6}$/.test(n)).length, 1);
     assert.ok(names.includes('work'));
-    assert.match(b.stderr, /no hidepid, so the session name 'work' is visible to every account/);
-    assert.doesNotMatch(a.stderr, /visible to every account/);
+    assert.match(b.stderr, /other accounts on this host can read process command lines, so the session name 'work' is visible to them/);
+    assert.doesNotMatch(a.stderr, /visible to them/);
   }
 });
 

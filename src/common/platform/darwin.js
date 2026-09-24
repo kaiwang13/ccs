@@ -200,15 +200,17 @@ function ttyOf(_pid) {
   return null;
 }
 
-/**
- * macOS has no /proc/mounts and no hidepid: `ps` shows every account every process's argv by
- * default. null here means "no such table", and `new.js` reads that as the conservative answer --
- * argv is world-readable -- which is what makes `ccs new` print its name-exposure warning.
- * @returns {null}
- */
-function mountsText() {
-  return null;
+/** `ps` shows every process's full command line to every user and macOS has no hidepid equivalent.
+ *  @param {string} [_mountsFile] accepted for surface parity; unused @returns {boolean} */
+function argvVisibleToOthers(_mountsFile) {
+  return true;
 }
+
+/** Where process information comes from, for `ccs doctor`. */
+const procSource = 'libproc';
+
+/** Why cross-host writers are undetectable here; `ccs doctor` prints it as a WARN. */
+const crossHostWritersNote = 'Claude writes pidDomain as the bare literal "darwin" with no machine id, so a session file written on this Mac is classified local and a second Mac sharing this home would not be detected. Sessions written by a Linux host sharing the home ARE still detected as remote. Fine for a single-user Mac on local disk.';
 
 /**
  * The controlling terminal of THIS process, i.e. what /proc/self/fd/0 resolves to on Linux.
@@ -304,6 +306,6 @@ const hangupOnMasterClose = false;
 module.exports = {
   procStart, procState, pgid, procSid, ppid,
   bootId, machineId, readEnviron, listPids, readArgv, pidNs, ttyOf,
-  mountsText, selfTty, shutdownCorroborated, sameProcStart, hasStoredCredential,
+  argvVisibleToOthers, procSource, crossHostWritersNote, selfTty, shutdownCorroborated, sameProcStart, hasStoredCredential,
   oomScoreAdjPath, name, platformReportsZombieParent, hangupOnMasterClose,
 };

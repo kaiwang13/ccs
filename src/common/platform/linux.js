@@ -12,6 +12,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
+const { hidepidEnabled } = require('./linux-mounts.js');
 
 /** @param {number} pid @returns {string[]|null} fields 3.. of /proc/<pid>/stat (index 0 = field 3) */
 function statFields(pid) {
@@ -126,14 +127,27 @@ function ttyOf(pid) {
   try { const t = fs.readlinkSync(`/proc/${pid}/fd/0`); return t.startsWith('/dev/') && t !== '/dev/null' ? t : null; } catch { return null; }
 }
 
-/** Contents of /proc/mounts, or null where it cannot be read. The caller parses it. @returns {string|null} */
-function mountsText() {
+/**
+ * Can other accounts on this host read this host's process command lines? Linux answers from /proc's hidepid
+ * mount option. An unreadable mount table gets the conservative answer: yes.
+ * @param {string} [mountsFile] the mount table (tests point this elsewhere)
+ * @returns {boolean}
+ */
+function argvVisibleToOthers(mountsFile = '/proc/mounts') {
+  let text;
   try {
-    return fs.readFileSync('/proc/mounts', 'utf8');
+    text = fs.readFileSync(mountsFile, 'utf8');
   } catch {
-    return null;
+    return true;
   }
+  return !hidepidEnabled(text);
 }
+
+/** Where process information comes from, for `ccs doctor`. */
+const procSource = '/proc';
+
+/** Cross-host writers ARE detectable here (pidDomain carries a machine id), so there is nothing to explain. */
+const crossHostWritersNote = null;
 
 /**
  * Independent evidence that the host is shutting down, so a bare SIGTERM to the holder can be told
@@ -200,6 +214,6 @@ const hangupOnMasterClose = true;
 module.exports = {
   procStart, procState, pgid, procSid, ppid,
   bootId, machineId, readEnviron, listPids, readArgv, pidNs, ttyOf,
-  mountsText, selfTty, shutdownCorroborated, sameProcStart, hasStoredCredential,
+  argvVisibleToOthers, procSource, crossHostWritersNote, selfTty, shutdownCorroborated, sameProcStart, hasStoredCredential,
   oomScoreAdjPath, name, platformReportsZombieParent, hangupOnMasterClose,
 };

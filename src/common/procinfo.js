@@ -47,9 +47,11 @@ module.exports = {
   bootId, machineId, readEnviron, readArgv, listPids, pidNs, ttyOf,
   isSameProcess, parsePidDomain,
   // The rest of the seam surface, re-exported so callers that already reach for procinfo do not
-  // have to know which helpers came from the platform: the CLI needs mountsText/selfTty and the
+  // have to know which helpers came from the platform: the CLI needs argvVisibleToOthers/selfTty and the
   // holder needs shutdownCorroborated.
-  mountsText: platform.mountsText,
+  argvVisibleToOthers: platform.argvVisibleToOthers,
+  procSource: platform.procSource,
+  crossHostWritersNote: platform.crossHostWritersNote,
   platformReportsZombieParent: platform.platformReportsZombieParent,
   hangupOnMasterClose: platform.hangupOnMasterClose,
   selfTty: platform.selfTty,

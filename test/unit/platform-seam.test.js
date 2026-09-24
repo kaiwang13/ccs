@@ -56,9 +56,10 @@ test('the two platform implementations export exactly the same surface', () => {
 // add it to the Platform typedef in index.js, add its name here, and re-export it from procinfo.js if callers
 // reach for it there. Everything outside src/common/platform/ then stays untouched.
 const SURFACE = [
-  'bootId', 'hangupOnMasterClose', 'hasStoredCredential', 'listPids', 'machineId', 'mountsText', 'name',
-  'oomScoreAdjPath', 'pgid', 'pidNs', 'platformReportsZombieParent', 'ppid', 'procSid', 'procStart', 'procState',
-  'readArgv', 'readEnviron', 'sameProcStart', 'selfTty', 'shutdownCorroborated', 'ttyOf',
+  'argvVisibleToOthers', 'bootId', 'crossHostWritersNote', 'hangupOnMasterClose', 'hasStoredCredential',
+  'listPids', 'machineId', 'name', 'oomScoreAdjPath', 'pgid', 'pidNs', 'platformReportsZombieParent', 'ppid',
+  'procSid', 'procSource', 'procStart', 'procState', 'readArgv', 'readEnviron', 'sameProcStart', 'selfTty',
+  'shutdownCorroborated', 'ttyOf',
 ];
 
 test('the platform surface is exactly the pinned list, in both implementations', () => {
@@ -91,6 +92,20 @@ test('procinfo re-exports the platform surface and adds only platform-independen
   assert.equal(typeof procinfo.parsePidDomain, 'function');
   assert.equal(procinfo.isSameProcess(process.pid, ''), false, 'empty start never matches');
   assert.equal(procinfo.isSameProcess(process.pid, 'definitely-not-the-start-time'), false);
+});
+
+test('capabilities carry the platform-specific facts doctor reports, so doctor never tests the OS', () => {
+  const { capabilities } = require('../../src/common/platform/index.js');
+  assert.equal(typeof capabilities.procSource, 'string');
+  assert.ok(capabilities.procSource.length > 0);
+  // Exactly when cross-host writers are undetectable, the platform explains why.
+  assert.equal(capabilities.crossHostWritersNote === null, capabilities.crossHostWriters);
+  if (capabilities.crossHostWritersNote !== null) assert.equal(typeof capabilities.crossHostWritersNote, 'string');
+});
+
+test('argvVisibleToOthers answers a boolean on every platform', () => {
+  const platform = require('../../src/common/platform/index.js');
+  assert.equal(typeof platform.argvVisibleToOthers(), 'boolean');
 });
 
 test('platform capabilities describe the running platform', () => {
