@@ -31,7 +31,7 @@ function onControl(fsock, handler) {
 
 /**
  * @param {string} sockPath
- * @param {string} op  'STATUS' | 'PEEK' | 'STOP'
+ * @param {string} op  'STATUS' | 'PEEK' | 'STOP' | 'INPUT'
  * @param {object} [args]
  * @param {{timeoutMs?: number, label?: string}} [opts]
  * @returns {Promise<{ok: boolean, data: any, error: any}>}
