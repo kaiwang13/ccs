@@ -25,19 +25,23 @@ class TranscriptTail {
       const len = Math.min(size - this.offset, MAX_READ);
       const buf = Buffer.alloc(len);
       const n = fs.readSync(fd, buf, 0, len, this.offset);
-      let start = 0;
       if (this.skipping) {
+        // Consume exactly through the skipped line's newline and stop: the bytes after it are unread file
+        // content, not a line we have already seen, so they must go through a fresh (non-skipping) read rather
+        // than being scanned here — otherwise a `nl` found only at that same newline (nothing complete after
+        // it yet) left `this.offset` unmoved and re-emitted the line's tail as a bogus "line" on the next read.
         const first = buf.indexOf(0x0a);
         if (first < 0 || first >= n) { this.offset += n; return []; }
-        start = first + 1;
+        this.offset += first + 1;
         this.skipping = false;
+        return [];
       }
       const nl = buf.lastIndexOf(0x0a, n - 1);
-      if (nl < start) {
+      if (nl < 0) {
         if (n === MAX_READ) { this.offset += n; this.skipping = true; }
         return [];
       }
-      const text = buf.subarray(start, nl).toString('utf8');
+      const text = buf.subarray(0, nl).toString('utf8');
       this.offset += nl + 1;
       return text.split('\n').filter((l) => l.length > 0);
     } finally {
