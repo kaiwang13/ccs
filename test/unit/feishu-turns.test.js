@@ -120,7 +120,9 @@ test('no card is ever empty: an empty chat turn, and history with nothing finish
 
 test('the oversize splitter never cuts an emoji surrogate pair in half', () => {
   const t = run([{ kind: 'prompt', key: 'p', text: 'x' }, { kind: 'text', key: 't', text: `a${'😀'.repeat(20000)}` }]).a.turns[0];
+  const lone = /[\ud800-\udbff](?![\udc00-\udfff])|(?<![\ud800-\udbff])[\udc00-\udfff]/;
   for (const m of renderTurn(t)) {
-    assert.equal(/[\ud800-\udbff](?![\udc00-\udfff])|(?<![\ud800-\udbff])[\udc00-\udfff]/.test(JSON.stringify(m)), false);
+    if (m.kind !== 'card') continue;
+    for (const s of m.sections) assert.equal(lone.test(s.body), false, 'a chunk boundary split an emoji');
   }
 });
