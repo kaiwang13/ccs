@@ -25,6 +25,12 @@ test('Claude: prompts, thinking, tools, results, text, turn end, slash commands 
   assert.deepEqual(ev[8], { kind: 'command', key: 's2', name: '/model', args: 'opus' });
 });
 
+test('Claude: stop_hook_summary is not a turn end — turn_duration, written right after it, is', () => {
+  assert.deepEqual(parseClaudeRecord({ type: 'system', subtype: 'stop_hook_summary', uuid: 'h1', isSidechain: false }), []);
+  assert.deepEqual(parseClaudeRecord({ type: 'system', subtype: 'turn_duration', uuid: 'h2', isSidechain: false, durationMs: 5 }),
+    [{ kind: 'turn_end', key: 'h2', durationMs: 5 }]);
+});
+
 test('Claude: shell (!) commands, garbage and unknown records', () => {
   assert.deepEqual(parseClaudeRecord({ type: 'user', uuid: 'b1', message: { content: '<bash-input>git status</bash-input>' } }),
     [{ kind: 'shell', key: 'b1', command: 'git status' }]);

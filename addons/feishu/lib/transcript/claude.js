@@ -48,6 +48,9 @@ function parseClaudeRecord(r) {
   if (!r || typeof r !== 'object' || r.isSidechain === true || typeof r.uuid !== 'string') return [];
   const key = r.uuid;
   if (r.type === 'system') {
+    // A turn ends at turn_duration only. stop_hook_summary is written immediately BEFORE turn_duration in every turn
+    // that has one (measured over 200 real transcripts; none has it alone): ending there would close the turn one
+    // record early and lose its duration.
     if (r.subtype === 'turn_duration') return [{ kind: 'turn_end', key, durationMs: typeof r.durationMs === 'number' ? r.durationMs : null }];
     if (r.subtype === 'local_command') return commandEvents(key, String(r.content || ''));
     return [];
