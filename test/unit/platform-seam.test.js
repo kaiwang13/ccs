@@ -29,6 +29,70 @@ function walk(dir) {
   return out;
 }
 
+/**
+ * Source with comments blanked out, keeping line breaks so line numbers still match. String, template and
+ * regex literals are copied through; a backslash always copies the next character too, which is what keeps
+ * `\/\/` in a regex literal from reading as a comment. Known limit: a regex literal containing an unescaped
+ * quote character is read as starting a string — rare, and it can only cause a missed finding, never a
+ * false one.
+ * @param {string} src @returns {string}
+ */
+function stripComments(src) {
+  let out = '';
+  let i = 0;
+  /** @type {string|null} */
+  let quote = null;
+  while (i < src.length) {
+    const c = src[i];
+    const d = src[i + 1];
+    if (c === '\\') { out += c + (d ?? ''); i += 2; continue; }
+    if (quote) { out += c; if (c === quote) quote = null; i++; continue; }
+    if (c === '"' || c === "'" || c === '`') { quote = c; out += c; i++; continue; }
+    if (c === '/' && d === '/') { while (i < src.length && src[i] !== '\n') i++; continue; }
+    if (c === '/' && d === '*') {
+      const end = src.indexOf('*/', i + 2);
+      const stop = end < 0 ? src.length : end + 2;
+      out += src.slice(i, stop).replace(/[^\n]/g, '');
+      i = stop;
+      continue;
+    }
+    out += c;
+    i++;
+  }
+  return out;
+}
+
+/** Shared code: everything here must be platform-blind. The seam itself is exempt. */
+const GUARDED_ROOTS = ['src', 'bin'];
+const SEAM_DIR = path.join(SRC, 'common', 'platform');
+
+/** What shared code may not contain, comments excepted. Each is a question for the platform instead. */
+const RULES = [
+  { name: 'process.platform', re: /process\.platform/ },
+  { name: 'os.platform() / os.type() / os.release()', re: /\bos\.(?:platform|type|release)\s*\(/ },
+  { name: 'a comparison against an OS name', re: /(?:===?|!==?)\s*['"`](?:darwin|linux|win32)['"`]|['"`](?:darwin|linux|win32)['"`]\s*(?:===?|!==?)/ },
+  { name: 'capabilities.name (an identity, not a capability)', re: /capabilities\.name\b/ },
+  { name: 'a /proc path', re: /\/proc\b/ },
+  { name: 'an /etc/ path', re: /\/etc\// },
+  { name: 'a /sys/ path', re: /\/sys\// },
+  { name: 'an OS-specific tool', re: /\b(?:systemctl|launchctl|libproc)\b/ },
+];
+
+test('stripComments removes comments and nothing else', () => {
+  // Comments go.
+  assert.doesNotMatch(stripComments('x; // process.platform\n'), /process/);
+  assert.doesNotMatch(stripComments('x; /* process.platform */ y;'), /process/);
+  // Line numbers survive a block comment, so a finding points at the right line.
+  assert.equal(stripComments('a\n/* 1\n2 */\nb').split('\n').length, 4);
+  // `//` inside a string, URL, template or regex literal is not a comment and must not hide what follows.
+  assert.match(stripComments("const u = 'https://x'; process.platform;"), /process\.platform/);
+  assert.match(stripComments('const u = "a//b"; process.platform;'), /process\.platform/);
+  assert.match(stripComments('const u = `a//${"b"}//c`; process.platform;'), /process\.platform/);
+  assert.match(stripComments('const r = /\\/\\//; process.platform;'), /process\.platform/);
+  // Escaped quotes do not end a string early.
+  assert.match(stripComments("const s = 'it\\'s //'; process.platform;"), /process\.platform/);
+});
+
 test('only src/common/platform/index.js reads process.platform', () => {
   const offenders = [];
   for (const file of walk(SRC)) {
@@ -37,6 +101,28 @@ test('only src/common/platform/index.js reads process.platform', () => {
     if (/process\.platform/.test(text)) offenders.push(path.relative(path.join(SRC, '..'), file));
   }
   assert.deepEqual(offenders, [], `these files must not branch on the OS; route the read through src/common/platform/index.js instead:\n  ${offenders.join('\n  ')}`);
+});
+
+test('shared code contains nothing OS-specific (comments excepted)', () => {
+  const repo = path.join(SRC, '..');
+  const findings = [];
+  for (const root of GUARDED_ROOTS) {
+    for (const file of walk(path.join(repo, root))) {
+      if (file.startsWith(SEAM_DIR + path.sep)) continue;
+      const lines = stripComments(fs.readFileSync(file, 'utf8')).split('\n');
+      lines.forEach((line, k) => {
+        for (const { name, re } of RULES) {
+          if (re.test(line)) findings.push(`${path.relative(repo, file)}:${k + 1}  ${name}:  ${line.trim().slice(0, 100)}`);
+        }
+      });
+    }
+  }
+  assert.deepEqual(findings, [], [
+    'OS-specific code outside src/common/platform/. Ask the platform instead: add a primitive or capability',
+    'to BOTH linux.js and darwin.js (plus the Platform typedef in index.js and SURFACE in this file), then call',
+    'it here. User-facing text about one OS belongs in the platform too. See CLAUDE.md.',
+    ...findings,
+  ].join('\n  '));
 });
 
 test('the two platform implementations export exactly the same surface', () => {
