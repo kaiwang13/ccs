@@ -32,3 +32,20 @@ test('the index reports sessions appearing, changing and disappearing', { timeou
   assert.equal(log[2], `removed ${rec.id}`);
   assert.deepEqual(index.all(), []);
 });
+
+test('an empty list() does not remove sessions that still exist', { timeout: 60000 }, async (t) => {
+  const ctx = makeCcsEnv(t);
+  const registry = createRegistry(ctx.paths);
+  const rec = await registry.create({ name: 'gamma', cwd: ctx.work, desired: 'stopped' });
+  let flaky = false;
+  const shim = { ...registry, list: async () => (flaky ? [] : registry.list()), get: (/** @type {string} */ id) => registry.get(id) };
+  const index = new SessionIndex({ registry: shim, paths: ctx.paths });
+  /** @type {string[]} */
+  const removed = [];
+  index.on('removed', (id) => removed.push(id));
+  await index.refresh();
+  flaky = true;
+  await index.refresh();
+  assert.deepEqual(removed, [], 'a session still readable by get() must not be reported removed');
+  assert.ok(index.get(rec.id));
+});

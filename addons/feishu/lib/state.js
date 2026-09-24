@@ -34,9 +34,20 @@ function ensureDir(paths) {
 
 /** @param {{stateDir: string}} paths @returns {FeishuState} */
 function loadState(paths) {
+  const file = path.join(feishuDir(paths), 'state.json');
+  let text;
+  try {
+    text = fs.readFileSync(file, 'utf8');
+  } catch (err) {
+    if (/** @type {NodeJS.ErrnoException} */ (err).code === 'ENOENT') return emptyState();
+    throw err;
+  }
   let raw;
-  try { raw = JSON.parse(fs.readFileSync(path.join(feishuDir(paths), 'state.json'), 'utf8')); } catch { return emptyState(); }
-  if (!raw || raw.schema !== SCHEMA) return emptyState();
+  try { raw = JSON.parse(text); } catch { raw = null; }
+  if (!raw || raw.schema !== SCHEMA) {
+    try { fs.renameSync(file, `${file}.corrupt-${Date.now()}`); } catch { /* best effort */ }
+    return emptyState();
+  }
   return { ...emptyState(), ...raw, groups: { ...(raw.groups || {}) }, cursors: { ...(raw.cursors || {}) } };
 }
 
@@ -45,9 +56,11 @@ function saveState(paths, s) {
   writeAtomic(path.join(ensureDir(paths), 'state.json'), s, { mode: 0o600 });
 }
 
-/** The connector lock, or null when another connector holds it. @param {{stateDir: string}} paths */
+/** The connector lock, or null when another connector holds it. Local (per host), because the state
+ *  dir may be on NFS and flock over NFS is unreliable (locks.js). @param {{locksDir: string}} paths */
 function acquireLock(paths) {
-  return tryLock(path.join(ensureDir(paths), 'connector.lock'));
+  fs.mkdirSync(paths.locksDir, { recursive: true, mode: 0o700 });
+  return tryLock(path.join(paths.locksDir, 'feishu-connector.lock'));
 }
 
 module.exports = { feishuDir, emptyState, loadState, saveState, acquireLock, SCHEMA };

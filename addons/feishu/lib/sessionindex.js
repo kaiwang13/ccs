@@ -44,7 +44,10 @@ class SessionIndex extends EventEmitter {
       else if (JSON.stringify(prev) !== JSON.stringify(info)) this.emit('changed', info, prev);
     }
     for (const id of [...this.sessions.keys()]) {
-      if (!seen.has(id)) { this.sessions.delete(id); this.emit('removed', id); }
+      if (seen.has(id)) continue;
+      if (await this.registry.get(id)) continue; // still readable directly: a transient empty list(), not a removal
+      this.sessions.delete(id);
+      this.emit('removed', id);
     }
   }
 
