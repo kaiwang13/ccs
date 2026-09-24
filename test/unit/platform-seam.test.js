@@ -30,14 +30,53 @@ function walk(dir) {
 }
 
 /**
- * Source with comments blanked out, keeping line breaks so line numbers still match. String, template and
- * regex literals are copied through; a backslash always copies the next character too, which is what keeps
- * `\/\/` in a regex literal from reading as a comment. Known limit: a regex literal containing an unescaped
- * quote character is read as starting a string — rare, and it can only cause a missed finding, never a
- * false one.
+ * Source with comments blanked out, keeping line breaks so line numbers still match. String and template
+ * literals are copied through untouched. A `/` that is not part of `//` or `/*` is read as opening a regex
+ * literal using a heuristic, token-based lookback at the previous non-whitespace output: the start of file,
+ * or one of `( , = : [ ! & | ? { } ; + - * % < > ~ ^`, or a preceding keyword (`return`, `typeof`, `case`,
+ * `in`, `of`, `delete`, `void`, `throw`, `new`, `yield`, `await`) all permit a regex; anything else (an
+ * identifier, a number, a closing `)`/`]`/`}`) means the `/` is division. Once a regex is judged to have
+ * opened, it is scanned through backslash escapes and `[...]` character classes to its closing `/` --
+ * without treating a quote inside it as opening a string, which is what previously made `/don't/` swallow
+ * the rest of the line as an unterminated string. A regex literal cannot span a line: if no closing `/` is
+ * found before the newline, the opening `/` is read back as an ordinary (division) character instead, so a
+ * misread can never swallow code past the line it started on. A backslash always copies the next character
+ * too, which is what keeps an escaped delimiter inside a string or regex from ending it early.
+ * Known limit: this is a heuristic, not a real parser. A small number of unusual same-line token sequences
+ * -- e.g. division right after a postfix `++`/`--`, which this lookback reads as regex-permissive because it
+ * only inspects the single trailing punctuation character -- can still be misclassified.
  * @param {string} src @returns {string}
  */
 function stripComments(src) {
+  const REGEX_OK_PUNCT = '(,=:[!&|?{};+-*%<>~^';
+  const REGEX_OK_WORDS = new Set([
+    'return', 'typeof', 'case', 'in', 'of', 'delete', 'void', 'throw', 'new', 'yield', 'await',
+  ]);
+
+  /** True when a `/` here, given the (already comment-stripped) output so far, could open a regex literal. */
+  function regexMayStartHere(out) {
+    const trimmed = out.replace(/[ \t\r\n]+$/, '');
+    if (trimmed === '') return true;
+    if (REGEX_OK_PUNCT.includes(trimmed[trimmed.length - 1])) return true;
+    const word = /[A-Za-z_$][A-Za-z0-9_$]*$/.exec(trimmed);
+    return !!word && REGEX_OK_WORDS.has(word[0]);
+  }
+
+  /** Index just past a regex literal's closing `/` starting at src[start], or -1 if none closes before a newline. */
+  function findRegexEnd(start) {
+    let j = start + 1;
+    let inClass = false;
+    while (j < src.length && src[j] !== '\n') {
+      const cj = src[j];
+      if (cj === '\\' && j + 1 < src.length && src[j + 1] !== '\n') { j += 2; continue; }
+      if (inClass) { if (cj === ']') inClass = false; j++; continue; }
+      if (cj === '[') { inClass = true; j++; continue; }
+      if (cj === '/') return j + 1;
+      j++;
+    }
+    return -1;
+  }
+
   let out = '';
   let i = 0;
   /** @type {string|null} */
@@ -55,6 +94,15 @@ function stripComments(src) {
       out += src.slice(i, stop).replace(/[^\n]/g, '');
       i = stop;
       continue;
+    }
+    if (c === '/' && regexMayStartHere(out)) {
+      const end = findRegexEnd(i);
+      if (end >= 0) {
+        out += src.slice(i, end);
+        i = end;
+        while (i < src.length && /[A-Za-z]/.test(src[i])) { out += src[i]; i++; }
+        continue;
+      }
     }
     out += c;
     i++;
@@ -91,6 +139,25 @@ test('stripComments removes comments and nothing else', () => {
   assert.match(stripComments('const r = /\\/\\//; process.platform;'), /process\.platform/);
   // Escaped quotes do not end a string early.
   assert.match(stripComments("const s = 'it\\'s //'; process.platform;"), /process\.platform/);
+  // An unescaped quote inside a regex literal must not be read as opening a string -- that previously
+  // let `/don't/` swallow the rest of the line, hiding a real comment's OS-specific tokens from the guard.
+  const stripped = stripComments([
+    "const apostropheRe = /don't/;  // matches contractions",
+    'function helper() {',
+    '  // Unlike systemctl on Linux, we do not manage /etc/ services here.',
+    '  return 42;',
+    '}',
+  ].join('\n'));
+  assert.doesNotMatch(stripped, /systemctl/);
+  assert.doesNotMatch(stripped, /\/etc\//);
+  // The regex itself is still read correctly (not left dangling as an open string).
+  assert.match(stripComments("const re = /don't/; process.platform;"), /process\.platform/);
+  // A `/` inside a character class does not close the regex early.
+  assert.match(stripComments('const re = /[/]x/; process.platform;'), /process\.platform/);
+  // Division is not mistaken for a regex...
+  assert.doesNotMatch(stripComments('const x = a / b; // process.platform'), /process/);
+  // ...including two divisions on one line.
+  assert.match(stripComments('const y = a / b / c; process.platform;'), /process\.platform/);
 });
 
 test('only src/common/platform/index.js reads process.platform', () => {
