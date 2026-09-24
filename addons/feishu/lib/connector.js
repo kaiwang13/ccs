@@ -248,9 +248,11 @@ class Connector {
     r.creatingGroup = true;
     try {
       const chatId = await this.gw.createGroup(`ccs · ${r.info.name}`, /** @type {string} */ (this.owner));
-      if (this.stopped) return;
+      // Record the group even when stop() arrived meanwhile: it exists in Feishu now, and forgetting it would make
+      // the next start create a duplicate. stop() drains this job before its final save.
       this.state.groups[r.info.id] = { chatId, removed: false, statusMessageId: null };
       this._save(true);
+      if (this.stopped) return;
       const file = this._transcriptFile(r);
       if (file) {
         const all = new TurnAssembler();
