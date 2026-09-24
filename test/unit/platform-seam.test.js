@@ -52,6 +52,31 @@ test('the two platform implementations export exactly the same surface', () => {
   assert.ok(Object.keys(linux).length > 0, 'expected a non-empty surface');
 });
 
+// The platform surface, pinned. Adding a primitive is deliberate: implement it in BOTH linux.js and darwin.js,
+// add it to the Platform typedef in index.js, add its name here, and re-export it from procinfo.js if callers
+// reach for it there. Everything outside src/common/platform/ then stays untouched.
+const SURFACE = [
+  'bootId', 'hangupOnMasterClose', 'hasStoredCredential', 'listPids', 'machineId', 'mountsText', 'name',
+  'oomScoreAdjPath', 'pgid', 'pidNs', 'platformReportsZombieParent', 'ppid', 'procSid', 'procStart', 'procState',
+  'readArgv', 'readEnviron', 'sameProcStart', 'selfTty', 'shutdownCorroborated', 'ttyOf',
+];
+
+test('the platform surface is exactly the pinned list, in both implementations', () => {
+  for (const file of ['linux.js', 'darwin.js']) {
+    const impl = require(`../../src/common/platform/${file}`);
+    assert.deepEqual(Object.keys(impl).sort(), SURFACE,
+      `src/common/platform/${file} does not export the pinned surface. A new primitive goes into BOTH implementations, the Platform typedef in index.js, and SURFACE in this file`);
+  }
+});
+
+test('loading the dispatcher leaves both implementations untouched', () => {
+  require('../../src/common/platform/index.js');
+  for (const file of ['linux.js', 'darwin.js']) {
+    const impl = require(`../../src/common/platform/${file}`);
+    assert.equal('capabilities' in impl, false, `index.js must not write onto ${file}'s exports`);
+  }
+});
+
 test('procinfo re-exports the platform surface and adds only platform-independent policy', () => {
   const procinfo = require('../../src/common/procinfo.js');
   const platform = require('../../src/common/platform/index.js');
@@ -101,8 +126,10 @@ test('the platform implementation selected matches the running platform', () => 
   const expected = process.platform === 'darwin'
     ? require('../../src/common/platform/darwin.js')
     : require('../../src/common/platform/linux.js');
-  assert.equal(platform, expected, `expected the ${process.platform} implementation to be selected`);
-  assert.deepEqual(Object.keys(platform).sort(), Object.keys(expected).sort());
+  assert.deepEqual(Object.keys(platform).sort(), [...Object.keys(expected), 'capabilities'].sort());
+  for (const key of Object.keys(expected)) {
+    assert.equal(platform[key], expected[key], `index.js must expose ${process.platform}'s ${key}`);
+  }
 });
 
 test('the platform surface answers plausibly for our own process', () => {

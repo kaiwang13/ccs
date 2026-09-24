@@ -76,5 +76,6 @@ const capabilities = {
   orphanScan: process.platform === 'linux',
 };
 
-module.exports = impl;
-module.exports.capabilities = capabilities;
+// A fresh object: writing `capabilities` onto `impl` would mutate linux.js's (or darwin.js's) own exports,
+// and the two implementations would then no longer export the same surface.
+module.exports = { ...impl, capabilities };
