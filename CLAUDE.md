@@ -12,7 +12,7 @@ ccs runs on Linux and macOS. Everything that differs between them lives in `src/
 Everything else — `src/`, `bin/`, `test/helpers/` — is platform-blind. It asks the platform a question
 (`platform.argvVisibleToOthers()`, `capabilities.crossHostWriters`) and never asks which OS this is.
 
-`test/unit/platform-seam.test.js` enforces this. In `src/`, `bin/` and `test/helpers/` (outside
+`test/unit/platform-seam.test.js` enforces this. In `src/`, `bin/`, `test/helpers/` and `addons/` (outside
 `src/common/platform/`) it fails on `process.platform`, `os.platform()` / `os.type()` / `os.release()`
 (also through `require('os').platform()` and destructuring `{ platform }` / `{ type }` / `{ release }` from
 `require('os'|'node:os')`), comparisons against `'darwin'` / `'linux'` / `'win32'`, a `case 'darwin':` label,
@@ -46,4 +46,4 @@ real failure, not noise.
   `taskset -c N` plus a busy loop pinned to the same core.
 - Every process a test starts must be stopped by its teardown. The harness fails the test when one survives
   (`leaked test processes: …`).
-- Never `SIGKILL`. The literal is banned in `src/`, `bin/`, `tools/` and `test/fake/`, comments included.
+- Never `SIGKILL`. The literal is banned in `src/`, `bin/`, `tools/`, `test/fake/` and `addons/`, comments included.

@@ -9,7 +9,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 
 const ROOT = path.resolve(__dirname, '..', '..');
-const SCANNED = ['src', 'bin', 'tools', 'test/fake'];
+const SCANNED = ['src', 'bin', 'tools', 'test/fake', 'addons'];
 const FORBIDDEN = ['SIG', 'KILL'].join('');
 const SELF = path.resolve(__filename);
 

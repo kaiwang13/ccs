@@ -22,6 +22,7 @@ function walk(dir) {
   /** @type {string[]} */
   const out = [];
   for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+    if (entry.name === 'node_modules') continue;
     const p = path.join(dir, entry.name);
     if (entry.isDirectory()) out.push(...walk(p));
     else if (entry.name.endsWith('.js')) out.push(p);
@@ -124,7 +125,7 @@ function stripComments(src) {
 }
 
 /** Shared code: everything here must be platform-blind. The seam itself is exempt. */
-const GUARDED_ROOTS = ['src', 'bin', 'test/helpers'];
+const GUARDED_ROOTS = ['src', 'bin', 'test/helpers', 'addons'];
 const SEAM_DIR = path.join(SRC, 'common', 'platform');
 
 /** What shared code may not contain, comments excepted. Each is a question for the platform instead. */
