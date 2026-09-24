@@ -71,11 +71,20 @@ test('withDescendants finds a child whose argv names nothing of ours, and never 
   assert.equal(self.includes(process.ppid), false);
 });
 
-/** A node process that ignores SIGTERM and SIGUSR2, i.e. one the harness cannot stop. Its script lives
- *  under `root`, so its argv names the root on every platform. Stopped with SIGINT by the test itself. */
+/** Code for a process that ignores SIGTERM and SIGUSR2, then creates `readyFile`. The file is the only proof
+ *  the handlers are installed: the process is visible from the moment it execs, but until node has run this
+ *  line a SIGTERM still kills it -- so a test that signals it must wait for `readyFile`, not for visibility.
+ *  @param {string} readyFile */
+function stubbornCode(readyFile) {
+  return `process.on('SIGTERM', () => {}); process.on('SIGUSR2', () => {}); require('fs').writeFileSync(${JSON.stringify(readyFile)}, ''); setInterval(() => {}, 1000);`;
+}
+
+/** A node process the harness cannot stop (see stubbornCode). Its script lives under `root`, so its argv names
+ *  the root on every platform. Stopped with SIGINT by the test itself. `root/stubborn.ready` appears once it
+ *  is stubborn. */
 function startStubborn(root, env = {}) {
   const script = path.join(root, 'stubborn.js');
-  fs.writeFileSync(script, "process.on('SIGTERM', () => {}); process.on('SIGUSR2', () => {}); setInterval(() => {}, 1000);");
+  fs.writeFileSync(script, stubbornCode(path.join(root, 'stubborn.ready')));
   return cp.spawn(process.execPath, [script], { stdio: 'ignore', env: { ...process.env, ...env } });
 }
 
@@ -83,6 +92,8 @@ test('a survivor fails terminateAll instead of being left behind', { timeout: 60
   const root = fs.mkdtempSync('/tmp/ccst-');
   const p = startStubborn(root);
   t.after(() => { try { process.kill(/** @type {number} */ (p.pid), 'SIGINT'); } catch { /* gone */ } fs.rmSync(root, { recursive: true, force: true }); });
+  // terminateAll signals at once, so the handlers must already be installed (CI caught a SIGTERM landing first).
+  await waitFor(() => fs.existsSync(path.join(root, 'stubborn.ready')), 5000, 'stubborn handlers installed');
   await waitFor(() => require('../helpers/processes.js').processesUnder(root).includes(/** @type {number} */ (p.pid)), 5000, 'stubborn process');
   await assert.rejects(terminateAll(root), /leaked test processes:/);
 });
@@ -94,7 +105,8 @@ test('a survivor fails terminateAll instead of being left behind', { timeout: 60
  *  still-stubborn child to whatever reaps it. */
 function startReparentingPair(root) {
   const pidFile = path.join(root, 'child.pid');
-  const childCode = "process.on('SIGTERM', () => {}); process.on('SIGUSR2', () => {}); setInterval(() => {}, 1000);";
+  const childReady = path.join(root, 'child.ready');
+  const childCode = stubbornCode(childReady);
   const script = path.join(root, 'parent.js');
   fs.writeFileSync(script, [
     "const cp = require('child_process');",
@@ -103,12 +115,12 @@ function startReparentingPair(root) {
     `fs.writeFileSync(${JSON.stringify(pidFile)}, String(child.pid));`,
     'setInterval(() => {}, 1000);', // no SIGTERM handler: the default action (terminate) applies
   ].join('\n'));
-  return { parent: cp.spawn(process.execPath, [script], { stdio: 'ignore' }), pidFile };
+  return { parent: cp.spawn(process.execPath, [script], { stdio: 'ignore' }), pidFile, childReady };
 }
 
 test('a child reparented after its matched parent exits on SIGTERM is still caught, not lost between rounds', { timeout: 60000 }, async (t) => {
   const root = fs.mkdtempSync('/tmp/ccst-');
-  const { parent, pidFile } = startReparentingPair(root);
+  const { parent, pidFile, childReady } = startReparentingPair(root);
   /** @type {number|null} */
   let childPid = null;
   t.after(() => {
@@ -118,6 +130,7 @@ test('a child reparented after its matched parent exits on SIGTERM is still caug
   });
   await waitFor(() => fs.existsSync(pidFile), 5000, 'child pid file written');
   childPid = Number(fs.readFileSync(pidFile, 'utf8'));
+  await waitFor(() => fs.existsSync(childReady), 5000, 'child handlers installed');
   await waitFor(() => require('../helpers/processes.js').processesUnder(root).includes(/** @type {number} */ (childPid)), 5000, "child visible as the parent's descendant");
   // terminateAll's own round 0 SIGTERM ends the parent (default handling) and reaches the child too, which
   // ignores it: the child survives, reparented, with an argv a fresh scan alone can no longer walk to.
@@ -130,6 +143,7 @@ test('a survivor fails terminateEnvProcesses instead of being left behind', { ti
   const p = startStubborn(root, { CCS_RUNTIME_DIR: rt });
   t.after(() => { try { process.kill(/** @type {number} */ (p.pid), 'SIGINT'); } catch { /* gone */ } fs.rmSync(root, { recursive: true, force: true }); });
   const ctx = { root, home: path.join(root, 'home'), env: { CCS_RUNTIME_DIR: rt }, paths: { runtimeDir: rt } };
+  await waitFor(() => fs.existsSync(path.join(root, 'stubborn.ready')), 5000, 'stubborn handlers installed');
   await waitFor(() => envPids(ctx).includes(/** @type {number} */ (p.pid)), 5000, 'stubborn process');
   await assert.rejects(terminateEnvProcesses(ctx), /leaked test processes:/);
 });
