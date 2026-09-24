@@ -72,7 +72,8 @@ test('control role: STATUS, PEEK, UNSUPPORTED, STATE pushes; never counted by th
   for (const key of ['id', 'label', 'cols', 'rows', 'phase', 'stalled']) assert.ok(key in st.data.clients[0], key);
   assert.deepEqual(Object.keys(st.data.pty).sort(), ['cols', 'rows']);
   a.send('!seq 3\r');
-  await a.waitForText(/^\s+3$/m, 5000);
+  // The prompt is drawn in a separate write after the last output line; PEEK below asserts it is on screen.
+  await a.waitForText(/^\s+3$[\s\S]*❯/m, 5000);
   const peek = await k.request('PEEK', { lines: 4 });
   assert.ok(peek.data.lines.length <= 4 && peek.data.lines.some((/** @type {string} */ l) => /❯/.test(l)));
   const un = await k.request('RENAME');

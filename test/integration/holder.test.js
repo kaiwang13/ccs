@@ -286,7 +286,11 @@ test('a ring that wrapped before ATTACH{0}: GAP{from 0, to ring.start}, then DAT
   c.send({ t: 'ATTACH', fromOffset: 0, pid: process.pid });
   await waitFor(() => /❯/.test(c.text()), { what: 'prompt' });
   c.write('!seq 12000\r');
-  await waitFor(() => /12000/.test(c.text()), { timeoutMs: 10000, what: 'seq output' });
+  // The last output line AND the prompt redrawn after it -- not /12000/, which the echoed command line
+  // `❯ !seq 12000` satisfies before seq has printed anything. The GAP assertion below needs a quiescent ring.
+  // c.text() is the raw pty stream (rawConn does no terminal emulation): the pty's ONLCR turns fakeclaude's
+  // own '\r\n' line endings into '\r\r\n', so the line terminator here is \r+\n, not a single \r\n.
+  await waitFor(() => / {5}12000\r+\n[\s\S]*❯/.test(c.text()), { timeoutMs: 10000, what: 'seq output and the prompt after it' });
   c.close();
   await sleep(100);
   const c2 = await rawConn(h.sock);

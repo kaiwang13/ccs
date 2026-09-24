@@ -58,10 +58,12 @@ test('end-to-end: the holder answers a hosted codex\'s startup OSC 10/11 query w
 
   const sock = path.join(tmp.root, 's', 'tc01', 'pty.sock');
   await waitFor(() => fs.existsSync(sock), { timeoutMs: 5000, what: 'pty.sock' });
-  await waitFor(() => fs.existsSync(replyFile) && fs.readFileSync(replyFile).length > 0, { timeoutMs: 5000, what: 'colour reply written by fakecodex' });
+  const expected = Buffer.from(`\x1b]10;${termColors.fg}\x1b\\\x1b]11;${termColors.bg}\x1b\\`, 'latin1');
+  // Wait for the WHOLE reply: fakecodex appends each answer as it arrives, so a non-empty file can hold the
+  // OSC 10 answer while OSC 11's is still in flight.
+  await waitFor(() => fs.existsSync(replyFile) && fs.readFileSync(replyFile).length >= expected.length, { timeoutMs: 5000, what: 'both colour replies written by fakecodex' });
 
   const got = fs.readFileSync(replyFile);
-  const expected = Buffer.from(`\x1b]10;${termColors.fg}\x1b\\\x1b]11;${termColors.bg}\x1b\\`, 'latin1');
   assert.deepEqual(got, expected, `got ${JSON.stringify(got.toString('latin1'))}`);
 });
 
