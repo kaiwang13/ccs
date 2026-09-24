@@ -7,7 +7,10 @@ const { maskEmails, truncate, sanitizeMessage } = require('../../addons/feishu/l
 test('maskEmails rewrites address-shaped tokens and nothing else', () => {
   assert.equal(maskEmails('Co-Authored-By: X <noreply@anthropic.com>'), 'Co-Authored-By: X <noreply[at]anthropic.com>');
   assert.equal(maskEmails('a.b+c@mail.example.co.uk and d@e.io'), 'a.b+c[at]mail.example.co.uk and d[at]e.io');
-  for (const s of ['@bot', ' @param {string}', 'user@localhost', 'npm i @xterm/headless', '']) assert.equal(maskEmails(s), s);
+  for (const s of [
+    '@bot', ' @param {string}', 'user@localhost', 'npm i @xterm/headless', '',
+    'npm install lodash@4.17.21', 'npm i @xterm/headless@1.2.3', 'use node@22.22.2', 'git reflog HEAD@{1}',
+  ]) assert.equal(maskEmails(s), s);
 });
 
 test('truncate keeps short text and marks what it cut', () => {

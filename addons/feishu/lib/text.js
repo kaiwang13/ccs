@@ -2,9 +2,10 @@
 // @ts-check
 /** Text shaping every outgoing Feishu message passes through (spec §8). */
 
-// An address-shaped token: local part, '@', a domain with at least one dot. Feishu's tenant audit rejects any message
-// containing one (a 400 that silently kills card updates), and agent output is full of them (commit trailers).
-const EMAIL_RE = /([A-Za-z0-9._%+-]+)@([A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+)/g;
+// An address-shaped token: local part, '@', a domain whose final label is alphabetic (2+ letters), so version
+// pins like `lodash@4.17.21` are left alone. Feishu's tenant audit rejects any message containing one (a 400
+// that silently kills card updates), and agent output is full of them (commit trailers).
+const EMAIL_RE = /([A-Za-z0-9._%+-]+)@((?:[A-Za-z0-9-]+\.)+[A-Za-z]{2,})(?![A-Za-z0-9-])/g;
 
 /** @param {string} s @returns {string} */
 function maskEmails(s) {

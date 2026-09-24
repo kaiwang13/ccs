@@ -9,7 +9,7 @@ ccs runs on Linux and macOS. Everything that differs between them lives in `src/
 - `linux.js` and `darwin.js` — two implementations of one surface. They export exactly the same names.
 - helper modules one implementation uses (e.g. `linux-mounts.js`).
 
-Everything else — `src/`, `bin/`, `test/helpers/` — is platform-blind. It asks the platform a question
+Everything else — `src/`, `bin/`, `test/helpers/`, `addons/` — is platform-blind. It asks the platform a question
 (`platform.argvVisibleToOthers()`, `capabilities.crossHostWriters`) and never asks which OS this is.
 
 `test/unit/platform-seam.test.js` enforces this. In `src/`, `bin/`, `test/helpers/` and `addons/` (outside
