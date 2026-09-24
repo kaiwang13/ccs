@@ -39,9 +39,13 @@ function walk(dir) {
  * opened, it is scanned through backslash escapes and `[...]` character classes to its closing `/` --
  * without treating a quote inside it as opening a string, which is what previously made `/don't/` swallow
  * the rest of the line as an unterminated string. A regex literal cannot span a line: if no closing `/` is
- * found before the newline, the opening `/` is read back as an ordinary (division) character instead, so a
- * misread can never swallow code past the line it started on. A backslash always copies the next character
- * too, which is what keeps an escaped delimiter inside a string or regex from ending it early.
+ * found before the newline, the opening `/` is read back as an ordinary (division) character instead. A
+ * single- or double-quoted string (not a template literal) closes the same way at an unescaped newline,
+ * matching real JS syntax -- so a `/` this heuristic misjudges as division, whose next character happens to
+ * open a quote (e.g. the apostrophe in `/don't/` right after a `)`, which this lookback always reads as
+ * division), can misread at most the rest of that one line, never a line after it. A backslash always
+ * copies the next character too, which is what keeps an escaped delimiter inside a string or regex from
+ * ending it early.
  * Known limit: this is a heuristic, not a real parser. A small number of unusual same-line token sequences
  * -- e.g. division right after a postfix `++`/`--`, which this lookback reads as regex-permissive because it
  * only inspects the single trailing punctuation character -- can still be misclassified.
@@ -85,7 +89,16 @@ function stripComments(src) {
     const c = src[i];
     const d = src[i + 1];
     if (c === '\\') { out += c + (d ?? ''); i += 2; continue; }
-    if (quote) { out += c; if (c === quote) quote = null; i++; continue; }
+    if (quote) {
+      out += c;
+      // A single/double-quoted string cannot span a line in real JS; closing it here keeps a mistakenly
+      // opened one (e.g. the apostrophe in `/don't/` when a preceding `)` makes this heuristic call the
+      // `/` division) from running on and corrupting every line that follows until a stray matching quote
+      // turns up. Template literals are exempt: they are allowed to span lines.
+      if (c === quote) quote = null;
+      else if (quote !== '`' && c === '\n') quote = null;
+      i++; continue;
+    }
     if (c === '"' || c === "'" || c === '`') { quote = c; out += c; i++; continue; }
     if (c === '/' && d === '/') { while (i < src.length && src[i] !== '\n') i++; continue; }
     if (c === '/' && d === '*') {
@@ -118,13 +131,35 @@ const SEAM_DIR = path.join(SRC, 'common', 'platform');
 const RULES = [
   { name: 'process.platform', re: /process\.platform/ },
   { name: 'os.platform() / os.type() / os.release()', re: /\bos\.(?:platform|type|release)\s*\(/ },
+  // require('os').platform() / require('node:os').type() etc.: the two rules above only see a call through
+  // a variable named `os`; this one catches the call chained straight off the require, which never matches
+  // `\bos\.` since there is no `os` identifier in the source.
+  { name: "require('os'|'node:os').platform()/.type()/.release()", re: /require\(\s*['"](?:node:)?os['"]\s*\)\s*\.\s*(?:platform|type|release)\b/ },
+  // const { platform } = require('os') (any order/spacing of the destructured names).
+  { name: "destructuring { platform }/{ type }/{ release } from require('os'|'node:os')", re: /\{[^}]*\b(?:platform|type|release)\b[^}]*\}\s*=\s*require\(\s*['"](?:node:)?os['"]\s*\)/ },
   { name: 'a comparison against an OS name', re: /(?:===?|!==?)\s*['"`](?:darwin|linux|win32)['"`]|['"`](?:darwin|linux|win32)['"`]\s*(?:===?|!==?)/ },
+  { name: "a case label naming an OS (case 'darwin':)", re: /\bcase\s+['"`](?:darwin|linux|win32)['"`]/ },
+  // An OS name as an array element or (quoted) object key, e.g. ['darwin','linux'].includes(x) or
+  // { 'darwin': ... }[name]. An unquoted bare key (`{ darwin: ... }`) was tried too (`\b(?:darwin|linux|win32)\s*:`)
+  // but false-positives on this tree -- a ternary's `'darwin' : ...` branch and a regex literal matching a
+  // `linux:` pidDomain prefix both read as a "bare key" to that pattern -- so it was dropped; see CLAUDE.md.
+  { name: 'an OS name as an array element or a quoted object key', re: /[[,]\s*['"`](?:darwin|linux|win32)['"`]/ },
   { name: 'capabilities.name (an identity, not a capability)', re: /capabilities\.name\b/ },
   { name: 'a /proc path', re: /\/proc\b/ },
   { name: 'an /etc/ path', re: /\/etc\// },
   { name: 'a /sys/ path', re: /\/sys\// },
   { name: 'an OS-specific tool', re: /\b(?:systemctl|launchctl|libproc)\b/ },
 ];
+
+test('the new OS-specific rules each fire on a one-line example', () => {
+  const find = (/** @type {string} */ name) => /** @type {{re: RegExp}} */ (RULES.find((r) => r.name === name));
+  assert.match("require('os').platform();", find("require('os'|'node:os').platform()/.type()/.release()").re);
+  assert.match("require('node:os').type();", find("require('os'|'node:os').platform()/.type()/.release()").re);
+  assert.match("const { release } = require('os');", find("destructuring { platform }/{ type }/{ release } from require('os'|'node:os')").re);
+  assert.match("const { platform, type } = require('node:os');", find("destructuring { platform }/{ type }/{ release } from require('os'|'node:os')").re);
+  assert.match("switch (x) { case 'darwin': return 1; }", find("a case label naming an OS (case 'darwin':)").re);
+  assert.match("const supported = ['darwin', 'linux'].includes(x);", find('an OS name as an array element or a quoted object key').re);
+});
 
 test('stripComments removes comments and nothing else', () => {
   // Comments go.
@@ -158,6 +193,13 @@ test('stripComments removes comments and nothing else', () => {
   assert.doesNotMatch(stripComments('const x = a / b; // process.platform'), /process/);
   // ...including two divisions on one line.
   assert.match(stripComments('const y = a / b / c; process.platform;'), /process\.platform/);
+  // A `/` this heuristic misjudges as division right after a `)` (a real regex there, per JS grammar, since
+  // `if (x) /don't/.test(s)` is a statement start -- a known limit of this token-based lookback) must not let
+  // the apostrophe it then meets open a string that swallows every line after it: JS strings cannot span a
+  // line, so neither can a mistakenly opened one here. Before the fix this line lost `process.platform` on
+  // the SECOND line entirely, because the wrongly-opened string ran on, its close coincided with `'https:` 's
+  // own opening quote, and the `//` in the URL was then read as a real line comment.
+  assert.match(stripComments("if (x) /don't/.test(s);\nconst u = 'https://x'; process.platform;"), /process\.platform/);
 });
 
 test('only src/common/platform/index.js reads process.platform', () => {
@@ -186,8 +228,10 @@ test('shared code contains nothing OS-specific (comments excepted)', () => {
   }
   assert.deepEqual(findings, [], [
     'OS-specific code outside src/common/platform/. Ask the platform instead: add a primitive or capability',
-    'to BOTH linux.js and darwin.js (plus the Platform typedef in index.js and SURFACE in this file), then call',
-    'it here. User-facing text about one OS belongs in the platform too. See CLAUDE.md.',
+    'to BOTH linux.js and darwin.js, the Platform typedef in index.js, and SURFACE in this file; re-export it',
+    'from procinfo.js (required for every surface name, not only ones a caller already reaches for -- the',
+    'procinfo re-export test enforces it); then call it here. User-facing text about one OS belongs in the',
+    'platform too. See CLAUDE.md.',
     ...findings,
   ].join('\n  '));
 });
@@ -206,8 +250,9 @@ test('the two platform implementations export exactly the same surface', () => {
 });
 
 // The platform surface, pinned. Adding a primitive is deliberate: implement it in BOTH linux.js and darwin.js,
-// add it to the Platform typedef in index.js, add its name here, and re-export it from procinfo.js if callers
-// reach for it there. Everything outside src/common/platform/ then stays untouched.
+// add it to the Platform typedef in index.js, add its name here, and re-export it from procinfo.js -- required
+// for every name, not only ones a caller already reaches for there; the procinfo re-export test below enforces
+// it. Everything outside src/common/platform/ then stays untouched.
 const SURFACE = [
   'argvVisibleToOthers', 'bootId', 'crossHostWritersNote', 'hangupOnMasterClose', 'hasStoredCredential',
   'listPids', 'listProcesses', 'machineId', 'name', 'oomScoreAdjPath', 'pgid', 'pidNs', 'platformReportsZombieParent', 'ppid',
@@ -219,7 +264,7 @@ test('the platform surface is exactly the pinned list, in both implementations',
   for (const file of ['linux.js', 'darwin.js']) {
     const impl = require(`../../src/common/platform/${file}`);
     assert.deepEqual(Object.keys(impl).sort(), SURFACE,
-      `src/common/platform/${file} does not export the pinned surface. A new primitive goes into BOTH implementations, the Platform typedef in index.js, and SURFACE in this file`);
+      `src/common/platform/${file} does not export the pinned surface. A new primitive goes into BOTH implementations, the Platform typedef in index.js, SURFACE in this file, and procinfo.js's re-export (required for every surface name)`);
   }
 });
 

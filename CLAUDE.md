@@ -12,10 +12,12 @@ ccs runs on Linux and macOS. Everything that differs between them lives in `src/
 Everything else — `src/`, `bin/`, `test/helpers/` — is platform-blind. It asks the platform a question
 (`platform.argvVisibleToOthers()`, `capabilities.crossHostWriters`) and never asks which OS this is.
 
-`test/unit/platform-seam.test.js` enforces this. Outside `src/common/platform/` it fails on
-`process.platform`, `os.platform()` / `os.type()` / `os.release()`, comparisons against `'darwin'` /
-`'linux'` / `'win32'`, `capabilities.name`, OS paths (`/proc`, `/etc/`, `/sys/`) and `systemctl` /
-`launchctl` / `libproc` — in code and in strings, not in comments.
+`test/unit/platform-seam.test.js` enforces this. In `src/`, `bin/` and `test/helpers/` (outside
+`src/common/platform/`) it fails on `process.platform`, `os.platform()` / `os.type()` / `os.release()`
+(also through `require('os').platform()` and destructuring `{ platform }` / `{ type }` / `{ release }` from
+`require('os'|'node:os')`), comparisons against `'darwin'` / `'linux'` / `'win32'`, a `case 'darwin':` label,
+an OS name as an array element or quoted object key, `capabilities.name`, OS paths (`/proc`, `/etc/`,
+`/sys/`) and `systemctl` / `launchctl` / `libproc` — in code and in strings, not in comments.
 
 ### When a feature needs something OS-specific
 
