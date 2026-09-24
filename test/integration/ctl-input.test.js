@@ -76,6 +76,22 @@ test('INPUT is refused while stopping or after the agent exited; a control conne
   sup.lifecycle = saved;
 });
 
+test('INPUT is refused while the session is suspended (M9)', { timeout: 60000 }, async (t) => {
+  const e = await startTestSession(t);
+  const k = await e.control();
+  await waitFor(() => /❯/.test(e.s.supervisor.screenText()), { timeoutMs: 10000, what: 'prompt' });
+  // suspendNet.gate reads `suspended` directly (suspendnet.js); set it the same way the STOPPING/EXITED test above
+  // sets lifecycle, since actually suspending the holder is a whole other test's concern (spec §3.8).
+  const sn = e.s.supervisor.suspendNet;
+  assert.ok(sn, 'suspendNet must be attached once a holder has attached');
+  const saved = sn.suspended;
+  t.after(() => { sn.suspended = saved; });
+  sn.suspended = true;
+  const r = await k.request('INPUT', { text: 'while suspended' });
+  assert.deepEqual([r.ok, r.error], [false, 'SUSPENDED']);
+  sn.suspended = saved;
+});
+
 test('closing a control connection removes its input identity from the router', { timeout: 60000 }, async (t) => {
   const e = await startTestSession(t);
   const k = await e.control();
