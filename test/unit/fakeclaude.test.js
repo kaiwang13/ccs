@@ -138,3 +138,36 @@ test('FAKECLAUDE_CONTROL changes status/waitingFor in the session json', async (
   const file = path.join(f.tmp.claudeHome, 'sessions', `${f.p.pid}.json`);
   await waitFor(() => JSON.parse(fs.readFileSync(file, 'utf8')).waitingFor === 'permission prompt', { what: 'status change' });
 });
+
+test('a coalesced redraw never lands after exit: typed chars + double Ctrl+C in ONE write end exactly at the resume line', async (t) => {
+  // Reproduces the review finding: flushDraw() ran after the whole stdin chunk without checking
+  // `exiting`, so when typed characters and the double-Ctrl+C that exits arrive in one write, the
+  // pending redraw from the typed characters landed AFTER exitNow()'s "Resume this session with:"
+  // banner -- something a real claude never does once it has exited.
+  const f = run(t);
+  await f.ready();
+  f.p.write('abc\x03\x03');
+  const e = await waitFor(() => f.exit(), { what: 'exit' });
+  assert.equal(e.exitCode, 0);
+  assert.equal(f.rec().exit.why, 'double-C');
+  const resumeLine = 'claude --resume aaaaaaaa-1111-4222-8333-444444444444';
+  const idx = f.output().indexOf(resumeLine);
+  assert.ok(idx >= 0, 'the resume line must appear in the output');
+  // What follows the resume line is only its closing SGR reset and line ending (a pty may turn '\n'
+  // into '\r\n', doubling the '\r' already in the source) -- never another redraw. A stray coalesced
+  // frame lands here as extra escape sequences and 'Press Ctrl-C again to exit' text.
+  const tail = f.output().slice(idx + resumeLine.length);
+  assert.match(tail, /^\x1b\[22m[\r\n]*$/, `nothing may follow the resume line; got tail ${JSON.stringify(tail)}`);
+});
+
+test('a single chunk of many plain characters still coalesces into exactly one frame redraw', async (t) => {
+  const f = run(t);
+  await f.ready();
+  const before = f.output().length;
+  f.p.write('hello world');
+  await waitFor(() => /❯ hello world/.test(f.screen()), { what: 'typed text shown' });
+  await sleep(100); // give any stray extra redraw a chance to land before counting
+  const delta = f.output().slice(before);
+  const redraws = delta.split('\x1b[?25l\r').length - 1; // drawFrame()'s (and only drawFrame()'s, here) signature prefix
+  assert.equal(redraws, 1, `expected the whole chunk to coalesce into one redraw; got ${redraws} in ${JSON.stringify(delta)}`);
+});

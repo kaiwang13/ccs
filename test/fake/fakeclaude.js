@@ -118,6 +118,7 @@ const frame = () => overlay ?? [rule(), `❯ ${draft}`, rule(), `  ${hint || '? 
 const up = (/** @type {number} */ n) => (n > 0 ? `\x1b[${n}A` : '');
 /** Redraws the live frame in place with relative moves only, like Claude's renderer. */
 function drawFrame() {
+  dirty = false;
   const lines = frame();
   let s = '\x1b[?25l\r' + up(drawn - 1);
   lines.forEach((l, i) => { s += '\x1b[2K' + l.slice(0, cols()) + (i < lines.length - 1 ? '\r\n' : ''); });
@@ -132,7 +133,7 @@ function drawFrame() {
  *  stretch that no signal (including the harness's teardown SIGTERM/SIGUSR2) can interrupt. */
 let dirty = false;
 function markDirty() { dirty = true; }
-function flushDraw() { if (dirty) { dirty = false; drawFrame(); } }
+function flushDraw() { if (dirty && !exiting && !suspended) drawFrame(); }
 /** Prints transcript lines where the frame was, then redraws the frame below them. @param {string[]} lines */
 function print(lines) {
   let s = '\x1b[?25l\r' + up(drawn - 1);
