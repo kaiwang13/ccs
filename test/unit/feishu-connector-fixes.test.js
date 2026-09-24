@@ -12,7 +12,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const { resolvePaths } = require('../../src/common/paths.js');
-const { loadState } = require('../../addons/feishu/lib/state.js');
+const { loadState, saveState } = require('../../addons/feishu/lib/state.js');
 const { MAX_READ } = require('../../addons/feishu/lib/transcript/tail.js');
 const { Connector, RECENT_SENT_MS } = require('../../addons/feishu/lib/connector.js');
 const { FakeGateway } = require('../helpers/fakefeishu.js');
@@ -117,7 +117,6 @@ test('after a restart, a stale cursor is caught up then the connector switches t
   const state = { schema: 'ccs.feishu-state/1', dmChat: null, overviewMessageId: null,
     groups: { s1: { chatId, removed: false, statusMessageId: null } },
     cursors: { s1: { file: oldFile, offset: cursorOffset } } };
-  const { saveState } = require('../../addons/feishu/lib/state.js');
   saveState(paths, state);
 
   const registry = new FakeRegistry();
