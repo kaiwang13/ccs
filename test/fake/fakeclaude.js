@@ -124,6 +124,15 @@ function drawFrame() {
   drawn = lines.length;
   write(s);
 }
+/** Coalesces many draft-only redraws (e.g. hundreds of individually-tokenized characters delivered in one
+ *  stdin chunk, or a burst a client floods past pty capacity) into one drawFrame() per batch: real typing
+ *  delivers one token per chunk, so this never changes when the redraw happens for it -- only how many
+ *  redundant intermediate frames a big non-interactive burst produces, each of which is a blocking pty
+ *  write and was measured to turn tens of thousands of tokens into a tens-of-seconds-long synchronous
+ *  stretch that no signal (including the harness's teardown SIGTERM/SIGUSR2) can interrupt. */
+let dirty = false;
+function markDirty() { dirty = true; }
+function flushDraw() { if (dirty) { dirty = false; drawFrame(); } }
 /** Prints transcript lines where the frame was, then redraws the frame below them. @param {string[]} lines */
 function print(lines) {
   let s = '\x1b[?25l\r' + up(drawn - 1);
@@ -251,13 +260,13 @@ function submit(line) {
   print([`❯ ${t}`, `● echo: ${t}`]);
 }
 
-const tokenizer = new InputTokenizer({ clock: realClock, escFlushMs: 50, pasteIdleCloseMs: 2000, onTimerTokens: (toks) => toks.forEach(onToken) });
+const tokenizer = new InputTokenizer({ clock: realClock, escFlushMs: 50, pasteIdleCloseMs: 2000, onTimerTokens: (toks) => { toks.forEach(onToken); flushDraw(); } });
 const hs = { highSurrogate: '' };
 /** @param {import('../../src/common/vt/inputtok').InputToken} tok */
 function onToken(tok) {
   if (exiting || suspended) return;
   if (tok.kind === 'paste-start' || tok.kind === 'paste-end') return;
-  if (tok.kind === 'paste-data') { if (phase === 'prompt') { draft += tok.bytes.toString('utf8').replace(/[\x00-\x1f]/g, ''); drawFrame(); } return; }
+  if (tok.kind === 'paste-data') { if (phase === 'prompt') { draft += tok.bytes.toString('utf8').replace(/[\x00-\x1f]/g, ''); markDirty(); } return; }
   if (/^\x1b\[\d+;\d+R$/.test(tok.seq)) { record.cprReplies.push(tok.seq); saveRecord(); return; }
   for (const ev of decodeInputToken(tok.seq, hs)) {
     const cls = classify(ev);
@@ -267,8 +276,8 @@ function onToken(tok) {
     if (phase === 'login') continue;
     const b = tok.bytes;
     if (b.length === 1 && (b[0] === 0x0d || b[0] === 0x0a)) { submit(draft); continue; }
-    if (b.length === 1 && (b[0] === 0x7f || b[0] === 0x08)) { draft = [...draft].slice(0, -1).join(''); drawFrame(); continue; }
-    if (tok.kind === 'seq' && b[0] !== 0x1b && /^[^\x00-\x1f\x7f]$/u.test(tok.seq)) { if (phase === 'prompt') { draft += tok.seq; drawFrame(); } }
+    if (b.length === 1 && (b[0] === 0x7f || b[0] === 0x08)) { draft = [...draft].slice(0, -1).join(''); markDirty(); continue; }
+    if (tok.kind === 'seq' && b[0] !== 0x1b && /^[^\x00-\x1f\x7f]$/u.test(tok.seq)) { if (phase === 'prompt') { draft += tok.seq; markDirty(); } }
   }
 }
 
@@ -332,6 +341,7 @@ async function main() {
     saveRecord();
     if (stallInputPending > 0 && phase === 'prompt') { const ms = stallInputPending; stallInputPending = 0; stall(ms); }
     for (const t of tokenizer.feed(d)) onToken(t);
+    flushDraw();
   };
   process.stdin.on('data', onInput);
   out.on('resize', () => { if (!suspended && !exiting) fullReset(); });

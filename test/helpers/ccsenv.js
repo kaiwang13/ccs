@@ -64,8 +64,11 @@ function makeCcsEnv(t, o = {}) {
   }
   const ctx = { root, home, work, env, paths, configFile, claudeBin };
   t.after(async () => {
-    await terminateEnvProcesses(ctx);
-    fs.rmSync(root, { recursive: true, force: true });
+    try {
+      await terminateEnvProcesses(ctx);
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+    }
   });
   return ctx;
 }
@@ -112,7 +115,11 @@ async function terminateEnvProcesses(ctx) {
   }
   try { await waitFor(() => envPids(ctx).length === 0, 8000, 'env processes to exit'); return; } catch { /* escalate */ }
   for (const pid of envPids(ctx)) { try { process.kill(pid, 'SIGTERM'); } catch { /* gone */ } }
-  try { await waitFor(() => envPids(ctx).length === 0, 5000, 'env processes to exit after SIGTERM'); } catch (e) { process.stderr.write(`ccsenv cleanup: ${e.message}: ${envPids(ctx).join(',')}\n`); }
+  try {
+    await waitFor(() => envPids(ctx).length === 0, 5000, 'env processes to exit after SIGTERM');
+  } catch {
+    throw new Error(`leaked test processes: ${envPids(ctx).join(', ')} of ${ctx.root} survived SIGTERM`);
+  }
 }
 
 /** Run `node src/sessiond/main.js ...args` (not detached; the env teardown stops it). */

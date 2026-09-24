@@ -8,12 +8,15 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const cp = require('node:child_process');
+const fs = require('node:fs');
+const path = require('node:path');
 const { createRegistry } = require('../../src/common/registry.js');
 const { isLocked } = require('../../src/common/locks.js');
 const { closeNfsWorker } = require('../../src/common/nfsworker.js');
 const { listPids, readEnviron } = require('../../src/common/procinfo.js');
-const { makeCcsEnv, waitFor, spawnSessiond, envPids } = require('../helpers/ccsenv.js');
+const { makeCcsEnv, waitFor, spawnSessiond, envPids, terminateEnvProcesses } = require('../helpers/ccsenv.js');
 const { withDescendants } = require('../helpers/processes.js');
+const { terminateAll } = require('../helpers/spawn.js');
 
 test.after(() => closeNfsWorker());
 
@@ -58,4 +61,30 @@ test('withDescendants finds a child whose argv names nothing of ours, and never 
   const self = withDescendants([process.pid, process.ppid]);
   assert.equal(self.includes(process.pid), false);
   assert.equal(self.includes(process.ppid), false);
+});
+
+/** A node process that ignores SIGTERM and SIGUSR2, i.e. one the harness cannot stop. Its script lives
+ *  under `root`, so its argv names the root on every platform. Stopped with SIGINT by the test itself. */
+function startStubborn(root, env = {}) {
+  const script = path.join(root, 'stubborn.js');
+  fs.writeFileSync(script, "process.on('SIGTERM', () => {}); process.on('SIGUSR2', () => {}); setInterval(() => {}, 1000);");
+  return cp.spawn(process.execPath, [script], { stdio: 'ignore', env: { ...process.env, ...env } });
+}
+
+test('a survivor fails terminateAll instead of being left behind', { timeout: 60000 }, async (t) => {
+  const root = fs.mkdtempSync('/tmp/ccst-');
+  const p = startStubborn(root);
+  t.after(() => { try { process.kill(/** @type {number} */ (p.pid), 'SIGINT'); } catch { /* gone */ } fs.rmSync(root, { recursive: true, force: true }); });
+  await waitFor(() => require('../helpers/processes.js').processesUnder(root).includes(/** @type {number} */ (p.pid)), 5000, 'stubborn process');
+  await assert.rejects(terminateAll(root), /leaked test processes:/);
+});
+
+test('a survivor fails terminateEnvProcesses instead of being left behind', { timeout: 60000 }, async (t) => {
+  const root = fs.mkdtempSync('/tmp/ccst-');
+  const rt = path.join(root, 'rt');
+  const p = startStubborn(root, { CCS_RUNTIME_DIR: rt });
+  t.after(() => { try { process.kill(/** @type {number} */ (p.pid), 'SIGINT'); } catch { /* gone */ } fs.rmSync(root, { recursive: true, force: true }); });
+  const ctx = { root, home: path.join(root, 'home'), env: { CCS_RUNTIME_DIR: rt }, paths: { runtimeDir: rt } };
+  await waitFor(() => envPids(ctx).includes(/** @type {number} */ (p.pid)), 5000, 'stubborn process');
+  await assert.rejects(terminateEnvProcesses(ctx), /leaked test processes:/);
 });

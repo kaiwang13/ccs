@@ -4,7 +4,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { spawn } = require('node:child_process');
 const procinfo = require('../../src/common/procinfo');
-const { waitFor, sleep } = require('./waitfor');
+const { waitFor } = require('./waitfor');
 const { processesUnder } = require('./processes');
 
 const ROOT = path.resolve(__dirname, '..', '..');
@@ -47,7 +47,8 @@ async function terminateAll(root) {
     for (const pid of pids) { try { process.kill(pid, round % 2 === 0 ? 'SIGTERM' : 'SIGUSR2'); } catch { /* gone */ } }
     try { await waitFor(() => processesUnder(root).length === 0, { timeoutMs: 3000, what: `processes of ${root} to exit` }); return; } catch { /* next round */ }
   }
-  await sleep(50);
+  const left = processesUnder(root);
+  if (left.length) throw new Error(`leaked test processes: ${left.join(', ')} under ${root} survived SIGTERM and SIGUSR2`);
 }
 
 /**

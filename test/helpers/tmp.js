@@ -23,9 +23,12 @@ function makeTempRoot(t) {
   /** @type {Array<() => any>} */
   const stack = [];
   t.after(async () => {
-    for (const fn of stack.reverse()) { try { await fn(); } catch { /* keep cleaning up */ } }
-    await terminateAll(root);
-    fs.rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+    try {
+      for (const fn of stack.reverse()) { try { await fn(); } catch { /* keep cleaning up */ } }
+      await terminateAll(root);
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+    }
   });
   return { root, home, claudeHome, env, /** @param {() => any} fn */ defer: (fn) => { stack.push(fn); } };
 }
