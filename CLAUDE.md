@@ -22,7 +22,8 @@ Everything else — `src/`, `bin/`, `test/helpers/` — is platform-blind. It as
 1. Name a primitive or capability after the *question* ("can other accounts read argv?"), not the OS.
 2. Implement it in BOTH `linux.js` and `darwin.js`, even when one answer is a constant.
 3. Add it to the `Platform` typedef in `index.js` and to `SURFACE` in `platform-seam.test.js`.
-4. Re-export it from `procinfo.js` if callers reach for it there.
+4. Re-export it from `procinfo.js` — `platform-seam.test.js` requires every surface name to be
+   reachable there.
 5. Call it from shared code.
 
 Never narrow or disable the guard to make a change pass: move the code into the platform instead.

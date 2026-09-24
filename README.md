@@ -83,7 +83,7 @@ ccs doctor --lite             # fix every FAIL before going further
 
 ### Update
 
-Update — pull, then install from the clone again:
+Pull, then install from the clone again:
 
 ```sh
 cd ~/src/AgentServer && git pull
@@ -126,8 +126,6 @@ An install is **self-contained**: everything lands under `$HOME`, nothing needs 
 stop the sessions of the one you use — which is what makes that test safe to run on a live machine.
 
 ### Uninstall
-
-Uninstall:
 
 ```sh
 sh ~/src/AgentServer/install.sh uninstall
