@@ -38,16 +38,42 @@ function readRecord(tmp, id = 'sess01') {
 
 /**
  * Ends every process of one test root: SIGTERM, then SIGUSR2 (the fake's --ignore-sigterm escape hatch), awaiting each round.
+ *
+ * Each round re-scans with processesUnder(root), which walks descendants from ONE snapshot (see processes.js):
+ * a process found only as a descendant of a holder that round 0's SIGTERM already ended (e.g. a fake claude
+ * started with --ignore-sigterm, as i13-stop does) is no longer anyone's descendant once its parent is gone --
+ * reparented, it vanishes from a later round's scan even though it is still alive. So pids seen in an earlier
+ * round are carried forward across rounds, keyed by procStart: a carried pid keeps counting only for as long
+ * as procStart(pid) still equals the value recorded when it was first seen (a recycled pid is a different
+ * process and must never be signalled). A pid is recorded only when that first procStart read is non-null:
+ * processesUnder(root) can itself report a pid that exits an instant later (its own snapshot is already
+ * slightly stale by the time this function re-reads procStart), and null never counts as a stable baseline --
+ * `null !== null` would otherwise never prune it, carrying a phantom, already-gone pid forever.
  * @param {string} root
  */
 async function terminateAll(root) {
+  /** @type {Map<number, string>} */
+  const carried = new Map();
+  /** Prunes carried pids whose procStart moved on (recycled/gone), folds in this round's fresh scan, returns the union. */
+  const stillAlive = () => {
+    for (const pid of carried.keys()) {
+      if (procinfo.procStart(pid) !== carried.get(pid)) carried.delete(pid);
+    }
+    for (const pid of processesUnder(root)) {
+      if (!carried.has(pid)) {
+        const start = procinfo.procStart(pid);
+        if (start !== null) carried.set(pid, start);
+      }
+    }
+    return [...carried.keys()];
+  };
   for (let round = 0; round < 4; round++) {
-    const pids = processesUnder(root);
+    const pids = stillAlive();
     if (pids.length === 0) return;
     for (const pid of pids) { try { process.kill(pid, round % 2 === 0 ? 'SIGTERM' : 'SIGUSR2'); } catch { /* gone */ } }
-    try { await waitFor(() => processesUnder(root).length === 0, { timeoutMs: 3000, what: `processes of ${root} to exit` }); return; } catch { /* next round */ }
+    try { await waitFor(() => stillAlive().length === 0, { timeoutMs: 3000, what: `processes of ${root} to exit` }); return; } catch { /* next round */ }
   }
-  const left = processesUnder(root);
+  const left = stillAlive();
   if (left.length) throw new Error(`leaked test processes: ${left.join(', ')} under ${root} survived SIGTERM and SIGUSR2`);
 }
 
