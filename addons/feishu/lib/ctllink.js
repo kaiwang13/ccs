@@ -37,7 +37,21 @@ class ControlLink extends EventEmitter {
   stop() {
     this.stopped = true;
     if (this.timer) { clearTimeout(this.timer); this.timer = null; }
-    if (this.fsock) this.fsock.destroy();
+    const fsock = this.fsock;
+    if (fsock) { this._closed(fsock); fsock.destroy(); }
+  }
+
+  /** Settle state for a closed connection — only when it is still the current one (a stale socket's late close must
+   *  not touch the connection that replaced it). @param {FramedSocket} fsock @returns {boolean} whether it was current */
+  _closed(fsock) {
+    if (this.fsock !== fsock) return false;
+    const wasUp = this.up;
+    this.up = false;
+    this.fsock = null;
+    for (const [, p] of this.pending) { clearTimeout(p.timer); p.reject(new CtlError('DOWN', 'control connection closed')); }
+    this.pending.clear();
+    if (wasUp) this.emit('down');
+    return true;
   }
 
   /** @param {string} op @param {object} [args] @param {number} [timeoutMs] @returns {Promise<{ok: boolean, data: any, error: any}>} */
@@ -74,13 +88,7 @@ class ControlLink extends EventEmitter {
     });
     fsock.on('error', () => {});
     fsock.on('close', () => {
-      const wasUp = this.up;
-      this.up = false;
-      if (this.fsock === fsock) this.fsock = null;
-      for (const [, p] of this.pending) { clearTimeout(p.timer); p.reject(new CtlError('DOWN', 'control connection closed')); }
-      this.pending.clear();
-      if (wasUp) this.emit('down');
-      if (this.stopped) return;
+      if (!this._closed(fsock) || this.stopped) return;
       const delay = this.backoffMs[Math.min(this.attempt++, this.backoffMs.length - 1)];
       this.timer = setTimeout(() => { this.timer = null; if (!this.stopped) this._connect(); }, delay);
     });

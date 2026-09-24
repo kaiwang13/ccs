@@ -39,3 +39,24 @@ test('a link that loses its sessiond reports down, rejects requests, and reconne
   await waitFor(() => ups === 2, { timeoutMs: 5000, what: 'reconnected' });
   assert.equal((await link.request('STATUS')).ok, true);
 });
+
+test('stop() settles at once, and a restarted link is not disturbed by the old connection closing late', { timeout: 60000 }, async (t) => {
+  const e = await startTestSession(t);
+  const link = new ControlLink({ sockPath: e.sockPath, backoffMs: [100] });
+  let downs = 0;
+  let ups = 0;
+  link.on('down', () => { downs++; });
+  link.on('up', () => { ups++; });
+  t.after(() => link.stop());
+  link.start();
+  await waitFor(() => ups === 1, { timeoutMs: 5000, what: 'first up' });
+  link.stop();
+  assert.equal(link.up, false, 'stop() settles synchronously');
+  assert.equal(downs, 1);
+  link.start();
+  await waitFor(() => ups === 2, { timeoutMs: 5000, what: 'second up' });
+  await new Promise((r) => setTimeout(r, 500));
+  assert.equal(downs, 1, 'the old connection closing late must not report the new one down');
+  assert.equal(ups, 2, 'and must not trigger an extra reconnect');
+  assert.equal((await link.request('STATUS')).ok, true);
+});
