@@ -105,3 +105,22 @@ test('history is one message summarising the last turns', () => {
   assert.deepEqual(h.sections.map((s) => s.heading), ['⌨ q1', '⌨ q2']);
   assert.deepEqual(h.sections.map((s) => s.body), ['a1', 'a2']);
 });
+
+test('no card is ever empty: an empty chat turn, and history with nothing finished', () => {
+  const open = run([{ kind: 'prompt', key: 'p', text: 'x' }]).a.turns[0];
+  const done = run([{ kind: 'prompt', key: 'p', text: 'x' }, { kind: 'turn_end', key: 'e', durationMs: 1 }]).a.turns[0];
+  for (const [t, body] of [[open, '…'], [done, '(no reply)']]) {
+    const msgs = renderTurn(/** @type {any} */ (t));
+    for (const m of msgs) if (m.kind === 'card') assert.ok(m.sections.length > 0, 'a card needs a section');
+    assert.equal(/** @type {any} */ (msgs[0]).sections[0].body, body);
+  }
+  const h = renderHistory([]);
+  assert.ok(h.kind === 'card' && h.sections.length === 1);
+});
+
+test('the oversize splitter never cuts an emoji surrogate pair in half', () => {
+  const t = run([{ kind: 'prompt', key: 'p', text: 'x' }, { kind: 'text', key: 't', text: `a${'😀'.repeat(20000)}` }]).a.turns[0];
+  for (const m of renderTurn(t)) {
+    assert.equal(/[\ud800-\udbff](?![\udc00-\udfff])|(?<![\ud800-\udbff])[\udc00-\udfff]/.test(JSON.stringify(m)), false);
+  }
+});

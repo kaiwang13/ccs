@@ -132,6 +132,7 @@ const fence = (s) => `\`\`\`\n${s}\n\`\`\``;
 /** @param {Turn} t @returns {OutSection[]} */
 function sections(t) {
   if (t.kind !== 'chat') return [{ body: t.output === null ? '…' : fence(truncate(t.output, 2500)) }];
+  if (t.items.length === 0) return [{ body: t.done ? '(no reply)' : '…' }];
   const cap = toolCap(t.items.filter((i) => i.type === 'tool').length);
   return t.items.map((i) => {
     if (i.type === 'text') return { body: i.text };
@@ -161,7 +162,14 @@ function renderTurn(t) {
   const chunk = CARD_BUDGET - 4000;
   for (const s of sections(t)) {
     if (Buffer.byteLength(s.body, 'utf8') <= chunk) { pieces.push(s); continue; }
-    for (let i = 0; i < s.body.length; i += Math.floor(chunk / 3)) pieces.push({ ...s, body: s.body.slice(i, i + Math.floor(chunk / 3)) });
+    const step = Math.floor(chunk / 3);
+    for (let i = 0; i < s.body.length;) {
+      let end = Math.min(i + step, s.body.length);
+      const c = s.body.charCodeAt(end - 1);
+      if (end < s.body.length && c >= 0xd800 && c <= 0xdbff) end -= 1;
+      pieces.push({ ...s, body: s.body.slice(i, end) });
+      i = end;
+    }
   }
   /** @type {OutMessage[]} */
   const out = [];
@@ -187,7 +195,7 @@ function renderHistory(turns, n = 5) {
     const text = t.kind === 'chat' ? t.items.filter((i) => i.type === 'text').map((i) => /** @type {any} */ (i).text).join('\n') : (t.output || '');
     return { heading: title(t), body: truncate(text || '…', 600) };
   });
-  return sanitizeMessage({ kind: 'card', title: 'Recent history', sections: secs, footer: `last ${secs.length} turn(s)` });
+  return sanitizeMessage({ kind: 'card', title: 'Recent history', sections: secs.length ? secs : [{ body: 'no finished turns yet' }], footer: `last ${secs.length} turn(s)` });
 }
 
 module.exports = { TurnAssembler, renderTurn, renderHistory, CARD_BUDGET };
