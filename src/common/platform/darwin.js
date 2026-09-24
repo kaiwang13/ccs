@@ -191,6 +191,26 @@ function listPids() {
   }
 }
 
+/**
+ * Every visible process with its parent and command line, from one `ps` call (readArgv is unavailable
+ * here). Used by the test harness to find what a test started.
+ * @returns {Array<{pid: number, ppid: number|null, argv: string|null}>}
+ */
+function listProcesses() {
+  let text;
+  try {
+    text = execFileSync('/bin/ps', ['-Ao', 'pid=,ppid=,command='], { encoding: 'utf8', maxBuffer: 32 * 1024 * 1024 });
+  } catch {
+    return [];
+  }
+  const out = [];
+  for (const line of text.split('\n')) {
+    const m = /^\s*(\d+)\s+(\d+)\s+(.*)$/.exec(line);
+    if (m) out.push({ pid: Number(m[1]), ppid: Number(m[2]), argv: m[3] });
+  }
+  return out;
+}
+
 /** Controlling terminal path of a process, via ttyname(3). @param {number} _pid @returns {string|null} */
 function ttyOf(_pid) {
   // macOS has no /proc/<pid>/fd/0, and there is no portable unprivileged call to resolve another
@@ -305,7 +325,7 @@ const hangupOnMasterClose = false;
 
 module.exports = {
   procStart, procState, pgid, procSid, ppid,
-  bootId, machineId, readEnviron, listPids, readArgv, pidNs, ttyOf,
+  bootId, machineId, readEnviron, listPids, listProcesses, readArgv, pidNs, ttyOf,
   argvVisibleToOthers, procSource, crossHostWritersNote, selfTty, shutdownCorroborated, sameProcStart, hasStoredCredential,
   oomScoreAdjPath, name, platformReportsZombieParent, hangupOnMasterClose,
 };

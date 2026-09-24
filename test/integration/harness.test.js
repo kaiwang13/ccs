@@ -7,11 +7,13 @@
  */
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const cp = require('node:child_process');
 const { createRegistry } = require('../../src/common/registry.js');
 const { isLocked } = require('../../src/common/locks.js');
 const { closeNfsWorker } = require('../../src/common/nfsworker.js');
 const { listPids, readEnviron } = require('../../src/common/procinfo.js');
 const { makeCcsEnv, waitFor, spawnSessiond, envPids } = require('../helpers/ccsenv.js');
+const { withDescendants } = require('../helpers/processes.js');
 
 test.after(() => closeNfsWorker());
 
@@ -40,4 +42,20 @@ test('envPids sees a --start sessiond and its helpers, whose argv names no path 
   const seen = new Set(envPids(ctx));
   const missed = carrying.filter((pid) => !seen.has(pid) && readEnviron(pid) !== null);
   assert.deepEqual(missed, [], 'envPids must see every process carrying this env, not only those whose argv mentions the root');
+});
+
+test('withDescendants finds a child whose argv names nothing of ours, and never returns this process or its ancestors', async (t) => {
+  // A parent that starts a child and waits: the child's argv is just `sleep 30`.
+  const parent = cp.spawn('/bin/sh', ['-c', 'sleep 30 & wait'], { stdio: 'ignore' });
+  t.after(() => { try { process.kill(/** @type {number} */ (parent.pid), 'SIGTERM'); } catch { /* gone */ } });
+  const { listProcesses } = require('../../src/common/procinfo.js');
+  await waitFor(() => listProcesses().some((p) => p.ppid === parent.pid), 5000, 'the sleep child');
+  const child = /** @type {{pid: number}} */ (listProcesses().find((p) => p.ppid === parent.pid)).pid;
+  const got = withDescendants([/** @type {number} */ (parent.pid)]);
+  assert.ok(got.includes(child), 'the child must be included');
+  try { process.kill(child, 'SIGTERM'); } catch { /* gone */ }
+  // Passing ourselves (or our parent) must never result in signalling the runner.
+  const self = withDescendants([process.pid, process.ppid]);
+  assert.equal(self.includes(process.pid), false);
+  assert.equal(self.includes(process.ppid), false);
 });

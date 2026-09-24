@@ -21,6 +21,7 @@
  *   readEnviron(pid: number): Record<string, string>|null,
  *   readArgv(pid: number): string[]|null,
  *   listPids(): number[],
+ *   listProcesses(): Array<{pid: number, ppid: number|null, argv: string|null}>,
  *   pidNs(pid: number): string|null,
  *   ttyOf(pid: number): string|null,
  *   argvVisibleToOthers(mountsFile?: string): boolean,

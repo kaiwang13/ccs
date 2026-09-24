@@ -107,6 +107,18 @@ function listPids() {
   return fs.readdirSync('/proc').filter((n) => /^\d+$/.test(n)).map(Number);
 }
 
+/**
+ * Every visible process with its parent and command line (null where unreadable), in one pass. Used by the
+ * test harness to find what a test started.
+ * @returns {Array<{pid: number, ppid: number|null, argv: string|null}>}
+ */
+function listProcesses() {
+  return listPids().map((pid) => {
+    const argv = readArgv(pid);
+    return { pid, ppid: ppid(pid), argv: argv ? argv.join(' ') : null };
+  });
+}
+
 /** @param {number} pid @returns {string[]|null} argv of the process */
 function readArgv(pid) {
   if (!Number.isSafeInteger(pid) || pid <= 0) return null;
@@ -213,7 +225,7 @@ const hangupOnMasterClose = true;
 
 module.exports = {
   procStart, procState, pgid, procSid, ppid,
-  bootId, machineId, readEnviron, listPids, readArgv, pidNs, ttyOf,
+  bootId, machineId, readEnviron, listPids, listProcesses, readArgv, pidNs, ttyOf,
   argvVisibleToOthers, procSource, crossHostWritersNote, selfTty, shutdownCorroborated, sameProcStart, hasStoredCredential,
   oomScoreAdjPath, name, platformReportsZombieParent, hangupOnMasterClose,
 };

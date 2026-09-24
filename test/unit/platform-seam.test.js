@@ -111,7 +111,7 @@ function stripComments(src) {
 }
 
 /** Shared code: everything here must be platform-blind. The seam itself is exempt. */
-const GUARDED_ROOTS = ['src', 'bin'];
+const GUARDED_ROOTS = ['src', 'bin', 'test/helpers'];
 const SEAM_DIR = path.join(SRC, 'common', 'platform');
 
 /** What shared code may not contain, comments excepted. Each is a question for the platform instead. */
@@ -210,7 +210,7 @@ test('the two platform implementations export exactly the same surface', () => {
 // reach for it there. Everything outside src/common/platform/ then stays untouched.
 const SURFACE = [
   'argvVisibleToOthers', 'bootId', 'crossHostWritersNote', 'hangupOnMasterClose', 'hasStoredCredential',
-  'listPids', 'machineId', 'name', 'oomScoreAdjPath', 'pgid', 'pidNs', 'platformReportsZombieParent', 'ppid',
+  'listPids', 'listProcesses', 'machineId', 'name', 'oomScoreAdjPath', 'pgid', 'pidNs', 'platformReportsZombieParent', 'ppid',
   'procSid', 'procSource', 'procStart', 'procState', 'readArgv', 'readEnviron', 'sameProcStart', 'selfTty',
   'shutdownCorroborated', 'ttyOf',
 ];
@@ -338,4 +338,13 @@ test('the macOS procStart encoding is the one claude writes', () => {
   // "Www Mmm dd hh:mm:ss yyyy", e.g. "Mon Sep 21 01:13:03 2026" -- the form observed in a real
   // claude's session json on macOS. Rendered in UTC, which is what the file contains.
   assert.match(String(P.procStart(process.pid)), /^[A-Z][a-z]{2} [A-Z][a-z]{2} \d{2} \d{2}:\d{2}:\d{2} \d{4}$/);
+});
+
+test('listProcesses lists this process with its parent and command line', () => {
+  const { listProcesses } = require('../../src/common/procinfo.js');
+  const me = listProcesses().find((p) => p.pid === process.pid);
+  assert.ok(me, 'listProcesses must include this process');
+  assert.equal(me.ppid, process.ppid);
+  assert.equal(typeof me.argv, 'string');
+  assert.match(/** @type {string} */ (me.argv), /node/);
 });

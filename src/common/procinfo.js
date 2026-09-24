@@ -50,6 +50,7 @@ module.exports = {
   // have to know which helpers came from the platform: the CLI needs argvVisibleToOthers/selfTty and the
   // holder needs shutdownCorroborated.
   argvVisibleToOthers: platform.argvVisibleToOthers,
+  listProcesses: platform.listProcesses,
   procSource: platform.procSource,
   crossHostWritersNote: platform.crossHostWritersNote,
   platformReportsZombieParent: platform.platformReportsZombieParent,

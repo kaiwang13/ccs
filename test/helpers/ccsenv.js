@@ -5,8 +5,8 @@ const fs = require('fs');
 const path = require('path');
 const cp = require('child_process');
 const { resolvePaths } = require('../../src/common/paths.js');
-const { readEnviron } = require('../../src/common/procinfo.js');
-const { allProcessArgvs } = require('./processes.js');
+const { readEnviron, listProcesses } = require('../../src/common/procinfo.js');
+const { withDescendants } = require('./processes.js');
 const { isLocked } = require('../../src/common/locks.js');
 const { controlRequest } = require('../../src/common/ctlclient.js');
 const { claudeJsonFixture } = require('./claudejson.js');
@@ -78,24 +78,27 @@ function makeCcsEnv(t, o = {}) {
  *  this env starts is spawned with a path under ctx.root -- sessiond/holder by `--spec <root>/...`,
  *  and claude by CCS_CLAUDE_BIN, which lives in the root. That is coarser (a process that merely
  *  mentions the root would match) but this is only ever used to decide which of our own test
- *  processes to signal, and every candidate it selects was started by this test. */
+ *  processes to signal. Every match's descendants are included too, which is what finds a process
+ *  (macOS: the fake claude a holder spawns) whose own argv and environment name nothing of ours. */
 function envPids(ctx) {
   // ctx.root is created with mkdtemp, so on macOS it is already the canonical /private/tmp path
   // while ctx.env's values may still say /tmp; match either spelling of the same directory.
   const markers = [String(ctx.root), String(ctx.env.CCS_RUNTIME_DIR)].filter((v, i, a) => v && a.indexOf(v) === i);
-  const found = [];
-  for (const { pid, argv } of allProcessArgvs()) {
+  const table = listProcesses();
+  const matched = [];
+  for (const { pid, argv } of table) {
+    if (pid === process.pid) continue;
     const e = readEnviron(pid);
-    // A readable environment is exact, and is the only thing that identifies a `--start <id>` sessiond
-    // or its nfsworker: neither command line names a path under the root. The argv markers are a
-    // fallback for where the environment cannot be read, never a prefilter in front of it.
+    // A readable environment is exact, and is the only thing that identifies a `--start <id>` sessiond or its
+    // nfsworker: neither command line names a path under the root. The argv markers are a fallback for where
+    // the environment cannot be read, never a prefilter in front of it.
     if (e) {
-      if (e.CCS_RUNTIME_DIR === ctx.env.CCS_RUNTIME_DIR || (e.CCS_ID && e.HOME === ctx.home)) found.push(pid);
-    } else if (markers.some((m) => argv.includes(m))) {
-      found.push(pid);
+      if (e.CCS_RUNTIME_DIR === ctx.env.CCS_RUNTIME_DIR || (e.CCS_ID && e.HOME === ctx.home)) matched.push(pid);
+    } else if (argv !== null && markers.some((m) => argv.includes(m))) {
+      matched.push(pid);
     }
   }
-  return found;
+  return withDescendants(matched, table);
 }
 
 async function terminateEnvProcesses(ctx) {
