@@ -65,8 +65,13 @@ that depend on Linux facilities macOS does not have.
 
 ## Install
 
-```bash
-curl -fsSL https://raw.githubusercontent.com/kaiwang13/AgentServer/main/install.sh | sh
+The repository is private, so install from a clone you are authorised to read (over SSH with a key on your
+GitHub account, or HTTPS with a credential helper such as `gh auth setup-git`):
+
+```sh
+git clone git@github.com:kaiwang13/AgentServer.git ~/src/AgentServer
+cd ~/src/AgentServer
+CCS_REPO="$PWD" sh install.sh
 ```
 
 That clones and builds a release under `~/.local/share/ccs/releases/`, points `~/.local/share/ccs/current`
@@ -78,8 +83,11 @@ ccs doctor --lite             # fix every FAIL before going further
 
 ### Update
 
-```bash
-curl -fsSL https://raw.githubusercontent.com/kaiwang13/AgentServer/main/install.sh | sh -s -- update
+Update — pull, then install from the clone again:
+
+```sh
+cd ~/src/AgentServer && git pull
+CCS_REPO="$PWD" sh install.sh update
 ```
 
 **Your sessions survive an update — you never recreate them.** Session records live in
@@ -109,7 +117,7 @@ asserts the tree is byte-identical afterwards. It also plants a session record a
 uninstall unchanged.
 
 ```bash
-sh test/e2e/install-e2e.sh                      # against the published main branch
+sh test/e2e/install-e2e.sh                      # against main — needs an authenticated clone (see Install above)
 CCS_E2E_REPO=$PWD sh test/e2e/install-e2e.sh    # against your working copy
 ```
 
@@ -119,8 +127,10 @@ stop the sessions of the one you use — which is what makes that test safe to r
 
 ### Uninstall
 
-```bash
-curl -fsSL https://raw.githubusercontent.com/kaiwang13/AgentServer/main/install.sh | sh -s -- uninstall
+Uninstall:
+
+```sh
+sh ~/src/AgentServer/install.sh uninstall
 ```
 
 Stops running sessions and removes the install and the wrapper. **Session records are kept** so a

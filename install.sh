@@ -1,9 +1,11 @@
 #!/bin/sh
-# ccs installer — install, update and uninstall from GitHub.
+# ccs installer — install, update and uninstall from an authenticated clone (this repository is private).
 #
-#   curl -fsSL https://raw.githubusercontent.com/kaiwang13/AgentServer/main/install.sh | sh
-#   curl -fsSL https://raw.githubusercontent.com/kaiwang13/AgentServer/main/install.sh | sh -s -- update
-#   curl -fsSL https://raw.githubusercontent.com/kaiwang13/AgentServer/main/install.sh | sh -s -- uninstall
+#   git clone git@github.com:kaiwang13/AgentServer.git ~/src/AgentServer
+#   cd ~/src/AgentServer
+#   CCS_REPO="$PWD" sh install.sh
+#   CCS_REPO="$PWD" sh install.sh update
+#   sh install.sh uninstall
 #
 # Layout. Releases are immutable directories; `current` is a symlink, so an update builds the new
 # version COMPLETELY BEFORE anything stops, and a rollback is one symlink away:
