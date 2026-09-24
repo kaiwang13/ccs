@@ -19,17 +19,30 @@ class FakeGateway extends EventEmitter {
     this.updates = 0;
     /** @type {Error|null} when set, send/update throw it */
     this.fail = null;
+    /** @type {Map<string, number>} method name -> remaining injected-failure count */
+    this.failCounts = new Map();
+  }
+
+  /** Make the next `n` call(s) to `method` (one of 'createGroup'|'renameGroup'|'send'|'update') throw. Each call
+   *  consumes one; once the count reaches 0 the method behaves normally again. @param {string} method @param {number} [n] */
+  failNext(method, n = 1) { this.failCounts.set(method, (this.failCounts.get(method) || 0) + n); }
+
+  /** @param {string} method */
+  _maybeFail(method) {
+    const n = this.failCounts.get(method) || 0;
+    if (n > 0) { this.failCounts.set(method, n - 1); throw new Error(`${method} failed (injected)`); }
   }
 
   async ownerId() { return this.owner; }
   /** @param {string} _ownerId */
   async dmChat(_ownerId) { return this.dm; }
   /** @param {string} name @param {string} _ownerId */
-  async createGroup(name, _ownerId) { const id = `oc_${++this.seq}`; this.chats.set(id, { name, order: [] }); return id; }
+  async createGroup(name, _ownerId) { this._maybeFail('createGroup'); const id = `oc_${++this.seq}`; this.chats.set(id, { name, order: [] }); return id; }
   /** @param {string} chatId @param {string} name */
-  async renameGroup(chatId, name) { const c = this.chats.get(chatId); if (c) c.name = name; }
+  async renameGroup(chatId, name) { this._maybeFail('renameGroup'); const c = this.chats.get(chatId); if (c) c.name = name; }
   /** @param {string} chatId @param {any} msg */
   async send(chatId, msg) {
+    this._maybeFail('send');
     if (this.fail) throw this.fail;
     const c = this.chats.get(chatId);
     if (!c) throw new Error(`no chat ${chatId}`);
@@ -41,6 +54,7 @@ class FakeGateway extends EventEmitter {
   }
   /** @param {string} messageId @param {any} msg */
   async update(messageId, msg) {
+    this._maybeFail('update');
     if (this.fail) throw this.fail;
     const m = this.msgs.get(messageId);
     if (!m) throw new Error(`no message ${messageId}`);

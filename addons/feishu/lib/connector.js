@@ -13,7 +13,7 @@ const { parseClaudeRecord, findClaudeTranscript } = require('./transcript/claude
 const { parseCodexRecord, findCodexRollout } = require('./transcript/codex.js');
 const { TurnAssembler, renderTurn, renderHistory } = require('./turns.js');
 const { Router } = require('./router.js');
-const { sanitizeMessage } = require('./text.js');
+const { sanitizeMessage, maskEmails } = require('./text.js');
 const { loadState, saveState, acquireLock } = require('./state.js');
 const { ensureRunning } = require('../../../src/cli/commands/attach.js');
 
@@ -23,6 +23,25 @@ const { ensureRunning } = require('../../../src/cli/commands/attach.js');
 
 const SMALL_FILE = 256 * 1024;
 const RECENT_SENT_MS = 60000;
+const HISTORY_WINDOW = 2 * 1024 * 1024;
+
+/**
+ * Every outgoing string must be masked (spec §8): one facade in front of the raw gateway, used by the connector
+ * itself and handed to the router, so no call site — in connector.js or router.js — can reach Feishu with raw text.
+ * @param {Gateway} gw @returns {Gateway}
+ */
+function wrapGateway(gw) {
+  return {
+    ownerId: () => gw.ownerId(),
+    dmChat: (ownerId) => gw.dmChat(ownerId),
+    createGroup: (name, ownerId) => gw.createGroup(maskEmails(name), ownerId),
+    renameGroup: (chatId, name) => gw.renameGroup(chatId, maskEmails(name)),
+    send: (chatId, msg) => gw.send(chatId, sanitizeMessage(msg)),
+    update: (messageId, msg) => gw.update(messageId, sanitizeMessage(msg)),
+    react: (messageId, emoji) => gw.react(messageId, emoji),
+    on: (event, fn) => gw.on(event, fn),
+  };
+}
 
 /**
  * When a transcript file began, from the first record carrying a `timestamp` (both Claude and Codex write one). File
@@ -50,11 +69,39 @@ function fileBornMs(file) {
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 /**
+ * A tail positioned near the end of a large transcript, for the "recent history" summary a new group posts (spec
+ * §6.1): start at max(0, size − 2 MiB), then skip to the first complete line after that (unless the window covers
+ * the whole file) so no line is read partially. Reading from offset 0 here would show a > 4 MB transcript's oldest
+ * turns instead of its most recent ones (69 of 3537 local Claude transcripts exceed 4 MB).
+ * @param {string} file @returns {TranscriptTail}
+ */
+function historyTail(file) {
+  let size;
+  try { size = fs.statSync(file).size; } catch { return new TranscriptTail({ file }); }
+  let start = Math.max(0, size - HISTORY_WINDOW);
+  if (start > 0) start = nextLineStart(file, start);
+  return new TranscriptTail({ file, offset: start });
+}
+
+/** The offset just after the first newline at or after `start` (or `start` itself if none is found nearby — an
+ *  unreadable file, or one line longer than the search window). @param {string} file @param {number} start @returns {number} */
+function nextLineStart(file, start) {
+  let fd;
+  try { fd = fs.openSync(file, 'r'); } catch { return start; }
+  try {
+    const buf = Buffer.alloc(HISTORY_WINDOW);
+    const n = fs.readSync(fd, buf, 0, buf.length, start);
+    const nl = buf.subarray(0, n).indexOf(0x0a);
+    return nl < 0 ? start : start + nl + 1;
+  } catch { return start; } finally { fs.closeSync(fd); }
+}
+
+/**
  * @typedef {{info: SessionInfo, link: ControlLink|null, pollTimer: ReturnType<typeof setInterval>|null, state: any,
  *   sessionId: string|null, tail: TranscriptTail|null, assembler: TurnAssembler, sent: Array<{text: string, at: number}>,
  *   cards: Map<number, {ids: string[], lastAt: number, timer: ReturnType<typeof setTimeout>|null, chain: Promise<void>}>,
  *   statusText: string, statusSentText: string|null, statusTimer: ReturnType<typeof setTimeout>|null,
- *   catchingUp: boolean, since: number, discoverAt: number}} Runtime
+ *   catchingUp: boolean, since: number, discoverAt: number, creatingGroup: boolean, groupRetryAt: number}} Runtime
  */
 
 class Connector {
@@ -63,7 +110,7 @@ class Connector {
    *   updateMs?: number, statusMs?: number, linkWaitMs?: number, log?: (event: string, fields?: object) => void}} o
    */
   constructor({ gateway, paths, registry, env, tailMs = 500, pollMs = 5000, updateMs = 1000, statusMs = 5000, linkWaitMs = 10000, log = () => {} }) {
-    this.gw = gateway;
+    this.gw = wrapGateway(gateway);
     this.paths = paths;
     this.registry = registry;
     this.env = env;
@@ -81,6 +128,9 @@ class Connector {
     /** @type {Map<string, Runtime>} */
     this.rt = new Map();
     this.online = true;
+    /** True once stop() has begun: background work (retries, deferred saves, newly discovered sessions) must not
+     *  start touching state, the gateway or sockets past this point — only stop()'s own final, synchronous save. */
+    this.stopped = false;
     /** @type {ReturnType<typeof setInterval>|null} */
     this.tailTimer = null;
     /** @type {ReturnType<typeof setTimeout>|null} */
@@ -91,12 +141,19 @@ class Connector {
     this.overviewTimer = null;
     this.index = new SessionIndex({ registry, paths, pollMs: 2000 });
     this.router = new Router({
-      gateway, ownerId: () => this.owner, dmChat: () => this.state.dmChat,
+      gateway: this.gw, ownerId: () => this.owner, dmChat: () => this.state.dmChat,
       sessionForChat: (chatId) => this._sessionForChat(chatId),
       sessionState: (id) => this._sessionState(id),
       resume: (id) => this._resume(id), deliver: (id, op) => this._deliver(id, op),
       screen: (id) => this._screen(id), statusText: (id) => (this.rt.get(id)?.statusText || 'unknown'),
-      overview: () => this._overview(), noteSent: (id, text) => this.rt.get(id)?.sent.push({ text, at: Date.now() }),
+      overview: () => this._overview(),
+      noteSent: (id, text) => {
+        const r = this.rt.get(id);
+        if (!r) return;
+        const now = Date.now();
+        r.sent = r.sent.filter((s) => now - s.at < RECENT_SENT_MS);
+        r.sent.push({ text, at: now });
+      },
     });
   }
 
@@ -107,24 +164,46 @@ class Connector {
     if (!this.state.dmChat) { this.state.dmChat = await this.gw.dmChat(this.owner); this._save(); }
     this.gw.on('message', (m) => { this.router.onMessage(m).catch((e) => this.log('route.error', { error: String(e) })); });
     this.gw.on('down', () => { this.online = false; });
-    this.gw.on('up', () => { this.online = true; for (const r of this.rt.values()) this._catchUp(r, 'While Feishu was unreachable'); });
+    this.gw.on('up', () => {
+      this.online = true;
+      if (this.stopped) return;
+      // A session whose group never got created (item 5: createGroup failed, or the whole connector started while
+      // Feishu was down) is retried here too, not just on the throttled tail-timer tick below — reconnecting is
+      // exactly when it is worth trying again right away.
+      for (const r of this.rt.values()) {
+        try {
+          if (!this.state.groups[r.info.id]) { this._track(this._ensureGroup(r)); continue; }
+          this._catchUp(r, 'While Feishu was unreachable');
+        } catch (e) { this.log('up.error', { id: r.info.id, error: String(e) }); }
+      }
+    });
     this.index.on('added', (i) => { this._track(this._added(i)); });
     this.index.on('changed', (i) => { this._changed(i); });
     this.index.on('removed', (id) => { this._track(this._removed(id)); });
     this.index.on('warn', (e) => this.log('index.warn', { error: String(e) }));
     await this.index.start();
     this.tailTimer = setInterval(() => {
-      if (!this.online) return;
+      if (this.stopped || !this.online) return;
       for (const r of this.rt.values()) {
-        try { this._pump(r); } catch (e) { this.log('tick.error', { id: r.info.id, error: String(e) }); }
+        try {
+          this._pump(r);
+          // Throttled retry for a still-groupless session (item 5): at most one attempt per pollMs, and
+          // _ensureGroup itself refuses a second in-flight attempt for the same runtime.
+          if (!this.state.groups[r.info.id] && Date.now() >= r.groupRetryAt) {
+            r.groupRetryAt = Date.now() + this.pollMs;
+            this._track(this._ensureGroup(r));
+          }
+        } catch (e) { this.log('tick.error', { id: r.info.id, error: String(e) }); }
       }
     }, this.tailMs);
   }
 
   async stop() {
+    this.stopped = true;
     this.index.stop();
     if (this.tailTimer) { clearInterval(this.tailTimer); this.tailTimer = null; }
     if (this.overviewTimer) { clearTimeout(this.overviewTimer); this.overviewTimer = null; }
+    if (this.saveTimer) { clearTimeout(this.saveTimer); this.saveTimer = null; }
     await this.router.flushAll();
     this.router.dispose();
     while (this.jobs.size) await Promise.all([...this.jobs]);
@@ -140,34 +219,83 @@ class Connector {
 
   /** @param {SessionInfo} info */
   async _added(info) {
+    if (this.stopped) return;
     const known = this.state.groups[info.id];
     const r = this._runtime(info);
     if (!known) {
-      const chatId = await this.gw.createGroup(`ccs · ${info.name}`, /** @type {string} */ (this.owner));
-      this.state.groups[info.id] = { chatId, removed: false, statusMessageId: null };
+      // Group creation (and the history it posts) is a gateway call and must not gate the two things below: a
+      // failure here is retried later (item 5, _ensureGroup / the 'up' event / the tail-timer tick), never fatal.
+      this._track(this._ensureGroup(r));
+    } else {
+      const cur = this.state.cursors[info.id];
+      if (cur) { r.tail = new TranscriptTail({ file: cur.file, offset: cur.offset }); this._catchUp(r, 'While the connector was stopped'); }
+      // The saved cursor's file may no longer be the session's current transcript — sessiond may already have
+      // moved it on (e.g. `/clear`) before we even started watching, so the sessionId never visibly "changes"
+      // (item 2). Catch up on whatever the cursor still owes, then switch if the resolved file disagrees.
+      this._switchIfStale(r);
+    }
+    this._syncLink(r);
+    this._touchOverview();
+  }
+
+  /**
+   * Create this session's Feishu group if it doesn't have one yet. Never gates linking or tailing on success: a
+   * failure just leaves the group missing, to be retried (throttled, at most one attempt in flight per session) by
+   * the gateway 'up' event and the tail-timer tick (item 5). @param {Runtime} r
+   */
+  async _ensureGroup(r) {
+    if (this.stopped || this.state.groups[r.info.id] || r.creatingGroup) return;
+    r.creatingGroup = true;
+    try {
+      const chatId = await this.gw.createGroup(`ccs · ${r.info.name}`, /** @type {string} */ (this.owner));
+      if (this.stopped) return;
+      this.state.groups[r.info.id] = { chatId, removed: false, statusMessageId: null };
       this._save(true);
       const file = this._transcriptFile(r);
       if (file) {
         const all = new TurnAssembler();
-        for (const l of new TranscriptTail({ file }).read()) all.push(this._parse(r, l));
+        const ht = historyTail(file);
+        for (let lines = ht.read(); lines.length; lines = ht.read()) for (const l of lines) all.push(this._parse(r, l));
         if (all.turns.some((t) => t.done)) await this._send(chatId, renderHistory(all.turns));
-        this._follow(r, file, fs.statSync(file).size);
+        if (!r.tail) this._follow(r, file, ht.offset);
       }
-    } else {
-      const cur = this.state.cursors[info.id];
-      if (cur) { r.tail = new TranscriptTail({ file: cur.file, offset: cur.offset }); this._catchUp(r, 'While the connector was stopped'); }
+      this._touchOverview();
+    } catch (e) {
+      this.log('group.error', { id: r.info.id, error: String(e) });
+    } finally {
+      r.creatingGroup = false;
     }
-    this._syncLink(r);
-    this._touchOverview();
+  }
+
+  /**
+   * Switch tailing when the resolved transcript file no longer matches what we're tailing: a new sessionId, a
+   * `/clear`, or — after a restart — a saved cursor pointing at a file the session already left behind (spec §6.3).
+   * Catches up the old file first so nothing written to it before the switch is lost. @param {Runtime} r
+   */
+  _switchIfStale(r) {
+    const file = this._transcriptFile(r);
+    if (!file || (r.tail && r.tail.file === file)) return;
+    if (r.tail) this._catchUp(r, 'Earlier in this session');
+    this._attach(r, file);
   }
 
   /** @param {SessionInfo} info */
   _changed(info) {
     const r = this.rt.get(info.id);
     if (!r) return;
+    if (info.name !== r.info.name) this._track(this._renameGroup(r, info.name));
     r.info = info;
     this._syncLink(r);
     this._touchOverview();
+  }
+
+  /** After `ccs rename`: the group follows the session's name. A failure is only logged — item 5's retry tracks
+   *  missing groups, not renames, and a rename mismatch is cosmetic, never a reachability problem.
+   *  @param {Runtime} r @param {string} name */
+  async _renameGroup(r, name) {
+    const g = this.state.groups[r.info.id];
+    if (!g || g.removed) return;
+    try { await this.gw.renameGroup(g.chatId, `ccs · ${name}`); } catch (e) { this.log('rename.error', { id: r.info.id, error: String(e) }); }
   }
 
   /** @param {string} id */
@@ -190,7 +318,7 @@ class Connector {
     /** @type {Runtime} */
     const nr = { info, link: null, pollTimer: null, state: null, sessionId: info.sessionId, tail: null, sent: [], cards: new Map(),
       statusText: info.live ? 'running' : 'stopped', statusSentText: null, statusTimer: null, catchingUp: false,
-      since: Date.now(), discoverAt: 0, assembler: /** @type {any} */ (null) };
+      since: Date.now(), discoverAt: 0, creatingGroup: false, groupRetryAt: 0, assembler: /** @type {any} */ (null) };
     nr.assembler = new TurnAssembler({ isFeishuPrompt: (text) => nr.sent.some((s) => s.text === text && Date.now() - s.at < RECENT_SENT_MS) });
     nr.assembler.on('update', (turn) => { if (!nr.catchingUp) this._cardUpdate(nr, turn, false); });
     nr.assembler.on('done', (turn) => { if (!nr.catchingUp) this._cardUpdate(nr, turn, true); });
@@ -216,7 +344,10 @@ class Connector {
       link.start();
       r.link = link;
       r.pollTimer = setInterval(() => {
-        link.request('STATUS').then((res) => { if (res.ok) this._onSessionId(r, res.data.claude && res.data.claude.sessionId); }, () => {});
+        link.request('STATUS').then((res) => {
+          if (!res.ok) return;
+          try { this._onSessionId(r, res.data.claude && res.data.claude.sessionId); } catch (e) { this.log('status.error', { id: r.info.id, error: String(e) }); }
+        }, () => {});
       }, this.pollMs);
     } else if (!r.info.live && r.link) {
       r.link.stop();
@@ -237,12 +368,12 @@ class Connector {
     this._setStatus(r, text);
   }
 
-  /** @param {Runtime} r @param {any} sid */
+  /** Not gated on `sid` actually changing (item 2): after a restart, `r.sessionId` is already seeded from the
+   *  registry's current id, so it never visibly "changes" even though the saved cursor's file is stale — only
+   *  comparing the resolved file catches that case too. @param {Runtime} r @param {any} sid */
   _onSessionId(r, sid) {
-    if (typeof sid !== 'string' || !sid || sid === r.sessionId) return;
-    r.sessionId = sid;
-    const file = this._transcriptFile(r);
-    if (file && (!r.tail || r.tail.file !== file)) this._attach(r, file);
+    if (typeof sid === 'string' && sid) r.sessionId = sid;
+    this._switchIfStale(r);
   }
 
   /**
@@ -318,6 +449,14 @@ class Connector {
     } finally { r.catchingUp = false; }
     this.state.cursors[r.info.id] = { file: r.tail.file, offset: r.tail.offset };
     this._save();
+    // A turn that was already mid-render when the outage began (a live `cards` entry) has had its assembler
+    // 'update'/'done' events suppressed by `catchingUp` for the whole read above — its card never heard about the
+    // final text or turn_end (item 1). Push it one more update now: final if the turn finished, a normal
+    // (debounced) one otherwise. `_cardUpdate` itself releases the `cards` entry once that update is final.
+    for (const tid of [...r.cards.keys()]) {
+      const t = r.assembler.turns.find((x) => x.id === tid);
+      if (t) this._cardUpdate(r, t, t.done);
+    }
     const missed = r.assembler.turns.slice(before);
     if (!missed.length) return;
     const h = renderHistory(missed, missed.length);
@@ -388,7 +527,7 @@ class Connector {
   }
 
   _touchOverview() {
-    if (this.overviewTimer) return;
+    if (this.stopped || this.overviewTimer) return;
     this.overviewTimer = setTimeout(() => {
       this.overviewTimer = null;
       this._track(this._writeOverview());
@@ -466,10 +605,16 @@ class Connector {
 
   /** @param {boolean} [now] */
   _save(now = false) {
-    if (now) { if (this.saveTimer) { clearTimeout(this.saveTimer); this.saveTimer = null; } saveState(this.paths, this.state); return; }
-    if (this.saveTimer) return;
-    this.saveTimer = setTimeout(() => { this.saveTimer = null; saveState(this.paths, this.state); }, 1000);
+    if (now) { if (this.saveTimer) { clearTimeout(this.saveTimer); this.saveTimer = null; } this._saveNow(); return; }
+    if (this.stopped || this.saveTimer) return;
+    this.saveTimer = setTimeout(() => { this.saveTimer = null; this._saveNow(); }, 1000);
+  }
+
+  /** A write fault (NFS ESTALE/EDQUOT/ENOSPC, spec §9) must never be fatal. On failure the in-memory state is left
+   *  exactly as dirty as before this call — nothing here cleared a pending save — so the next `_save()` retries. */
+  _saveNow() {
+    try { saveState(this.paths, this.state); } catch (e) { this.log('save.error', { error: String(e) }); }
   }
 }
 
-module.exports = { Connector, fileBornMs };
+module.exports = { Connector, fileBornMs, historyTail, HISTORY_WINDOW, RECENT_SENT_MS };
