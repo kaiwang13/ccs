@@ -43,7 +43,7 @@ function fileBornMs(file) {
       if (Number.isFinite(ms)) return ms;
     }
     return 0;
-  } finally { fs.closeSync(fd); }
+  } catch { return 0; } finally { fs.closeSync(fd); }
 }
 
 /** @param {number} ms */
@@ -113,7 +113,12 @@ class Connector {
     this.index.on('removed', (id) => { this._track(this._removed(id)); });
     this.index.on('warn', (e) => this.log('index.warn', { error: String(e) }));
     await this.index.start();
-    this.tailTimer = setInterval(() => { if (this.online) for (const r of this.rt.values()) this._pump(r); }, this.tailMs);
+    this.tailTimer = setInterval(() => {
+      if (!this.online) return;
+      for (const r of this.rt.values()) {
+        try { this._pump(r); } catch (e) { this.log('tick.error', { id: r.info.id, error: String(e) }); }
+      }
+    }, this.tailMs);
   }
 
   async stop() {
@@ -205,7 +210,9 @@ class Connector {
   _syncLink(r) {
     if (r.info.live && !r.link) {
       const link = new ControlLink({ sockPath: this.paths.ctlSock(r.info.id), label: 'feishu' });
-      link.on('state', (s) => this._onState(r, s));
+      link.on('state', (s) => {
+        try { this._onState(r, s); } catch (e) { this.log('state.error', { id: r.info.id, error: String(e) }); }
+      });
       link.start();
       r.link = link;
       r.pollTimer = setInterval(() => {
@@ -329,6 +336,7 @@ class Connector {
       card.timer = null;
       card.lastAt = Date.now();
       card.chain = card.chain.then(() => this._writeTurn(g.chatId, card, turn)).catch((e) => this.log('card.error', { error: String(e) }));
+      this._track(card.chain);
       if (final) card.chain.then(() => r.cards.delete(turn.id));
     };
     if (final) { if (card.timer) clearTimeout(card.timer); run(); return; }
@@ -464,4 +472,4 @@ class Connector {
   }
 }
 
-module.exports = { Connector };
+module.exports = { Connector, fileBornMs };
