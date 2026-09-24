@@ -85,10 +85,15 @@ function envPids(ctx) {
   const markers = [String(ctx.root), String(ctx.env.CCS_RUNTIME_DIR)].filter((v, i, a) => v && a.indexOf(v) === i);
   const found = [];
   for (const { pid, argv } of allProcessArgvs()) {
-    if (!markers.some((m) => argv.includes(m))) continue;
     const e = readEnviron(pid);
-    if (!e) { found.push(pid); continue; } // macOS: argv matched, environment unreadable
-    if (e.CCS_RUNTIME_DIR === ctx.env.CCS_RUNTIME_DIR || (e.CCS_ID && e.HOME === ctx.home)) found.push(pid);
+    // A readable environment is exact, and is the only thing that identifies a `--start <id>` sessiond
+    // or its nfsworker: neither command line names a path under the root. The argv markers are a
+    // fallback for where the environment cannot be read, never a prefilter in front of it.
+    if (e) {
+      if (e.CCS_RUNTIME_DIR === ctx.env.CCS_RUNTIME_DIR || (e.CCS_ID && e.HOME === ctx.home)) found.push(pid);
+    } else if (markers.some((m) => argv.includes(m))) {
+      found.push(pid);
+    }
   }
   return found;
 }
