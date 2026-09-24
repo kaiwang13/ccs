@@ -1,0 +1,13 @@
+{"type":"user","uuid":"u1","isSidechain":false,"message":{"role":"user","content":"please list files"}}
+{"type":"assistant","uuid":"a1","isSidechain":false,"message":{"role":"assistant","content":[{"type":"thinking","thinking":"I should run ls"}]}}
+{"type":"assistant","uuid":"a2","isSidechain":false,"message":{"role":"assistant","content":[{"type":"tool_use","id":"t1","name":"Bash","input":{"command":"ls -la"}}]}}
+{"type":"user","uuid":"u2","isSidechain":false,"message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"t1","content":"a.txt\nb.txt","is_error":false}]}}
+{"type":"assistant","uuid":"a3","isSidechain":false,"message":{"role":"assistant","content":[{"type":"text","text":"There are two files. Mail me at dev@example.com"}]}}
+{"type":"system","subtype":"turn_duration","uuid":"s1","isSidechain":false,"durationMs":4200}
+{"type":"user","uuid":"u3","isSidechain":false,"isMeta":true,"message":{"role":"user","content":"<local-command-caveat>Caveat</local-command-caveat>"}}
+{"type":"user","uuid":"u4","isSidechain":false,"message":{"role":"user","content":"<command-name>/cost</command-name>\n<command-message>cost</command-message>\n<command-args></command-args>"}}
+{"type":"user","uuid":"u5","isSidechain":false,"message":{"role":"user","content":"<local-command-stdout>Total cost: $0.01</local-command-stdout>"}}
+{"type":"system","subtype":"local_command","uuid":"s2","isSidechain":false,"content":"<command-name>/model</command-name>\n<command-message>model</command-message>\n<command-args>opus</command-args>"}
+{"type":"system","subtype":"local_command","uuid":"s3","isSidechain":false,"content":"<local-command-stdout>Set model to opus</local-command-stdout>"}
+{"type":"assistant","uuid":"a9","isSidechain":true,"message":{"role":"assistant","content":[{"type":"text","text":"subagent chatter"}]}}
+{"type":"attachment","uuid":"x1"}

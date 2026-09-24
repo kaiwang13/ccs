@@ -1,0 +1,8 @@
+{"timestamp":"t","type":"session_meta","payload":{"id":"th-1","cwd":"/w"}}
+{"timestamp":"t","type":"event_msg","payload":{"type":"task_started","turn_id":"T1"}}
+{"timestamp":"t","type":"event_msg","payload":{"type":"item_completed","turn_id":"T1","item":{"type":"UserMessage","id":"i1","content":[{"type":"text","text":"fix the bug"}]}}}
+{"timestamp":"t","type":"event_msg","payload":{"type":"item_completed","turn_id":"T1","item":{"type":"Reasoning","id":"i2","summary_text":["Look at the failing test"]}}}
+{"timestamp":"t","type":"event_msg","payload":{"type":"item_completed","turn_id":"T1","item":{"type":"CommandExecution","id":"i3","command":["/bin/bash","-lc","npm test"],"aggregated_output":"1 failing","exit_code":1}}}
+{"timestamp":"t","type":"event_msg","payload":{"type":"item_completed","turn_id":"T1","item":{"type":"FileChange","id":"i4","changes":{"/w/src/a.js":{}},"status":"completed"}}}
+{"timestamp":"t","type":"event_msg","payload":{"type":"item_completed","turn_id":"T1","item":{"type":"AgentMessage","id":"i5","content":[{"type":"text","text":"Fixed."}],"phase":"final_answer"}}}
+{"timestamp":"t","type":"event_msg","payload":{"type":"task_complete","turn_id":"T1","duration_ms":9100,"last_agent_message":"Fixed."}}
