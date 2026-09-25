@@ -28,6 +28,9 @@ also visible to Feishu the service.
 1. `ccs feishu setup` — installs the add-on's dependencies (once), shows a QR code: scan it in the Feishu app and
    create (or pick) an app for ccs. Already have an app? `ccs feishu setup --app-id cli_… [--tenant lark]` and type
    its secret. The secret is stored encrypted in `~/.local/state/ccs/feishu/`.
+   If this host reaches Feishu through a different proxy than the rest of the internet, add
+   `--proxy http://HOST:PORT`: setup and the connector then send every Feishu request through it, whatever proxy
+   your shell sets (your sessions keep the shell's proxy). It is remembered; `--proxy none` removes it.
 2. In the Feishu developer console for that app, check:
    - **Events & callbacks → subscription mode:** long connection (no public URL needed; ccs opens no port).
    - **Events:** `im.message.receive_v1`. **Callbacks:** `card.action.trigger`.
@@ -43,7 +46,7 @@ Use one Feishu app per host: two hosts on one app split its messages between the
 
 | Command | |
 |---|---|
-| `ccs feishu setup [--app-id ID] [--tenant feishu\|lark]` | bind an app (again) |
+| `ccs feishu setup [--app-id ID] [--tenant feishu\|lark] [--proxy URL\|none]` | bind an app (again); a re-run keeps the saved proxy unless `--proxy` is given |
 | `ccs feishu start` | start the connector in the background (idempotent) |
 | `ccs feishu stop` | stop it (SIGTERM, then wait) |
 | `ccs feishu status` | running, connection, app, linked sessions, last error, log path |
@@ -57,6 +60,9 @@ was running. Its log: `ccs feishu status` prints the path.
 - **✓/✗ reactions do not appear:** Feishu's emoji keys differ between tenants. Set your own in
   `~/.local/state/ccs/feishu/config.json`: `"reactions": {"OK": "DONE", "ERROR": "CrossMark"}` (any emoji key your
   tenant accepts), then `ccs feishu stop && ccs feishu start`.
+- **`setup failed: Client network socket disconnected before secure TLS connection was established`:** this host
+  cannot reach Feishu (often a proxy that blocks it). Find a proxy that can and pass it: `ccs feishu setup --proxy
+  http://HOST:PORT`.
 - **Nothing arrives in groups:** check the long-connection subscription and `im:message.group_msg`.
 - **"this session runs an older ccs":** restart that session (`ccs restart NAME`) after updating ccs.
 

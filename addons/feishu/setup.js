@@ -7,7 +7,7 @@
  */
 const { resolvePaths } = require('../../src/common/paths.js');
 const { loadSdk, domainFor, quietLogger } = require('./lib/gateway.js');
-const { saveConfig, setEnabled } = require('./lib/config.js');
+const { saveConfig, setEnabled, loadConfig, normalizeProxy, applyProxy } = require('./lib/config.js');
 const { writeSecret } = require('./lib/secrets.js');
 
 /** Scopes beyond the Feishu app template that ccs needs: group messages without an @-mention, and creating groups. */
@@ -22,14 +22,15 @@ const NOTICE = [
 
 /** @param {string[]} argv */
 function parse(argv) {
-  /** @type {{appId: string|null, tenant: 'feishu'|'lark'|null}} */
-  const o = { appId: null, tenant: null };
+  /** @type {{appId: string|null, tenant: 'feishu'|'lark'|null, proxy: string|null|undefined}} */
+  const o = { appId: null, tenant: null, proxy: undefined };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
-    if (a === '--app-id' || a === '--tenant') {
+    if (a === '--app-id' || a === '--tenant' || a === '--proxy') {
       const v = argv[++i];
       if (!v) throw new Error(`${a} needs a value`);
       if (a === '--app-id') o.appId = v;
+      else if (a === '--proxy') o.proxy = normalizeProxy(v);
       else if (v === 'feishu' || v === 'lark') o.tenant = v;
       else throw new Error('--tenant must be feishu or lark');
     } else throw new Error(`unknown option ${a}`);
@@ -89,11 +90,20 @@ function printQr(url, out) {
 async function runSetup({ argv, env, io }) {
   let opts;
   try { opts = parse(argv); } catch (e) {
-    io.err.write(`ccs: ${/** @type {Error} */ (e).message}\nusage: ccs feishu setup [--app-id ID] [--tenant feishu|lark]\n`);
+    io.err.write(`ccs: ${/** @type {Error} */ (e).message}\nusage: ccs feishu setup [--app-id ID] [--tenant feishu|lark] [--proxy URL|none]\n`);
     return 2;
   }
   io.out.write(NOTICE);
   const paths = resolvePaths(env);
+  // A re-run keeps what the previous binding configured (the proxy, custom reactions) unless told otherwise.
+  /** @type {import('./lib/config.js').FeishuConfig|null} */
+  let prev = null;
+  try { prev = loadConfig(paths); } catch { /* a damaged config is simply replaced */ }
+  const proxy = opts.proxy === undefined ? (prev && prev.proxy) || null : opts.proxy;
+  if (proxy) {
+    applyProxy(process.env, proxy); // the SDK reads process.env
+    io.out.write(`Feishu requests go through the proxy ${proxy}.\n`);
+  }
   const sdk = loadSdk(env);
   let appId;
   let appSecret;
@@ -143,7 +153,7 @@ async function runSetup({ argv, env, io }) {
     }
   } catch { /* scope listing is best-effort; docs/feishu.md lists what to check */ }
 
-  saveConfig(paths, { appId, tenant });
+  saveConfig(paths, { appId, tenant, ...(prev && prev.reactions ? { reactions: prev.reactions } : {}), ...(proxy ? { proxy } : {}) });
   writeSecret(paths, 'appSecret', appSecret);
   setEnabled(paths, true);
   io.out.write(`Bound Feishu app ${info.appName || appId} (${tenant}); its owner is the only person who can use it.\n`);
@@ -153,7 +163,14 @@ async function runSetup({ argv, env, io }) {
 
 if (require.main === module) {
   runSetup({ argv: process.argv.slice(2), env: process.env, io: { out: process.stdout, err: process.stderr, stdin: process.stdin } })
-    .then((code) => { process.exitCode = code; }, (e) => { process.stderr.write(`ccs: setup failed: ${String(e && e.message || e)}\n`); process.exitCode = 1; });
+    .then((code) => { process.exitCode = code; }, (e) => {
+      const msg = String(e && e.message || e);
+      process.stderr.write(`ccs: setup failed: ${msg}\n`);
+      if (/TLS|socket|ECONN|ETIMEDOUT|EAI_AGAIN|ENOTFOUND|timeout/i.test(msg)) {
+        process.stderr.write('ccs: this host could not reach Feishu. If it needs a different proxy for Feishu: ccs feishu setup --proxy http://HOST:PORT\n');
+      }
+      process.exitCode = 1;
+    });
 }
 
 module.exports = { runSetup, REQUIRED_SCOPES };

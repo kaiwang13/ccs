@@ -132,3 +132,16 @@ test('disabled or never set up: exit 2 without touching Feishu', { timeout: 3000
   assert.equal(await d.exited, 2);
   assert.deepEqual(larkLog(ctx), []);
 });
+
+test('a saved proxy is applied to the daemon\'s Feishu traffic, whatever proxy the launching shell had', { timeout: 60000 }, async (t) => {
+  const ctx = setUp(t, { HTTPS_PROXY: 'http://shell-proxy:2718', https_proxy: 'http://shell-proxy:2718' });
+  saveConfig(ctx.paths, { appId: 'cli_daemon', tenant: 'feishu', proxy: 'http://feishu-proxy:2717' });
+  const d = spawnDaemon(ctx);
+  t.after(() => { try { d.child.kill('SIGTERM'); } catch { /* gone */ } });
+  await waitFor(() => status(ctx)?.connected === true, { timeoutMs: 15000, what: 'connected status' });
+  const create = larkLog(ctx).find((e) => e.ev === 'create');
+  assert.equal(create.proxy, 'http://feishu-proxy:2717');
+  assert.equal(create.proxyLower, 'http://feishu-proxy:2717');
+  d.child.kill('SIGTERM');
+  assert.equal(await d.exited, 0);
+});

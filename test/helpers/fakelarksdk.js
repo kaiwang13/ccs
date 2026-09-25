@@ -32,7 +32,7 @@ function log(ev, data = {}) {
 
 /** @param {any} opts */
 function createLarkChannel(opts) {
-  log('create', { appId: opts.appId, appSecret: opts.appSecret, domain: opts.domain });
+  log('create', { appId: opts.appId, appSecret: opts.appSecret, domain: opts.domain, proxy: process.env.HTTPS_PROXY || null, proxyLower: process.env.https_proxy || null });
   if (process.env.FAKE_LARK_LOGGER_LEAK_TEST === '1') {
     const payload = { config: { data: `app_secret=${opts.appSecret}` }, headers: { Authorization: `Bearer ${opts.appSecret}` } };
     if (opts.logger) opts.logger.error('token request failed', payload);

@@ -13,7 +13,7 @@ const { isLocked } = require('../../common/locks.js');
 const { procStart } = require('../../common/procinfo.js');
 
 const ADDON = path.join(__dirname, '..', '..', '..', 'addons', 'feishu');
-const USAGE = 'usage: ccs feishu setup [--app-id ID] [--tenant feishu|lark] | start | stop | status | disable [--purge]';
+const USAGE = 'usage: ccs feishu setup [--app-id ID] [--tenant feishu|lark] [--proxy URL|none] | start | stop | status | disable [--purge]';
 const NOT_SET_UP = 'ccs: Feishu add-on is not set up: run `ccs feishu setup`\n';
 
 /** The add-on's files. Must equal addons/feishu/lib/config.js feishuPaths() (test/unit/feishu-launcher.test.js). @param {any} paths */
@@ -119,6 +119,7 @@ function status(ctx, f) {
   const cfg = readJson(f.config);
   ctx.out.write(running && s ? `ccs: Feishu connector: running (pid ${s.pid})\n` : 'ccs: Feishu connector: not running\n');
   if (cfg) ctx.out.write(`  app: ${cfg.appId} (${cfg.tenant})${fs.existsSync(f.enabled) ? '' : ' — disabled'}\n`);
+  if (cfg && cfg.proxy) ctx.out.write(`  proxy: ${cfg.proxy} (for Feishu only)\n`);
   if (running && s) {
     ctx.out.write(`  connection: ${s.connected ? 'connected' : 'connecting…'}\n`);
     ctx.out.write(`  linked sessions: ${s.linked}\n`);

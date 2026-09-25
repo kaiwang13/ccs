@@ -14,7 +14,7 @@ const { writeAtomic } = require('../../src/common/atomic.js');
 const { procStart } = require('../../src/common/procinfo.js');
 const { closeNfsWorker } = require('../../src/common/nfsworker.js');
 const { acquireLock } = require('./lib/state.js');
-const { feishuPaths, loadConfig, isEnabled } = require('./lib/config.js');
+const { feishuPaths, loadConfig, isEnabled, applyProxy } = require('./lib/config.js');
 const { readSecret } = require('./lib/secrets.js');
 const { FeishuGateway, loadSdk } = require('./lib/gateway.js');
 const { Connector } = require('./lib/connector.js');
@@ -66,6 +66,11 @@ async function main({ env = process.env } = {}) {
     if (!isEnabled(paths)) { writeStatus({ lastError: 'the Feishu add-on is disabled' }); return 2; }
     const cfg = loadConfig(paths);
     if (!cfg) { writeStatus({ lastError: 'not set up' }); return 2; }
+    // Resumed sessions inherit the environment ccs feishu start was given — taken before the Feishu proxy is applied,
+    // so the agents keep the shell's own proxy. The test-only SDK override stays with the connector.
+    const sessionEnv = { ...env };
+    delete sessionEnv.CCS_FEISHU_SDK;
+    if (cfg.proxy) applyProxy(process.env, cfg.proxy); // the SDK reads process.env
     const appSecret = readSecret(paths, 'appSecret');
     writeStatus({ appId: cfg.appId });
 
@@ -87,9 +92,6 @@ async function main({ env = process.env } = {}) {
     g.on('down', () => writeStatus({ connected: false }));
     g.on('up', () => writeStatus({ connected: true }));
 
-    // Resumed sessions inherit this environment; the test-only SDK override stays with the connector.
-    const sessionEnv = { ...env };
-    delete sessionEnv.CCS_FEISHU_SDK;
     const c = new Connector({ gateway: g, paths, registry: createRegistry(paths), env: sessionEnv, log: say, lock });
     conn = c;
     // M2: once the gateway is up, a transient failure in c.start() (ownerId()/dmChat() hitting a network blip or a

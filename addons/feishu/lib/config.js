@@ -33,7 +33,26 @@ function ensureFeishuDir(paths) {
   return dir;
 }
 
-/** @typedef {{schema: 'ccs.feishu-config/1', appId: string, tenant: 'feishu'|'lark', reactions?: {OK: string, ERROR: string}}} FeishuConfig */
+/** @typedef {{schema: 'ccs.feishu-config/1', appId: string, tenant: 'feishu'|'lark', reactions?: {OK: string, ERROR: string},
+ *   proxy?: string}} FeishuConfig
+ *   `proxy`: an http(s) proxy URL for every Feishu request of the add-on (setup and connector), whatever proxy the
+ *   launching shell has — hosts often reach Feishu through a different proxy than the rest of the internet. */
+
+/** An http(s)://host[:port] proxy URL, or 'none' → null. @param {string} v @returns {string|null} */
+function normalizeProxy(v) {
+  if (v === 'none') return null;
+  if (!/^https?:\/\/[^\s/:@]+(:\d{1,5})?\/?$/.test(v)) throw new Error(`--proxy must look like http://host:port (or 'none'), not '${v}'`);
+  return v.replace(/\/$/, '');
+}
+
+/**
+ * Route this process's Feishu traffic through `proxy`: the SDK's REST client (axios, via proxy-from-env) and its
+ * WebSocket (respectProxyEnv) both read these variables. Only ever applied to the add-on's own process.
+ * @param {Record<string, string|undefined>} env @param {string} proxy
+ */
+function applyProxy(env, proxy) {
+  for (const k of ['HTTPS_PROXY', 'https_proxy', 'HTTP_PROXY', 'http_proxy']) env[k] = proxy;
+}
 
 /** @param {any} paths @returns {FeishuConfig|null} */
 function loadConfig(paths) {
@@ -45,13 +64,15 @@ function loadConfig(paths) {
   }
   let c;
   try { c = JSON.parse(text); } catch { c = null; }
-  if (!c || c.schema !== CONFIG_SCHEMA || typeof c.appId !== 'string' || (c.tenant !== 'feishu' && c.tenant !== 'lark')) {
+  let proxyOk = true;
+  if (c && c.proxy !== undefined) { try { proxyOk = typeof c.proxy === 'string' && normalizeProxy(c.proxy) === c.proxy; } catch { proxyOk = false; } }
+  if (!c || c.schema !== CONFIG_SCHEMA || typeof c.appId !== 'string' || (c.tenant !== 'feishu' && c.tenant !== 'lark') || !proxyOk) {
     throw new Error(`the Feishu add-on's config.json is damaged (${file}); run: ccs feishu setup`);
   }
   return c;
 }
 
-/** @param {any} paths @param {{appId: string, tenant: 'feishu'|'lark', reactions?: {OK: string, ERROR: string}}} c */
+/** @param {any} paths @param {{appId: string, tenant: 'feishu'|'lark', reactions?: {OK: string, ERROR: string}, proxy?: string}} c */
 function saveConfig(paths, c) {
   ensureFeishuDir(paths);
   writeAtomic(feishuPaths(paths).config, { schema: CONFIG_SCHEMA, ...c }, { mode: 0o600 });
@@ -66,4 +87,4 @@ function setEnabled(paths, on) {
   if (on) { ensureFeishuDir(paths); fs.writeFileSync(f, '', { mode: 0o600 }); } else fs.rmSync(f, { force: true });
 }
 
-module.exports = { feishuPaths, ensureFeishuDir, loadConfig, saveConfig, isEnabled, setEnabled, CONFIG_SCHEMA };
+module.exports = { feishuPaths, ensureFeishuDir, loadConfig, saveConfig, isEnabled, setEnabled, normalizeProxy, applyProxy, CONFIG_SCHEMA };
