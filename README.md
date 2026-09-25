@@ -16,13 +16,16 @@ phone (RC) ─┘     (emulator,        (owns the pty)
 Unlike `tmux` or `screen`, `ccs` does not own your scrollback. Each client renders into its own terminal,
 so you scroll with your normal mouse wheel, trackpad, and scrollbar — no prefix key, no copy mode.
 
-**Status: v0.3.0.** Runs on **Linux and macOS** from one codebase. Every difference between the two
-lives behind one platform seam (`src/common/platform/`), and a test fails any OS-specific code outside it,
-so new features stay compatible with both without being written twice (see [`CLAUDE.md`](CLAUDE.md)).
-Hosts Claude Code and Codex CLI on the same terms: persisted and displayed session type, honest (never
-fabricated) status, resume, per-agent preflight and doctor checks. The automated suite (530 unit,
-103 integration, 92 golden) passes in CI on both Linux and macOS. See [Limitations](#limitations) for
-what is not built yet.
+**Status: v0.4.0.** Adds an optional **Feishu (Lark) add-on**: every session gets its own Feishu group
+where you read the conversation as cards, send prompts, answer Claude's permission prompts with a tap,
+interrupt, and wake a stopped session — from the phone or desktop app, in sync with the terminal
+([`docs/feishu.md`](docs/feishu.md)). It is off unless you run `ccs feishu setup`, and being off changes
+nothing. Runs on **Linux and macOS** from one codebase, with every OS difference behind one platform seam
+(see [`CLAUDE.md`](CLAUDE.md)); hosts Claude Code and Codex CLI on the same terms. The automated suite
+(649 unit, 130 integration, 92 golden) passes in CI on both Linux and macOS. Against a real Feishu app,
+connecting, linking sessions and phone-to-terminal input are verified; the rest of the add-on's live
+checklist in [`docs/feishu.md`](docs/feishu.md) is not yet run. See [Limitations](#limitations) for what is
+not built yet.
 
 ## Requirements
 
