@@ -12,7 +12,8 @@ const SCHEMA = 'ccs.feishu-state/1';
  * @typedef {{schema: 'ccs.feishu-state/1', dmChat: string|null, overviewMessageId: string|null,
  *   groups: Record<string, {chatId: string, removed: boolean, statusMessageId: string|null, name?: string, renamePending?: boolean}>,
  *   cursors: Record<string, {file: string, offset: number}>,
- *   openCards: Record<string, Array<{turnId: number, ids: string[], title: string}>>}} FeishuState
+ *   openCards: Record<string, Array<{turnId: number, ids: string[], title: string}>>,
+ *   pendingFinals: Array<{chatId: string, text: string}>}} FeishuState
  */
 
 /** @param {{stateDir: string}} paths */
@@ -22,7 +23,7 @@ function feishuDir(paths) {
 
 /** @returns {FeishuState} */
 function emptyState() {
-  return { schema: SCHEMA, dmChat: null, overviewMessageId: null, groups: {}, cursors: {}, openCards: {} };
+  return { schema: SCHEMA, dmChat: null, overviewMessageId: null, groups: {}, cursors: {}, openCards: {}, pendingFinals: [] };
 }
 
 /** @param {{stateDir: string}} paths */
@@ -49,7 +50,8 @@ function loadState(paths) {
     try { fs.renameSync(file, `${file}.corrupt-${Date.now()}`); } catch { /* best effort */ }
     return emptyState();
   }
-  return { ...emptyState(), ...raw, groups: { ...(raw.groups || {}) }, cursors: { ...(raw.cursors || {}) }, openCards: { ...(raw.openCards || {}) } };
+  return { ...emptyState(), ...raw, groups: { ...(raw.groups || {}) }, cursors: { ...(raw.cursors || {}) }, openCards: { ...(raw.openCards || {}) },
+    pendingFinals: [...(raw.pendingFinals || [])] };
 }
 
 /** @param {{stateDir: string}} paths @param {FeishuState} s */

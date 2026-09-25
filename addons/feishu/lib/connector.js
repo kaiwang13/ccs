@@ -174,6 +174,7 @@ class Connector {
     this.ownerAt = Date.now() + this.ownerRefreshMs;
     if (!this.state.dmChat) { this.state.dmChat = await this.gw.dmChat(this.owner); this._save(); }
     await this._closeStaleCards();
+    await this._flushPendingFinals();
     this.gw.on('message', (m) => { this.router.onMessage(m).catch((e) => this.log('route.error', { error: String(e) })); });
     this.gw.on('down', () => { this.online = false; });
     this.gw.on('up', () => {
@@ -222,6 +223,13 @@ class Connector {
     this.router.dispose();
     while (this.jobs.size) await Promise.all([...this.jobs]);
     for (const r of this.rt.values()) this._stopRuntime(r);
+    // A final answer still owed (spec §9) gets one last, untracked attempt as plain text; whatever still fails
+    // is persisted so the next start delivers it (_flushPendingFinals) or _maintain retries it meanwhile.
+    for (const job of this.retries) {
+      try { await this.gw.send(job.chatId, { kind: 'text', text: turnText(job.turn) }); }
+      catch (e) { this.log('final.lost', { id: job.id, error: String(e) }); this.state.pendingFinals.push({ chatId: job.chatId, text: turnText(job.turn) }); }
+    }
+    this.retries = [];
     this._save(true);
     if (this.lock) { this.lock.release(); this.lock = null; }
   }
@@ -364,6 +372,30 @@ class Connector {
     this._save(true);
   }
 
+  /** A final answer that stop() could not deliver last time (spec §9): one attempt per entry, dropping the ones
+   *  that land. @returns {Promise<boolean>} whether the list shrank */
+  async _sendPendingFinals() {
+    const before = this.state.pendingFinals.length;
+    if (!before) return false;
+    const remaining = [];
+    for (const p of this.state.pendingFinals) {
+      try { await this.gw.send(p.chatId, { kind: 'text', text: p.text }); }
+      catch (e) { this.log('final.pending', { error: String(e) }); remaining.push(p); }
+    }
+    this.state.pendingFinals = remaining;
+    return remaining.length !== before;
+  }
+
+  /** On start: deliver whatever `stop()` couldn't last time, right away. */
+  async _flushPendingFinals() {
+    if (await this._sendPendingFinals()) this._save(true);
+  }
+
+  /** From `_maintain`: the same, once per pass, saving only when something actually landed. */
+  async _retryPendingFinals() {
+    if (await this._sendPendingFinals()) this._save();
+  }
+
   /** Slow periodic work, at most once per pollMs: rename retries, owed final writes, owner refresh. */
   _maintain() {
     const now = Date.now();
@@ -371,6 +403,7 @@ class Connector {
     this.maintainAt = now + this.pollMs;
     for (const [id, g] of Object.entries(this.state.groups)) if (g.removed && g.renamePending) this._track(this._retryRename(id, g));
     for (const job of this.retries.filter((j) => j.nextAt <= now)) this._track(this._retryFinal(job));
+    if (this.state.pendingFinals.length) this._track(this._retryPendingFinals());
     if (now >= this.ownerAt) {
       this.ownerAt = now + this.ownerRefreshMs;
       this._track(this.gw.ownerId().then((o) => { if (o) this.owner = o; }));

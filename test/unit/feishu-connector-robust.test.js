@@ -34,6 +34,37 @@ test('a final answer whose writes keep failing is retried, then sent as plain te
   await waitFor(() => gw.messages(chatId).some((/** @type {any} */ m) => m.kind === 'text' && m.text.includes('FINAL ANSWER')), { timeoutMs: 8000, what: 'plain-text fallback' });
 });
 
+test('a final answer still owed when stop() runs is persisted, then delivered on the next start (spec §9)', async (t) => {
+  const paths = tmpPaths(t);
+  const registry = new FakeRegistry();
+  const sid = '66666666-6666-6666-6666-666666666666';
+  registry.set(mkRec('s1', { sessionId: sid }));
+  const gw = new FakeGateway();
+  // retryBaseMs is large enough that _maintain's own retry never fires before stop() runs below.
+  const conn = mkConn({ gateway: gw, paths, registry, retryBaseMs: 60000 });
+  await conn.start();
+  await waitFor(() => gw.chatByName('ccs · s1') !== null, { timeoutMs: 3000, what: 'group' });
+  const chatId = /** @type {string} */ (gw.chatByName('ccs · s1'));
+  appendTranscript(paths, sid, [userRec('go'), asstRec('partial')]);
+  await waitFor(() => cards(gw, chatId).some((/** @type {any} */ m) => m.title.includes('go')), { timeoutMs: 3000, what: 'open card' });
+  // One update failure and one send failure for the final write's own attempt (queuing the job), plus one more
+  // send failure for stop()'s own last attempt at delivering it.
+  gw.failNext('update', 1);
+  gw.failNext('send', 2);
+  appendTranscript(paths, sid, [asstRec('FINAL ANSWER'), endRec(1000)]);
+  await waitFor(() => conn.retries.length === 1, { timeoutMs: 3000, what: 'final write queued for retry' });
+  await conn.stop();
+  const st = loadState(paths);
+  assert.equal(st.pendingFinals.length, 1);
+  assert.match(st.pendingFinals[0].text, /FINAL ANSWER/);
+
+  const c2 = mkConn({ gateway: gw, paths, registry });
+  t.after(() => c2.stop());
+  await c2.start();
+  await waitFor(() => gw.messages(chatId).some((/** @type {any} */ m) => m.kind === 'text' && m.text.includes('FINAL ANSWER')), { timeoutMs: 3000, what: 'pending final delivered' });
+  assert.deepEqual(loadState(paths).pendingFinals, []);
+});
+
 test('a card open when the connector stops is closed on the next start with a pointer to the catch-up', async (t) => {
   const paths = tmpPaths(t);
   const registry = new FakeRegistry();
