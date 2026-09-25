@@ -140,6 +140,11 @@ class Connector {
     this.maintainAt = 0;
     /** @type {Array<{id: string, chatId: string, card: any, turn: any, attempts: number, nextAt: number}>} final writes still owed */
     this.retries = [];
+    /** @type {Set<string>} group ids with a rename in flight — in-memory only, never persisted (state.groups[id]
+     *  is written straight to disk, so this guard must live off that object). */
+    this.renaming = new Set();
+    /** True while a pendingFinals pass is in flight, so `_maintain` never starts a second one on top of it. */
+    this.pendingFinalsBusy = false;
     /** @type {{release(): void}|null} */
     this.lock = null;
     this.state = loadState(paths);
@@ -237,11 +242,23 @@ class Connector {
     this.router.dispose();
     while (this.jobs.size) await Promise.all([...this.jobs]);
     for (const r of this.rt.values()) this._stopRuntime(r);
-    // A final answer still owed (spec §9) gets one last, untracked attempt as plain text; whatever still fails
-    // is persisted so the next start delivers it (_flushPendingFinals) or _maintain retries it meanwhile.
+    // A final answer still owed (spec §9) gets one last, untracked attempt as plain text. A job whose attempt
+    // lands has its open-card record cleared (the same as a recovered _retryFinal); one that still fails is
+    // persisted to pendingFinals with its open-card record left alone on purpose — `_closeStaleCards()` will
+    // patch that stale card with a "continued below" pointer on the next start, right before
+    // `_flushPendingFinals()` delivers exactly that text. A throw for one job (even an unexpected one, not just
+    // a failed send) must never skip the rest, the final `_save(true)` below, or the lock release.
     for (const job of this.retries) {
-      try { await this.gw.send(job.chatId, { kind: 'text', text: turnText(job.turn) }); }
-      catch (e) { this.log('final.lost', { id: job.id, error: String(e) }); this.state.pendingFinals.push({ chatId: job.chatId, text: turnText(job.turn) }); }
+      try {
+        const text = turnText(job.turn);
+        try {
+          await this.gw.send(job.chatId, { kind: 'text', text });
+          this._clearOpenCard(job.id, job.turn.id);
+        } catch (e) {
+          this.log('final.lost', { id: job.id, error: String(e) });
+          this.state.pendingFinals.push({ chatId: job.chatId, text });
+        }
+      } catch (e) { this.log('final.drain_error', { id: job.id, error: String(e) }); }
     }
     this.retries = [];
     this._save(true);
@@ -352,13 +369,18 @@ class Connector {
     this._touchOverview();
   }
 
-  /** Rename a removed session's group; on failure leave `renamePending` for `_maintain` to retry. @param {string} id @param {any} g */
+  /** Rename a removed session's group; on failure leave `renamePending` for `_maintain` to retry. Guarded by
+   *  `this.renaming` (in-memory only) so an in-flight attempt for this id is never started twice.
+   *  @param {string} id @param {any} g */
   async _retryRename(id, g) {
+    if (this.renaming.has(id)) return;
+    this.renaming.add(id);
     try {
       await this.gw.renameGroup(g.chatId, `ccs · ${g.name || id} (removed)`);
       delete g.renamePending;
       this._save();
     } catch (e) { this.log('rename.error', { id, error: String(e) }); }
+    finally { this.renaming.delete(id); }
   }
 
   /** Groups whose session disappeared while the connector was down (spec §6.1): confirmed gone → removed. */
@@ -406,9 +428,13 @@ class Connector {
     if (await this._sendPendingFinals()) this._save(true);
   }
 
-  /** From `_maintain`: the same, once per pass, saving only when something actually landed. */
+  /** From `_maintain`: the same, once per pass, saving only when something actually landed. Guarded by
+   *  `this.pendingFinalsBusy` (in-memory only) so a slow pass can never overlap the next tick's attempt. */
   async _retryPendingFinals() {
-    if (await this._sendPendingFinals()) this._save();
+    if (this.pendingFinalsBusy) return;
+    this.pendingFinalsBusy = true;
+    try { if (await this._sendPendingFinals()) this._save(); }
+    finally { this.pendingFinalsBusy = false; }
   }
 
   /** Slow periodic work, at most once per pollMs: rename retries, owed final writes, owner refresh. */
@@ -425,7 +451,10 @@ class Connector {
     }
   }
 
-  /** One more attempt at a final card write; after four, send the answer as plain text instead (spec §9). @param {any} job */
+  /** One more attempt at a final card write; after four, send the answer as plain text instead (spec §9). Either
+   *  way, a landed attempt closes this turn's open-card record — leaving it would let the next start's
+   *  `_closeStaleCards()` overwrite an already-finished card (or one whose answer already went out as plain
+   *  text) with a stale "continued below" placeholder. @param {any} job */
   async _retryFinal(job) {
     job.nextAt = Infinity; // not due again until this attempt settles
     job.attempts++;
@@ -433,6 +462,8 @@ class Connector {
       if (job.attempts <= 4) await this._writeTurn(job.chatId, job.card, job.turn);
       else await this.gw.send(job.chatId, { kind: 'text', text: turnText(job.turn) });
       this.retries = this.retries.filter((j) => j !== job);
+      this._clearOpenCard(job.id, job.turn.id);
+      this._save();
     } catch (e) {
       this.log('card.retry_error', { id: job.id, attempts: job.attempts, error: String(e) });
       job.nextAt = Date.now() + Math.min(60000, this.retryBaseMs * 2 ** job.attempts);
@@ -620,10 +651,20 @@ class Connector {
 
   /** Persist which messages show a still-open turn, so a restart can close them (spec §5). @param {Runtime} r @param {any} turn @param {any} card */
   _noteOpenCard(r, turn, card) {
-    const list = (this.state.openCards[r.info.id] || []).filter((c) => c.turnId !== turn.id);
-    if (!turn.done && card.ids.length) list.push({ turnId: turn.id, ids: [...card.ids], title: card.title || '' });
-    if (list.length) this.state.openCards[r.info.id] = list; else delete this.state.openCards[r.info.id];
+    this._clearOpenCard(r.info.id, turn.id);
+    if (!turn.done && card.ids.length) {
+      const list = this.state.openCards[r.info.id] || (this.state.openCards[r.info.id] = []);
+      list.push({ turnId: turn.id, ids: [...card.ids], title: card.title || '' });
+    }
     this._save();
+  }
+
+  /** Drop one turn's open-card record, if any (spec §5): it either finished normally, or its answer landed by
+   *  some other route (a recovered retry, or a plain-text fallback) so the stale card no longer needs a
+   *  "continued below" patch on the next restart. @param {string} id @param {number} turnId */
+  _clearOpenCard(id, turnId) {
+    const list = (this.state.openCards[id] || []).filter((c) => c.turnId !== turnId);
+    if (list.length) this.state.openCards[id] = list; else delete this.state.openCards[id];
   }
 
   /** @param {string} chatId @param {{ids: string[], title?: string}} card @param {import('./turns').Turn} turn */

@@ -65,6 +65,36 @@ test('a final answer still owed when stop() runs is persisted, then delivered on
   assert.deepEqual(loadState(paths).pendingFinals, []);
 });
 
+test('a recovered final write clears its open-card record, so a restart leaves the finished card alone (spec §5, §9)', async (t) => {
+  const paths = tmpPaths(t);
+  const registry = new FakeRegistry();
+  const sid = '77777777-7777-7777-7777-777777777777';
+  registry.set(mkRec('s1', { sessionId: sid }));
+  const gw = new FakeGateway();
+  const conn = mkConn({ gateway: gw, paths, registry });
+  await conn.start();
+  await waitFor(() => gw.chatByName('ccs · s1') !== null, { timeoutMs: 3000, what: 'group' });
+  const chatId = /** @type {string} */ (gw.chatByName('ccs · s1'));
+  appendTranscript(paths, sid, [userRec('go'), asstRec('partial')]);
+  await waitFor(() => cards(gw, chatId).some((/** @type {any} */ m) => m.title.includes('go')), { timeoutMs: 3000, what: 'open card' });
+  await waitFor(() => (loadState(paths).openCards.s1 || []).length === 1, { timeoutMs: 3000, what: 'openCards recorded the open card' });
+  // The final write's own attempt fails once (an update, then its send fallback); the queued retry then succeeds.
+  gw.failNext('update', 1);
+  gw.failNext('send', 1);
+  appendTranscript(paths, sid, [asstRec('FINAL ANSWER'), endRec(1000)]);
+  await waitFor(() => /✓/.test((cards(gw, chatId).find((/** @type {any} */ m) => m.title.includes('go')) || {}).footer || ''),
+    { timeoutMs: 3000, what: 'the retried write finalised the card' });
+  await waitFor(() => loadState(paths).openCards.s1 === undefined, { timeoutMs: 3000, what: 'openCards entry cleared once the retry landed' });
+  await conn.stop();
+
+  const before = JSON.stringify(cards(gw, chatId));
+  const c2 = mkConn({ gateway: gw, paths, registry });
+  t.after(() => c2.stop());
+  await c2.start();
+  await new Promise((r) => setTimeout(r, 200)); // give a wrongful _closeStaleCards patch a chance to happen
+  assert.equal(JSON.stringify(cards(gw, chatId)), before, 'the already-finished card was left untouched by the restart');
+});
+
 test('a card open when the connector stops is closed on the next start with a pointer to the catch-up', async (t) => {
   const paths = tmpPaths(t);
   const registry = new FakeRegistry();
