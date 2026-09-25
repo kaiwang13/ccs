@@ -91,8 +91,11 @@ async function start(ctx, f) {
   return 1;
 }
 
-/** @param {any} ctx @param {ReturnType<typeof feishuFiles>} f @returns {Promise<number>} */
-async function stop(ctx, f) {
+/** M6: the daemon's own shutdown can take ~30 s when Feishu is unreachable (stop()'s drain makes one plain-text
+ *  attempt per owed final, each up to the 30 s httpTimeoutMs). `waitMs` defaults to 60 s so that case still gets
+ *  reported as a clean stop instead of a false "did not stop"; a test passes a short one.
+ *  @param {any} ctx @param {ReturnType<typeof feishuFiles>} f @param {number} [waitMs] @returns {Promise<number>} */
+async function stop(ctx, f, waitMs = 60000) {
   if (!isLocked(f.lock)) { ctx.out.write('ccs: the Feishu connector is not running\n'); return 0; }
   const s = readJson(f.status);
   if (!s || typeof s.pid !== 'number' || procStart(s.pid) !== s.procStart) {
@@ -100,12 +103,12 @@ async function stop(ctx, f) {
     return 1;
   }
   try { process.kill(s.pid, 'SIGTERM'); } catch { /* exited meanwhile */ }
-  const deadline = Date.now() + 30000;
+  const deadline = Date.now() + waitMs;
   while (Date.now() < deadline) {
     if (!isLocked(f.lock)) { ctx.out.write('ccs: Feishu connector stopped\n'); return 0; }
     await sleep(100);
   }
-  ctx.err.write(`ccs: the Feishu connector (pid ${s.pid}) did not stop within 30 s; see ${f.log}\n`);
+  ctx.err.write(`ccs: the Feishu connector (pid ${s.pid}) did not stop within ${Math.round(waitMs / 1000)} s; see ${f.log}\n`);
   return 1;
 }
 
@@ -157,4 +160,4 @@ async function run(argv, ctx) {
   }
 }
 
-module.exports = { run, feishuFiles, depsInstalled };
+module.exports = { run, feishuFiles, depsInstalled, stop };
