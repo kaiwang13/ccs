@@ -80,6 +80,18 @@ function fileBornMs(file) {
 /** @param {number} ms */
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
+/** Lifecycles in which sessiond refuses INPUT (as EXITED) only because its agent is not running yet. */
+const STARTING_LIFECYCLES = new Set(['STARTING', 'STARTING_SLOW', 'RECOVERING']);
+
+/** Resolves on the link's next STATE push, or after `ms`. @param {any} link @param {number} ms */
+function nextState(link, ms) {
+  return new Promise((resolve) => {
+    const done = () => { clearTimeout(tm); link.removeListener('state', done); resolve(undefined); };
+    const tm = setTimeout(done, Math.max(0, ms));
+    link.on('state', done);
+  });
+}
+
 /**
  * A tail positioned near the end of a large transcript, for the "recent history" summary a new group posts (spec
  * §6.1): start at max(0, size − 2 MiB), then skip to the first complete line after that (unless the window covers
@@ -126,11 +138,11 @@ function nextLineStart(file, start) {
 class Connector {
   /**
    * @param {{gateway: Gateway, paths: any, registry: any, env: Record<string, string|undefined>, tailMs?: number, pollMs?: number,
-   *   updateMs?: number, statusMs?: number, linkWaitMs?: number, log?: (event: string, fields?: object) => void,
+   *   updateMs?: number, statusMs?: number, linkWaitMs?: number, startWaitMs?: number, log?: (event: string, fields?: object) => void,
    *   lock?: {release(): void}|null, linkFactory?: (o: {sockPath: string, label: string}) => any, retryBaseMs?: number, ownerRefreshMs?: number,
    *   keepTurns?: number}} o
    */
-  constructor({ gateway, paths, registry, env, tailMs = 500, pollMs = 5000, updateMs = 1000, statusMs = 5000, linkWaitMs = 10000,
+  constructor({ gateway, paths, registry, env, tailMs = 500, pollMs = 5000, updateMs = 1000, statusMs = 5000, linkWaitMs = 10000, startWaitMs = 30000,
     log = () => {}, lock = null, linkFactory = (/** @type {any} */ o) => new ControlLink(o), retryBaseMs = 1000, ownerRefreshMs = 30 * 60 * 1000,
     keepTurns = 50 }) {
     this.gw = wrapGateway(gateway);
@@ -142,6 +154,7 @@ class Connector {
     this.updateMs = updateMs;
     this.statusMs = statusMs;
     this.linkWaitMs = linkWaitMs;
+    this.startWaitMs = startWaitMs;
     this.keepTurns = keepTurns;
     this.log = log;
     this.preLock = lock;
@@ -912,9 +925,21 @@ class Connector {
     while (!(r && r.link && r.link.up) && Date.now() < deadline) { await sleep(100); r = this.rt.get(id); }
     if (!r || !r.link || !r.link.up) return { ok: false, error: 'the session is not reachable right now (restarting?) — try again' };
     if (r.state && r.state.lifecycle === 'EXITED') return { ok: false, error: `the agent has exited; restart it: ccs restart ${r.info.name}` };
+    // A session that is still starting — typically one this message just resumed, whose ctl.sock accepts connections
+    // before its agent runs — refuses INPUT with EXITED until its holder exists. That is not an exit: wait for its next
+    // state and type the message then. A refused INPUT typed nothing, so retrying never types it twice.
+    const startDeadline = Date.now() + this.startWaitMs;
     let res;
-    try { res = await r.link.request('INPUT', op); } catch (e) { return { ok: false, error: String(/** @type {any} */ (e).message || e) }; }
-    if (res.ok) return { ok: true };
+    for (;;) {
+      const link = /** @type {any} */ (r.link);
+      try { res = await link.request('INPUT', op); } catch (e) { return { ok: false, error: String(/** @type {any} */ (e).message || e) }; }
+      if (res.ok) return { ok: true };
+      const starting = res.error === 'EXITED' && (!r.state || STARTING_LIFECYCLES.has(r.state.lifecycle));
+      if (!starting) break;
+      if (Date.now() >= startDeadline) return { ok: false, error: `the session is still starting — try again in a moment (or look: ccs a ${r.info.name})` };
+      await nextState(link, Math.min(1000, startDeadline - Date.now()));
+      if (!r.link || !r.link.up) return { ok: false, error: 'the session is not reachable right now (restarting?) — try again' };
+    }
     const why = /** @type {Record<string, string>} */ ({ UNSUPPORTED: `this session runs an older ccs; restart it to use Feishu input (ccs restart ${r.info.name})`,
       SETUP: `the session is on a setup screen; answer it at a terminal: ccs a ${r.info.name} --allow-setup`, STOPPING: 'the session is stopping',
       EXITED: `the agent has exited; restart it: ccs restart ${r.info.name}`, SUSPENDED: 'the session is suspended', BAD_ARGS: 'the message could not be typed' });
