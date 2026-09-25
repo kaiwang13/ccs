@@ -1,9 +1,13 @@
 {
   "name": "ccs-feishu",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
-  "description": "ccs add-on: Feishu (Lark) connector. Optional; ccs never loads it. Launched as a separate process.",
+  "description": "ccs add-on: Feishu (Lark) connector. Optional; ccs never loads it. Launched as a separate process by `ccs feishu`.",
   "license": "UNLICENSED",
   "main": "main.js",
-  "engines": { "node": "22.22.2" }
+  "engines": { "node": "22.22.2" },
+  "dependencies": {
+    "@larksuite/channel": "0.7.1",
+    "qrcode-terminal": "0.12.0"
+  }
 }

@@ -273,6 +273,12 @@ count. Send at least one real message first.
   session start and forward them to Codex, so its input-box tint matches what you'd see running it
   natively. A session created before this existed picks it up on its next `ccs restart`.
 
+## Feishu (optional)
+
+An add-on connects ccs to Feishu/Lark: one group per session, turn cards, prompts and permission answers from your
+phone, synced with the terminal. It is off unless you run `ccs feishu setup`, and being off changes nothing.
+See [docs/feishu.md](docs/feishu.md).
+
 ## How it works
 
 Each session is a pair of processes hosting one agent (`claude` or `codex`), chosen through a small agent

@@ -49,6 +49,18 @@ check_prereqs() {
   [ "$major" -ge 22 ] || die "Node 22+ required; found $(node -v)"
 }
 
+# The optional Feishu add-on's dependencies — only when it is enabled (docs/feishu.md). A release directory is otherwise
+# never changed after it is built; this adds one directory no running process maps, with no native code (spec §11).
+feishu_deps() {
+  [ -f "$STATE/feishu/enabled" ] || return 0
+  [ -f "$1/addons/feishu/package-lock.json" ] || return 0
+  [ -d "$1/addons/feishu/node_modules/@larksuite/channel" ] && return 0
+  say "installing the Feishu add-on's dependencies…"
+  ( cd "$1/addons/feishu" && npm ci --omit=dev --silent --no-audit --no-fund ) || die "could not install the Feishu add-on's dependencies"
+}
+
+feishu_running() { "$WRAPPER" feishu status 2>/dev/null | grep -q '^ccs: Feishu connector: running'; }
+
 # Build a release directory from a git ref. Never touches the running install.
 build_release() {
   _ref=$1
@@ -61,12 +73,13 @@ build_release() {
   ( cd "$_tmp" && git checkout --quiet "$_ref" 2>/dev/null || true )
   _sha=$( cd "$_tmp" && git rev-parse --short HEAD )
   _dir="$ROOT/releases/$_ref-$_sha"
-  if [ -d "$_dir" ]; then rm -rf "$_tmp"; say "already built: $_ref-$_sha"; RELEASE="$_dir"; return 0; fi
+  if [ -d "$_dir" ]; then rm -rf "$_tmp"; say "already built: $_ref-$_sha"; feishu_deps "$_dir"; RELEASE="$_dir"; return 0; fi
   say "installing dependencies…"
   ( cd "$_tmp" && npm ci --silent --no-audit --no-fund )
   say "building native addon…"
   ( cd "$_tmp" && npm run --silent build:native )
   [ -f "$_tmp/native/ttyctl/build/Release/ttyctl.node" ] || die "native build produced no addon"
+  feishu_deps "$_tmp"
   mv "$_tmp" "$_dir"
   RELEASE="$_dir"
   say "built $_ref-$_sha"
@@ -119,6 +132,13 @@ cmd_update() {
   build_release "$REF"            # built BEFORE anything stops; a failure here changes nothing
   if [ "$(readlink -f "$RELEASE")" = "$_old" ]; then say "already up to date"; return 0; fi
 
+  _feishu=""
+  if feishu_running; then
+    _feishu=1
+    say "stopping the Feishu connector"
+    "$WRAPPER" feishu stop >/dev/null || warn "  the Feishu connector did not stop cleanly — check 'ccs feishu status'"
+  fi
+
   _live=$(running_sessions)
   if [ -n "$_live" ]; then
     say "stopping $(printf '%s\n' "$_live" | wc -l | tr -d ' ') running session(s); conversations are kept"
@@ -134,6 +154,10 @@ cmd_update() {
   if [ -n "$_live" ]; then
     printf '%s\n' "$_live" | while IFS= read -r n; do [ -n "$n" ] && { say "  restart $n"; "$WRAPPER" restart "$n" >/dev/null || warn "  '$n' did not restart — run 'ccs restart $n'"; }; done
   fi
+  if [ -n "$_feishu" ]; then
+    say "  restart the Feishu connector"
+    "$WRAPPER" feishu start >/dev/null || warn "  the Feishu connector did not restart — run 'ccs feishu start'"
+  fi
   say "updated. Session records in $STATE were not touched."
   say "rollback: ln -sfn '$_old' '$ROOT/current'"
 }
@@ -145,6 +169,7 @@ cmd_uninstall() {
     say "stopping running session(s)…"
     printf '%s\n' "$_live" | while IFS= read -r n; do [ -n "$n" ] && "$WRAPPER" stop "$n" >/dev/null 2>&1 || true; done
   fi
+  "$WRAPPER" feishu stop >/dev/null 2>&1 || true
   rm -f "$WRAPPER"
   rm -rf "$ROOT"
   say "removed $ROOT and $WRAPPER"

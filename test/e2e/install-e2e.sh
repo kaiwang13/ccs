@@ -69,6 +69,11 @@ if "$WRAPPER" ls >"$PREFIX/ls.log" 2>&1; then pass "ccs ls exits 0"; else bad "c
 if "$WRAPPER" ls --json 2>/dev/null | grep -q '^\[\]$\|^\[$'; then pass "isolated registry is empty (cannot see your sessions)"
 else bad "isolated install sees sessions — NOT isolated"; "$WRAPPER" ls --json 2>/dev/null | head -5; fi
 
+say "the Feishu add-on stays off unless set up"
+[ ! -d "$CCS_HOME/current/addons/feishu/node_modules" ] && pass "no Feishu dependencies installed without the enabled marker" || bad "Feishu dependencies installed although the add-on was never enabled"
+"$WRAPPER" feishu status >/dev/null 2>&1 && _fs=0 || _fs=$?
+[ "$_fs" -eq 2 ] && pass "ccs feishu status: not set up (exit 2)" || bad "ccs feishu status exited $_fs, expected 2"
+
 say "update"
 if sh "$INSTALLER" update >"$PREFIX/update.log" 2>&1; then pass "update exited 0"; else bad "update failed"; tail -15 "$PREFIX/update.log"; fi
 [ -x "$WRAPPER" ] && pass "wrapper still present after update" || bad "wrapper lost during update"
