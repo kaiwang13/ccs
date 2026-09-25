@@ -950,11 +950,24 @@ class Connector {
     if (!r || !p || p.pid !== pid || p.answered || p.kind !== 'claude') return { ok: false };
     const opt = p.options.find((o) => o.key === key);
     if (!opt) return { ok: false };
+    // Claude's status file lags a keypress by up to a second (the same lag _promptTick's own comment describes):
+    // it can still show "waiting" after the owner answered prompt A at the terminal and a NEW dialog (B) is
+    // already on screen. Re-read the screen and re-parse it now, and only send when the question and this
+    // option's label still match what the card showed (spec §7, I1) — otherwise the tap must do nothing, and the
+    // stale card must say so rather than silently keep offering buttons for a dialog that is gone.
+    const lines = await this._peek(r);
+    const parsed = lines && parseClaudePrompt(lines);
+    const stillCurrent = !!parsed && parsed.question === p.question && (parsed.options.find((o) => o.key === key) || {}).label === opt.label;
+    if (!stillCurrent) {
+      if (r.prompt === p) r.prompt = null;
+      p.outcome = p.outcome || 'the prompt changed — see the new card';
+      await this._updatePromptCard(r, p);
+      return { ok: false, error: 'the prompt changed; use the new card' };
+    }
     p.answered = true;
     const res = await this._deliver(id, { key });
     if (!res.ok) { p.answered = false; return res; }
-    // Claude's own status file lags the keypress by up to a second: don't take the still-"waiting" state that follows
-    // for a new prompt.
+    // Same lag, the other direction: don't take the still-"waiting" state right after a landed answer for a new prompt.
     r.promptQuietUntil = Date.now() + 3000;
     p.outcome = `answered from Feishu: ${opt.label}`;
     if (r.prompt === p) r.prompt = null;

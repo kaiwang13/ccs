@@ -59,6 +59,18 @@ function promptCard(gw, chatId) {
   return null;
 }
 
+/** Every prompt card currently in the chat, oldest first (I1: a stale one can coexist with its replacement).
+ *  @param {FakeGateway} gw @param {string} chatId */
+function promptCards(gw, chatId) {
+  /** @type {{id: string, m: any}[]} */
+  const out = [];
+  for (const id of /** @type {any} */ (gw.chats.get(chatId)).order) {
+    const m = /** @type {any} */ (gw.msgs.get(id)).msg;
+    if (m.kind === 'card' && m.title.startsWith('🔐')) out.push({ id, m });
+  }
+  return out;
+}
+
 test('Claude: a prompt card offers the options; the owner\'s tap sends that digit once and records it', async (t) => {
   const { gw, link, chatId } = await liveSession(t);
   link.lines = screen('claude-bash-dialog.txt');
@@ -95,6 +107,27 @@ test('Claude: a prompt answered at the terminal updates the card, and a late tap
   gw.userClicks(chatId, id, m.buttons[0].value);
   await new Promise((r) => setTimeout(r, 150));
   assert.deepEqual(link.inputs, []);
+});
+
+test('Claude: a stale tap cannot answer a different prompt that replaced it (I1)', async (t) => {
+  const { gw, link, chatId } = await liveSession(t);
+  link.lines = screen('claude-bash-dialog.txt');
+  link.state('waiting', 'permission prompt');
+  await waitFor(() => promptCard(gw, chatId) !== null, { timeoutMs: 3000, what: 'prompt A' });
+  const a = /** @type {any} */ (promptCard(gw, chatId));
+  assert.equal(a.m.sections[0].body, 'Do you want to proceed?');
+  const twoA = a.m.buttons[1].value;
+  // Claude answers A at the terminal and immediately shows a different dialog, but its status file still lags
+  // behind and keeps reporting "waiting for permission prompt" for about a second (the same lag _promptTick's own
+  // comment describes) — so the card for A is still on screen when the owner's tap for A arrives.
+  link.lines = screen('claude-edit-dialog.txt');
+  gw.userClicks(chatId, a.id, twoA);
+  await new Promise((r) => setTimeout(r, 150));
+  assert.deepEqual(link.inputs, [], 'a stale tap sends no digit to the new dialog');
+  await waitFor(() => /the prompt changed/.test(JSON.stringify(/** @type {any} */ (gw.msgs.get(a.id)).msg)),
+    { timeoutMs: 3000, what: 'A\'s card says the prompt changed' });
+  await waitFor(() => promptCards(gw, chatId).some((c) => c.id !== a.id && c.m.sections[0].body === 'Do you want to make this edit to data.txt?'),
+    { timeoutMs: 3000, what: 'a new card opens for the dialog actually on screen' });
 });
 
 test('Claude: options scrolled off-screen are never offered; the card says so (Review Focus 4)', async (t) => {
