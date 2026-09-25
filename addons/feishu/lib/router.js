@@ -20,7 +20,8 @@ function normalizeInbound(s) {
  *   deliver: (id: string, op: {text?: string, key?: string}) => Promise<{ok: boolean, error?: string}>,
  *   screen: (id: string) => Promise<string|null>, statusText: (id: string) => string, overview: () => OutMessage,
  *   noteSent: (id: string, text: string) => void, debounceMs?: number,
- *   history?: (id: string, skip: number) => Promise<OutMessage>}} RouterDeps */
+ *   history?: (id: string, skip: number) => Promise<OutMessage>,
+ *   answer?: (id: string, pid: string, key: string) => Promise<{ok: boolean, error?: string}>}} RouterDeps */
 /** @typedef {import('./types').InAction} InAction */
 
 /** The screen snapshot as a message. @param {string|null} s @returns {OutMessage} */
@@ -90,6 +91,13 @@ class Router {
         const skip = Number(a.value.b);
         if (!Number.isSafeInteger(skip) || skip < 0 || !this.d.history) return;
         await this._send(a.chatId, await this.d.history(id, skip));
+        return;
+      }
+      case 'answer': {
+        const key = a.value.k || '';
+        if (!this.d.answer || !/^[1-9]$/.test(key) || !a.value.p) return;
+        const r = await this.d.answer(id, a.value.p, key);
+        if (!r.ok && r.error) await this._send(a.chatId, { kind: 'text', text: `not sent: ${r.error}` });
         return;
       }
       default:

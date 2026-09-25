@@ -6,6 +6,7 @@
  */
 const fs = require('node:fs');
 const path = require('node:path');
+const crypto = require('node:crypto');
 const { SessionIndex } = require('./sessionindex.js');
 const { ControlLink } = require('./ctllink.js');
 const { TranscriptTail } = require('./transcript/tail.js');
@@ -13,7 +14,8 @@ const { parseClaudeRecord, findClaudeTranscript } = require('./transcript/claude
 const { parseCodexRecord, findCodexRollout } = require('./transcript/codex.js');
 const { TurnAssembler, renderTurn, renderHistory, turnText } = require('./turns.js');
 const { Router } = require('./router.js');
-const { sanitizeMessage, maskEmails } = require('./text.js');
+const { parseClaudePrompt, detectCodexPrompt } = require('./prompts.js');
+const { sanitizeMessage, maskEmails, truncate } = require('./text.js');
 const { loadState, saveState, acquireLock } = require('./state.js');
 const { ensureRunning } = require('../../../src/cli/commands/attach.js');
 
@@ -99,11 +101,17 @@ function nextLineStart(file, start) {
 }
 
 /**
+ * @typedef {{pid: string, kind: 'claude'|'codex', messageId: string|null, answered: boolean, outcome: string|null,
+ *   question: string, options: {key: string, label: string}[], more: boolean, snapshot: string}} Prompt
+ */
+
+/**
  * @typedef {{info: SessionInfo, link: ControlLink|null, pollTimer: ReturnType<typeof setInterval>|null, state: any,
  *   sessionId: string|null, tail: TranscriptTail|null, assembler: TurnAssembler, sent: Array<{text: string, at: number}>,
  *   cards: Map<number, {ids: string[], title?: string, lastAt: number, timer: ReturnType<typeof setTimeout>|null, chain: Promise<void>}>,
  *   statusText: string, statusSentText: string|null, statusTimer: ReturnType<typeof setTimeout>|null,
- *   catchingUp: boolean, since: number, discoverAt: number, creatingGroup: boolean, groupRetryAt: number}} Runtime
+ *   catchingUp: boolean, since: number, discoverAt: number, creatingGroup: boolean, groupRetryAt: number,
+ *   prompt: Prompt|null, peekAt: number, promptQuietUntil: number}} Runtime
  */
 
 class Connector {
@@ -160,6 +168,7 @@ class Connector {
       screen: (id) => this._screen(id), statusText: (id) => (this.rt.get(id)?.statusText || 'unknown'),
       overview: () => this._overview(),
       history: (id, skip) => this._history(id, skip),
+      answer: (id, pid, key) => this._answer(id, pid, key),
       noteSent: (id, text) => {
         const r = this.rt.get(id);
         if (!r) return;
@@ -205,6 +214,7 @@ class Connector {
       for (const r of this.rt.values()) {
         try {
           this._pump(r);
+          this._promptTick(r);
           // Throttled retry for a still-groupless session (item 5): at most one attempt per pollMs, and
           // _ensureGroup itself refuses a second in-flight attempt for the same runtime.
           if (!this.state.groups[r.info.id] && Date.now() >= r.groupRetryAt) {
@@ -436,7 +446,8 @@ class Connector {
     /** @type {Runtime} */
     const nr = { info, link: null, pollTimer: null, state: null, sessionId: info.sessionId, tail: null, sent: [], cards: new Map(),
       statusText: info.live ? 'running' : 'stopped', statusSentText: null, statusTimer: null, catchingUp: false,
-      since: Date.now(), discoverAt: 0, creatingGroup: false, groupRetryAt: 0, assembler: /** @type {any} */ (null) };
+      since: Date.now(), discoverAt: 0, creatingGroup: false, groupRetryAt: 0, assembler: /** @type {any} */ (null),
+      prompt: null, peekAt: 0, promptQuietUntil: 0 };
     nr.assembler = new TurnAssembler({ isFeishuPrompt: (text) => nr.sent.some((s) => s.text === text && Date.now() - s.at < RECENT_SENT_MS) });
     nr.assembler.on('update', (turn) => { if (!nr.catchingUp) this._cardUpdate(nr, turn, false); });
     nr.assembler.on('done', (turn) => { if (!nr.catchingUp) this._cardUpdate(nr, turn, true); });
@@ -735,7 +746,7 @@ class Connector {
   _sessionState(id) {
     const r = this.rt.get(id);
     const live = !!(r && r.info.live);
-    const waiting = !!(r && r.state && r.state.claude && r.state.claude.status === 'waiting');
+    const waiting = !!(r && ((r.state && r.state.claude && r.state.claude.status === 'waiting') || (r.prompt && !r.prompt.answered)));
     return { live, waiting, lifecycle: r && r.state ? r.state.lifecycle : (r ? r.info.lifecycle : null), name: r ? r.info.name : id };
   }
 
@@ -774,6 +785,126 @@ class Connector {
       const res = await r.link.request('PEEK', { lines: 40 });
       return res.ok ? res.data.lines.join('\n') : null;
     } catch { return null; }
+  }
+
+  // ---- permission relay (spec §7) -----------------------------------------------------------------------------------
+
+  /** Called every tail tick. Claude: open a card when ccs reports a permission wait, close it when the wait ends.
+   *  Codex (no live status): PEEK every 2 s while a turn is open. @param {Runtime} r */
+  _promptTick(r) {
+    if (!r.link || !r.link.up || !this.state.groups[r.info.id] || this.stopped) return;
+    const now = Date.now();
+    if (r.info.agent === 'codex') {
+      if (!r.assembler.open && !r.prompt) return;
+      if (now < r.peekAt) return;
+      r.peekAt = now + 2000;
+      this._track(this._codexPeek(r));
+      return;
+    }
+    const c = (r.state && r.state.claude) || {};
+    const permission = c.status === 'waiting' && c.waitingFor === 'permission prompt';
+    if (permission && !r.prompt && now >= r.promptQuietUntil) this._track(this._openPrompt(r, 'claude', null));
+    else if (!permission && r.prompt && r.prompt.kind === 'claude' && !r.prompt.answered) this._track(this._closePrompt(r, 'answered at the terminal'));
+  }
+
+  /** @param {Runtime} r */
+  async _codexPeek(r) {
+    const lines = await this._peek(r);
+    if (lines === null) return;
+    const found = detectCodexPrompt(lines);
+    if (found && !r.prompt) await this._openPrompt(r, 'codex', lines);
+    else if (!found && r.prompt && r.prompt.kind === 'codex') await this._closePrompt(r, 'answered at the terminal');
+  }
+
+  /** @param {Runtime} r @returns {Promise<string[]|null>} */
+  async _peek(r) {
+    if (!r.link) return null;
+    try {
+      const res = await r.link.request('PEEK', { lines: 50 });
+      return res.ok ? res.data.lines : null;
+    } catch { return null; }
+  }
+
+  /** @param {Runtime} r @param {'claude'|'codex'} kind @param {string[]|null} lines */
+  async _openPrompt(r, kind, lines) {
+    const g = this.state.groups[r.info.id];
+    if (!g || g.removed) return;
+    /** @type {Prompt} */
+    const p = { pid: crypto.randomBytes(4).toString('hex'), kind, messageId: null, answered: false, outcome: null, question: '', options: [], more: false, snapshot: '' };
+    r.prompt = p; // set before any await: one card per prompt
+    const shown = lines || (await this._peek(r)) || [];
+    if (kind === 'claude') {
+      const parsed = parseClaudePrompt(shown);
+      if (parsed) { p.question = parsed.question; p.options = parsed.options; p.more = parsed.more; }
+    } else {
+      const found = detectCodexPrompt(shown);
+      if (found) p.question = found.question;
+    }
+    p.snapshot = shown.slice(-15).join('\n');
+    try {
+      p.messageId = await this.gw.send(g.chatId, this._promptCard(r, p));
+    } catch (e) {
+      this.log('prompt.error', { id: r.info.id, error: String(e) });
+      if (r.prompt === p) r.prompt = null; // retried on the next tick
+      return;
+    }
+    if (p.outcome) await this._updatePromptCard(r, p); // closed while the card was being sent
+  }
+
+  /** @param {Runtime} r @param {string} outcome */
+  async _closePrompt(r, outcome) {
+    const p = r.prompt;
+    if (!p) return;
+    r.prompt = null;
+    p.outcome = p.outcome || outcome;
+    if (p.messageId) await this._updatePromptCard(r, p);
+  }
+
+  /** @param {Runtime} r @param {Prompt} p */
+  async _updatePromptCard(r, p) {
+    if (!p.messageId) return;
+    try { await this.gw.update(p.messageId, this._promptCard(r, p)); } catch (e) { this.log('prompt.error', { id: r.info.id, error: String(e) }); }
+  }
+
+  /** @param {Runtime} r @param {Prompt} p @returns {OutMessage} */
+  _promptCard(r, p) {
+    const name = r.info.name;
+    /** @type {import('./types').OutSection[]} */
+    const sections = [{ body: p.question || 'The agent is waiting for an answer.' }];
+    if (p.snapshot) sections.push({ heading: 'Screen', body: `\`\`\`\n${p.snapshot}\n\`\`\``, collapsed: true });
+    if (p.outcome) return { kind: 'card', title: `🔐 ${name}: permission`, sections, footer: p.outcome };
+    const actionable = p.kind === 'claude' && p.options.length > 0;
+    /** @type {import('./types').OutButton[]} */
+    const buttons = actionable
+      ? p.options.map((o) => ({ text: `${o.key}. ${truncate(o.label, 40)}`, style: /** @type {'primary'|'default'} */ (o.key === '1' ? 'primary' : 'default'), value: { a: 'answer', s: r.info.id, p: p.pid, k: o.key } }))
+      : [];
+    buttons.push({ text: 'Interrupt', style: 'danger', value: { a: 'interrupt', s: r.info.id } });
+    const footer = !actionable ? `answer it at a terminal: ccs a ${name}`
+      : p.more ? `more options at the terminal: ccs a ${name}` : 'tap an option, or answer at the terminal';
+    return { kind: 'card', title: `🔐 ${name} needs permission`, sections, buttons, footer };
+  }
+
+  /**
+   * A tap on a prompt option. Single-use and only for the prompt currently showing: a stale, repeated or unknown tap is
+   * ignored (spec §7). The digit goes through INPUT like a keystroke (spec §4.1).
+   * @param {string} id @param {string} pid @param {string} key @returns {Promise<{ok: boolean, error?: string}>}
+   */
+  async _answer(id, pid, key) {
+    const r = this.rt.get(id);
+    const p = r && r.prompt;
+    if (!r || !p || p.pid !== pid || p.answered || p.kind !== 'claude') return { ok: false };
+    const opt = p.options.find((o) => o.key === key);
+    if (!opt) return { ok: false };
+    p.answered = true;
+    const res = await this._deliver(id, { key });
+    if (!res.ok) { p.answered = false; return res; }
+    // Claude's own status file lags the keypress by up to a second: don't take the still-"waiting" state that follows
+    // for a new prompt.
+    r.promptQuietUntil = Date.now() + 3000;
+    p.outcome = `answered from Feishu: ${opt.label}`;
+    if (r.prompt === p) r.prompt = null;
+    await this._updatePromptCard(r, p);
+    return { ok: true };
   }
 
   // ---- persistence --------------------------------------------------------------------------------------------------

@@ -1,0 +1,20 @@
+ ▐▛███▛█   Claude Code v2.1.281
+▝▜██████▀  Sonnet 4.5 · Claude Max
+  ▝▝ ▝▝    /work/repo
+
+❯ Run npm test in this repo and tell me if it passes
+
+● Bash(npm test)
+
+────────────────────────────────────────────────────────────────────────────────
+ Bash command
+ npm test
+ Runs the test suite
+────────────────────────────────────────────────────────────────────────────────
+ Do you want to proceed?
+ ❯ 1. Yes
+   2. Yes, and don't ask again for npm commands in
+      /work/repo
+   3. No, and tell Claude what to do differently (esc)
+
+ Esc to cancel

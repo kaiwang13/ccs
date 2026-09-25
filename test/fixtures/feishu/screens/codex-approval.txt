@@ -1,0 +1,13 @@
+› Run npm test in this repo and tell me if it passes
+
+• Ran command
+  $ npm test
+
+  Would you like to run the following command?
+  $ npm test
+
+    Yes, just this once
+    Yes, and don't ask again for this command in this session
+    No, and tell Codex what to do differently
+
+  ↑/↓ choose · Enter to confirm · Esc to cancel

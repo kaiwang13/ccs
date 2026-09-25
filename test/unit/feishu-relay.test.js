@@ -1,0 +1,135 @@
+'use strict';
+// @ts-check
+/** Spec §7 end to end through the connector and router, with a fake control link and a held sessiond lock (so the
+ *  session counts as live), but no real sessiond. */
+const test = require('node:test');
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const path = require('node:path');
+const { EventEmitter } = require('node:events');
+const { Connector } = require('../../addons/feishu/lib/connector.js');
+const { tryLock } = require('../../src/common/locks.js');
+const { FakeGateway } = require('../helpers/fakefeishu.js');
+const { waitFor } = require('../helpers/waitfor.js');
+const { FakeRegistry, mkRec, tmpPaths } = require('../helpers/feishuconn.js');
+
+/** @param {string} name */
+const screen = (name) => fs.readFileSync(path.join(__dirname, '..', 'fixtures', 'feishu', 'screens', name), 'utf8')
+  .split('\n').filter((l) => l.trim() !== '').slice(-50);
+
+/** A control link that answers PEEK with `lines`, records INPUT, and lets the test push STATE. */
+class FakeLink extends EventEmitter {
+  constructor() { super(); this.up = true; /** @type {string[]} */ this.lines = []; /** @type {any[]} */ this.inputs = []; }
+  start() {}
+  stop() { this.up = false; }
+  /** @param {string} op @param {any} [args] */
+  async request(op, args) {
+    if (op === 'PEEK') return { ok: true, data: { lines: this.lines } };
+    if (op === 'INPUT') { this.inputs.push(args); return { ok: true }; }
+    return { ok: true, data: { claude: { sessionId: null } } };
+  }
+  /** @param {string|null} status @param {string|null} [waitingFor] */
+  state(status, waitingFor = null) { this.emit('state', { t: 'STATE', lifecycle: 'RUNNING', claude: { status, waitingFor } }); }
+}
+
+/** A live session s1 whose control link is a FakeLink. @param {import('node:test').TestContext} t @param {{agent?: string}} [o] */
+async function liveSession(t, { agent = 'claude' } = {}) {
+  const paths = tmpPaths(t);
+  fs.mkdirSync(paths.sessionDir('s1'), { recursive: true, mode: 0o700 });
+  const held = tryLock(paths.sessiondLock('s1'));
+  assert.ok(held);
+  t.after(() => held.release());
+  const registry = new FakeRegistry();
+  registry.set(mkRec('s1', { agent }));
+  const gw = new FakeGateway();
+  const link = new FakeLink();
+  const conn = new Connector({ gateway: gw, paths, registry, env: {}, tailMs: 20, pollMs: 100, updateMs: 30, statusMs: 5000, linkFactory: () => link });
+  t.after(() => conn.stop());
+  await conn.start();
+  await waitFor(() => gw.chatByName('ccs · s1') !== null && conn.rt.get('s1')?.link === link, { timeoutMs: 3000, what: 'group and link' });
+  return { gw, link, conn, chatId: /** @type {string} */ (gw.chatByName('ccs · s1')) };
+}
+
+/** @param {FakeGateway} gw @param {string} chatId */
+function promptCard(gw, chatId) {
+  for (const id of /** @type {any} */ (gw.chats.get(chatId)).order) {
+    const m = /** @type {any} */ (gw.msgs.get(id)).msg;
+    if (m.kind === 'card' && m.title.startsWith('🔐')) return { id, m };
+  }
+  return null;
+}
+
+test('Claude: a prompt card offers the options; the owner\'s tap sends that digit once and records it', async (t) => {
+  const { gw, link, chatId } = await liveSession(t);
+  link.lines = screen('claude-bash-dialog.txt');
+  link.state('waiting', 'permission prompt');
+  await waitFor(() => promptCard(gw, chatId) !== null, { timeoutMs: 3000, what: 'prompt card' });
+  const { id, m } = /** @type {any} */ (promptCard(gw, chatId));
+  assert.equal(m.sections[0].body, 'Do you want to proceed?');
+  assert.deepEqual(m.buttons.map((/** @type {any} */ b) => b.value.a), ['answer', 'answer', 'answer', 'interrupt']);
+  const two = m.buttons[1].value;
+  gw.userClicks(chatId, id, two, 'ou_stranger');
+  await new Promise((r) => setTimeout(r, 100));
+  assert.deepEqual(link.inputs, [], 'a stranger\'s tap does nothing');
+  gw.userClicks(chatId, id, two);
+  await waitFor(() => link.inputs.length === 1, { timeoutMs: 3000, what: 'digit sent' });
+  assert.deepEqual(link.inputs, [{ key: '2' }]);
+  await waitFor(() => /answered from Feishu/.test(JSON.stringify(/** @type {any} */ (gw.msgs.get(id)).msg)), { timeoutMs: 3000, what: 'card answered' });
+  gw.userClicks(chatId, id, two);
+  gw.userClicks(chatId, id, m.buttons[0].value);
+  await new Promise((r) => setTimeout(r, 150));
+  assert.deepEqual(link.inputs, [{ key: '2' }], 'buttons are single-use');
+  link.state('idle');
+  await new Promise((r) => setTimeout(r, 150));
+  assert.match(JSON.stringify(/** @type {any} */ (gw.msgs.get(id)).msg), /answered from Feishu/);
+});
+
+test('Claude: a prompt answered at the terminal updates the card, and a late tap is ignored', async (t) => {
+  const { gw, link, chatId } = await liveSession(t);
+  link.lines = screen('claude-bash-dialog.txt');
+  link.state('waiting', 'permission prompt');
+  await waitFor(() => promptCard(gw, chatId) !== null, { timeoutMs: 3000, what: 'prompt card' });
+  const { id, m } = /** @type {any} */ (promptCard(gw, chatId));
+  link.state('busy');
+  await waitFor(() => /answered at the terminal/.test(JSON.stringify(/** @type {any} */ (gw.msgs.get(id)).msg)), { timeoutMs: 3000, what: 'closed' });
+  gw.userClicks(chatId, id, m.buttons[0].value);
+  await new Promise((r) => setTimeout(r, 150));
+  assert.deepEqual(link.inputs, []);
+});
+
+test('Claude: options scrolled off-screen are never offered; the card says so (Review Focus 4)', async (t) => {
+  const { gw, link, chatId } = await liveSession(t);
+  link.lines = screen('claude-edit-dialog.txt');
+  link.state('waiting', 'permission prompt');
+  await waitFor(() => promptCard(gw, chatId) !== null, { timeoutMs: 3000, what: 'prompt card' });
+  const { m } = /** @type {any} */ (promptCard(gw, chatId));
+  assert.deepEqual(m.buttons.filter((/** @type {any} */ b) => b.value.a === 'answer').map((/** @type {any} */ b) => b.value.k), ['1', '2']);
+  assert.match(m.footer, /more options at the terminal/);
+});
+
+test('Claude: while the prompt is open, text in the group is held back with a reason', async (t) => {
+  const { gw, link, chatId } = await liveSession(t);
+  link.lines = screen('claude-bash-dialog.txt');
+  link.state('waiting', 'permission prompt');
+  await waitFor(() => promptCard(gw, chatId) !== null, { timeoutMs: 3000, what: 'prompt card' });
+  const mid = gw.userSays(chatId, 'please continue');
+  await waitFor(() => gw.reactionsOn(mid).includes('ERROR'), { timeoutMs: 3000, what: 'held back' });
+  assert.deepEqual(link.inputs, []);
+});
+
+test('Codex: a read-only card with only Interrupt while the dialog shows; text is held back; it closes when the dialog goes', async (t) => {
+  const { gw, link, conn, chatId } = await liveSession(t, { agent: 'codex' });
+  const r = /** @type {any} */ (conn.rt.get('s1'));
+  r.assembler.push([{ kind: 'prompt', key: 'k1', text: 'run the tests' }]); // an open Codex turn (spec §7: PEEK only then)
+  link.lines = screen('codex-approval.txt');
+  await waitFor(() => promptCard(gw, chatId) !== null, { timeoutMs: 5000, what: 'codex prompt card' });
+  const { id, m } = /** @type {any} */ (promptCard(gw, chatId));
+  assert.deepEqual(m.buttons.map((/** @type {any} */ b) => b.value.a), ['interrupt']);
+  assert.match(m.footer, /answer it at a terminal/);
+  assert.equal(m.sections[0].body, 'Would you like to run the following command?');
+  const mid = gw.userSays(chatId, 'yes do it');
+  await waitFor(() => gw.reactionsOn(mid).includes('ERROR'), { timeoutMs: 3000, what: 'held back' });
+  link.lines = ['• Ran npm test', '  all green'];
+  await waitFor(() => /answered at the terminal/.test(JSON.stringify(/** @type {any} */ (gw.msgs.get(id)).msg)), { timeoutMs: 5000, what: 'closed' });
+  assert.deepEqual(link.inputs, []);
+});
