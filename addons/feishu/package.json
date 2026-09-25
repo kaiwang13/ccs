@@ -4,6 +4,6 @@
   "private": true,
   "description": "ccs add-on: Feishu (Lark) connector. Optional; ccs never loads it. Launched as a separate process.",
   "license": "UNLICENSED",
-  "main": "lib/connector.js",
+  "main": "main.js",
   "engines": { "node": "22.22.2" }
 }
