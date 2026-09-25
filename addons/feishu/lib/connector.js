@@ -11,7 +11,7 @@ const { ControlLink } = require('./ctllink.js');
 const { TranscriptTail } = require('./transcript/tail.js');
 const { parseClaudeRecord, findClaudeTranscript } = require('./transcript/claude.js');
 const { parseCodexRecord, findCodexRollout } = require('./transcript/codex.js');
-const { TurnAssembler, renderTurn, renderHistory } = require('./turns.js');
+const { TurnAssembler, renderTurn, renderHistory, turnText } = require('./turns.js');
 const { Router } = require('./router.js');
 const { sanitizeMessage, maskEmails } = require('./text.js');
 const { loadState, saveState, acquireLock } = require('./state.js');
@@ -99,7 +99,7 @@ function nextLineStart(file, start) {
 /**
  * @typedef {{info: SessionInfo, link: ControlLink|null, pollTimer: ReturnType<typeof setInterval>|null, state: any,
  *   sessionId: string|null, tail: TranscriptTail|null, assembler: TurnAssembler, sent: Array<{text: string, at: number}>,
- *   cards: Map<number, {ids: string[], lastAt: number, timer: ReturnType<typeof setTimeout>|null, chain: Promise<void>}>,
+ *   cards: Map<number, {ids: string[], title?: string, lastAt: number, timer: ReturnType<typeof setTimeout>|null, chain: Promise<void>}>,
  *   statusText: string, statusSentText: string|null, statusTimer: ReturnType<typeof setTimeout>|null,
  *   catchingUp: boolean, since: number, discoverAt: number, creatingGroup: boolean, groupRetryAt: number}} Runtime
  */
@@ -107,9 +107,11 @@ function nextLineStart(file, start) {
 class Connector {
   /**
    * @param {{gateway: Gateway, paths: any, registry: any, env: Record<string, string|undefined>, tailMs?: number, pollMs?: number,
-   *   updateMs?: number, statusMs?: number, linkWaitMs?: number, log?: (event: string, fields?: object) => void}} o
+   *   updateMs?: number, statusMs?: number, linkWaitMs?: number, log?: (event: string, fields?: object) => void,
+   *   lock?: {release(): void}|null, linkFactory?: (o: {sockPath: string, label: string}) => any, retryBaseMs?: number, ownerRefreshMs?: number}} o
    */
-  constructor({ gateway, paths, registry, env, tailMs = 500, pollMs = 5000, updateMs = 1000, statusMs = 5000, linkWaitMs = 10000, log = () => {} }) {
+  constructor({ gateway, paths, registry, env, tailMs = 500, pollMs = 5000, updateMs = 1000, statusMs = 5000, linkWaitMs = 10000,
+    log = () => {}, lock = null, linkFactory = (/** @type {any} */ o) => new ControlLink(o), retryBaseMs = 1000, ownerRefreshMs = 30 * 60 * 1000 }) {
     this.gw = wrapGateway(gateway);
     this.paths = paths;
     this.registry = registry;
@@ -120,6 +122,14 @@ class Connector {
     this.statusMs = statusMs;
     this.linkWaitMs = linkWaitMs;
     this.log = log;
+    this.preLock = lock;
+    this.linkFactory = linkFactory;
+    this.retryBaseMs = retryBaseMs;
+    this.ownerRefreshMs = ownerRefreshMs;
+    this.ownerAt = 0;
+    this.maintainAt = 0;
+    /** @type {Array<{id: string, chatId: string, card: any, turn: any, attempts: number, nextAt: number}>} final writes still owed */
+    this.retries = [];
     /** @type {{release(): void}|null} */
     this.lock = null;
     this.state = loadState(paths);
@@ -158,10 +168,12 @@ class Connector {
   }
 
   async start() {
-    this.lock = acquireLock(this.paths);
+    this.lock = this.preLock || acquireLock(this.paths);
     if (!this.lock) { const e = /** @type {any} */ (new Error('another Feishu connector is already running on this host')); e.code = 'LOCKED'; throw e; }
     this.owner = await this.gw.ownerId();
+    this.ownerAt = Date.now() + this.ownerRefreshMs;
     if (!this.state.dmChat) { this.state.dmChat = await this.gw.dmChat(this.owner); this._save(); }
+    await this._closeStaleCards();
     this.gw.on('message', (m) => { this.router.onMessage(m).catch((e) => this.log('route.error', { error: String(e) })); });
     this.gw.on('down', () => { this.online = false; });
     this.gw.on('up', () => {
@@ -182,6 +194,7 @@ class Connector {
     this.index.on('removed', (id) => { this._track(this._removed(id)); });
     this.index.on('warn', (e) => this.log('index.warn', { error: String(e) }));
     await this.index.start();
+    await this._reconcileRemoved();
     this.tailTimer = setInterval(() => {
       if (this.stopped || !this.online) return;
       for (const r of this.rt.values()) {
@@ -195,6 +208,7 @@ class Connector {
           }
         } catch (e) { this.log('tick.error', { id: r.info.id, error: String(e) }); }
       }
+      try { this._maintain(); } catch (e) { this.log('maintain.error', { error: String(e) }); }
     }, this.tailMs);
   }
 
@@ -250,7 +264,7 @@ class Connector {
       const chatId = await this.gw.createGroup(`ccs · ${r.info.name}`, /** @type {string} */ (this.owner));
       // Record the group even when stop() arrived meanwhile: it exists in Feishu now, and forgetting it would make
       // the next start create a duplicate. stop() drains this job before its final save.
-      this.state.groups[r.info.id] = { chatId, removed: false, statusMessageId: null };
+      this.state.groups[r.info.id] = { chatId, removed: false, statusMessageId: null, name: r.info.name };
       this._save(true);
       if (this.stopped) return;
       const file = this._transcriptFile(r);
@@ -297,7 +311,7 @@ class Connector {
   async _renameGroup(r, name) {
     const g = this.state.groups[r.info.id];
     if (!g || g.removed) return;
-    try { await this.gw.renameGroup(g.chatId, `ccs · ${name}`); } catch (e) { this.log('rename.error', { id: r.info.id, error: String(e) }); }
+    try { await this.gw.renameGroup(g.chatId, `ccs · ${name}`); g.name = name; this._save(); } catch (e) { this.log('rename.error', { id: r.info.id, error: String(e) }); }
   }
 
   /** @param {string} id */
@@ -307,10 +321,74 @@ class Connector {
     if (r) { this._stopRuntime(r); this.rt.delete(id); }
     if (g && !g.removed) {
       g.removed = true;
+      g.renamePending = true;
+      if (r) g.name = r.info.name;
       this._save(true);
-      await this.gw.renameGroup(g.chatId, `ccs · ${r ? r.info.name : id} (removed)`);
+      await this._retryRename(id, g);
     }
     this._touchOverview();
+  }
+
+  /** Rename a removed session's group; on failure leave `renamePending` for `_maintain` to retry. @param {string} id @param {any} g */
+  async _retryRename(id, g) {
+    try {
+      await this.gw.renameGroup(g.chatId, `ccs · ${g.name || id} (removed)`);
+      delete g.renamePending;
+      this._save();
+    } catch (e) { this.log('rename.error', { id, error: String(e) }); }
+  }
+
+  /** Groups whose session disappeared while the connector was down (spec §6.1): confirmed gone → removed. */
+  async _reconcileRemoved() {
+    for (const [id, g] of Object.entries(this.state.groups)) {
+      if (g.removed || this.rt.has(id)) continue;
+      let rec;
+      try { rec = await this.registry.get(id); } catch (e) { this.log('index.warn', { error: String(e) }); continue; }
+      if (!rec) this._track(this._removed(id));
+    }
+  }
+
+  /** Cards a previous run left mid-turn (spec §5): point them at the catch-up that follows, then forget them. */
+  async _closeStaleCards() {
+    for (const list of Object.values(this.state.openCards)) {
+      for (const c of list) {
+        if (!c.ids.length) continue;
+        try {
+          await this.gw.update(c.ids[0], { kind: 'card', title: c.title,
+            sections: [{ body: 'The connector restarted while this turn was running; the rest of it is in the catch-up message below.' }],
+            footer: '⟳ continued below' });
+        } catch (e) { this.log('card.error', { error: String(e) }); }
+      }
+    }
+    this.state.openCards = {};
+    this._save(true);
+  }
+
+  /** Slow periodic work, at most once per pollMs: rename retries, owed final writes, owner refresh. */
+  _maintain() {
+    const now = Date.now();
+    if (this.stopped || now < this.maintainAt) return;
+    this.maintainAt = now + this.pollMs;
+    for (const [id, g] of Object.entries(this.state.groups)) if (g.removed && g.renamePending) this._track(this._retryRename(id, g));
+    for (const job of this.retries.filter((j) => j.nextAt <= now)) this._track(this._retryFinal(job));
+    if (now >= this.ownerAt) {
+      this.ownerAt = now + this.ownerRefreshMs;
+      this._track(this.gw.ownerId().then((o) => { if (o) this.owner = o; }));
+    }
+  }
+
+  /** One more attempt at a final card write; after four, send the answer as plain text instead (spec §9). @param {any} job */
+  async _retryFinal(job) {
+    job.nextAt = Infinity; // not due again until this attempt settles
+    job.attempts++;
+    try {
+      if (job.attempts <= 4) await this._writeTurn(job.chatId, job.card, job.turn);
+      else await this.gw.send(job.chatId, { kind: 'text', text: turnText(job.turn) });
+      this.retries = this.retries.filter((j) => j !== job);
+    } catch (e) {
+      this.log('card.retry_error', { id: job.id, attempts: job.attempts, error: String(e) });
+      job.nextAt = Date.now() + Math.min(60000, this.retryBaseMs * 2 ** job.attempts);
+    }
   }
 
   /** @param {SessionInfo} info @returns {Runtime} */
@@ -339,7 +417,7 @@ class Connector {
   /** Keep a control link exactly while the session is live. @param {Runtime} r */
   _syncLink(r) {
     if (r.info.live && !r.link) {
-      const link = new ControlLink({ sockPath: this.paths.ctlSock(r.info.id), label: 'feishu' });
+      const link = this.linkFactory({ sockPath: this.paths.ctlSock(r.info.id), label: 'feishu' });
       link.on('state', (s) => {
         try { this._onState(r, s); } catch (e) { this.log('state.error', { id: r.info.id, error: String(e) }); }
       });
@@ -476,7 +554,12 @@ class Connector {
     const run = () => {
       card.timer = null;
       card.lastAt = Date.now();
-      card.chain = card.chain.then(() => this._writeTurn(g.chatId, card, turn)).catch((e) => this.log('card.error', { error: String(e) }));
+      card.chain = card.chain.then(() => this._writeTurn(g.chatId, card, turn)).then(
+        () => this._noteOpenCard(r, turn, card),
+        (e) => {
+          this.log('card.error', { error: String(e) });
+          if (final) this.retries.push({ id: r.info.id, chatId: g.chatId, card, turn, attempts: 0, nextAt: Date.now() + this.retryBaseMs });
+        });
       this._track(card.chain);
       if (final) card.chain.then(() => r.cards.delete(turn.id));
     };
@@ -486,9 +569,18 @@ class Connector {
     card.timer = setTimeout(run, wait);
   }
 
-  /** @param {string} chatId @param {{ids: string[]}} card @param {import('./turns').Turn} turn */
+  /** Persist which messages show a still-open turn, so a restart can close them (spec §5). @param {Runtime} r @param {any} turn @param {any} card */
+  _noteOpenCard(r, turn, card) {
+    const list = (this.state.openCards[r.info.id] || []).filter((c) => c.turnId !== turn.id);
+    if (!turn.done && card.ids.length) list.push({ turnId: turn.id, ids: [...card.ids], title: card.title || '' });
+    if (list.length) this.state.openCards[r.info.id] = list; else delete this.state.openCards[r.info.id];
+    this._save();
+  }
+
+  /** @param {string} chatId @param {{ids: string[], title?: string}} card @param {import('./turns').Turn} turn */
   async _writeTurn(chatId, card, turn) {
     const msgs = renderTurn(turn);
+    if (msgs[0] && msgs[0].kind === 'card') card.title = msgs[0].title;
     for (let i = 0; i < msgs.length; i++) {
       if (i < card.ids.length) {
         try { await this.gw.update(card.ids[i], msgs[i]); } catch { card.ids[i] = await this.gw.send(chatId, msgs[i]); }
