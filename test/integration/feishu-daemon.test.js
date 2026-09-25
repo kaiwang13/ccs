@@ -89,11 +89,14 @@ test('SIGTERM during an in-flight connect attempt still stops promptly (fix roun
   const ctx = setUp(t, { FAKE_LARK_CONNECT: 'slowfail' });
   const d = spawnDaemon(ctx);
   t.after(() => { try { d.child.kill('SIGTERM'); } catch { /* gone */ } });
-  await waitFor(() => larkLog(ctx).some((e) => e.ev === 'connect'), { timeoutMs: 15000, what: 'the first connect attempt to start' });
+  // Wait for the SECOND connect attempt, not the first: by then the backoff that would follow its failure
+  // is 2000 ms, so a bug that leaves that sleep un-wakeable pushes total time past this test's 3000 ms bound
+  // (~1500 ms remaining connect + ~2000 ms unwaked sleep ≈ 3500 ms) while the fix stays near ~1500 ms.
+  await waitFor(() => larkLog(ctx).filter((e) => e.ev === 'connect').length >= 2, { timeoutMs: 15000, what: 'the second connect attempt to start' });
   const t0 = Date.now();
   d.child.kill('SIGTERM');
   assert.equal(await d.exited, 0);
-  assert.ok(Date.now() - t0 < 5000, 'SIGTERM interrupts an in-flight connect attempt, not just the backoff sleep');
+  assert.ok(Date.now() - t0 < 3000, 'SIGTERM interrupts an in-flight connect attempt, not just the backoff sleep that would follow it');
 });
 
 test('a tampered secret store fails with one clear line, never a stack trace (Review Focus 5)', { timeout: 30000 }, async (t) => {
