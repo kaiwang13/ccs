@@ -76,6 +76,10 @@ async function main({ env = process.env } = {}) {
       try { await g.connect(); break; } catch (e) {
         writeStatus({ connected: false, lastError: `cannot reach Feishu: ${oneLine(e)}` });
         say('connect.error', { error: oneLine(e), retryMs: delay });
+        // A SIGTERM that arrived while g.connect() was in flight already fired the one-shot handler above:
+        // `stopping` is true but `wake` is stale (it still points at nothing, or at a previous iteration's
+        // resolver). Arming a fresh sleep here would leave nobody to wake it — check first and leave instead.
+        if (stopping) break;
         await new Promise((r) => { const tm = setTimeout(r, delay); wake = () => { clearTimeout(tm); r(undefined); }; });
       }
     }
@@ -89,7 +93,7 @@ async function main({ env = process.env } = {}) {
     const c = new Connector({ gateway: g, paths, registry: createRegistry(paths), env: sessionEnv, log: say, lock });
     conn = c;
     await c.start();
-    writeStatus({ connected: true, lastError: null, linked: Object.keys(c.state.groups).length });
+    writeStatus({ connected: true, lastError: null, linked: Object.values(c.state.groups).filter((x) => !x.removed).length });
     say('started', { appId: cfg.appId });
     const tick = setInterval(() => writeStatus({ linked: Object.values(c.state.groups).filter((x) => !x.removed).length }), 5000);
     await stopped;
@@ -102,7 +106,7 @@ async function main({ env = process.env } = {}) {
     return 1;
   } finally {
     if (conn) { try { await conn.stop(); } catch (e) { log.error('stop.error', { error: String(e) }); } }
-    if (gw) await gw.close();
+    if (gw) { try { await gw.close(); } catch (e) { log.error('close.error', { error: String(e) }); } }
     lock.release();
     writeStatus({ connected: false });
     say('exit');

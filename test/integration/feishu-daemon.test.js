@@ -85,6 +85,17 @@ test('Feishu unreachable: the daemon keeps retrying, reports the error, and stil
   assert.ok(Date.now() - t0 < 5000, 'SIGTERM interrupts the backoff wait');
 });
 
+test('SIGTERM during an in-flight connect attempt still stops promptly (fix round 1)', { timeout: 30000 }, async (t) => {
+  const ctx = setUp(t, { FAKE_LARK_CONNECT: 'slowfail' });
+  const d = spawnDaemon(ctx);
+  t.after(() => { try { d.child.kill('SIGTERM'); } catch { /* gone */ } });
+  await waitFor(() => larkLog(ctx).some((e) => e.ev === 'connect'), { timeoutMs: 15000, what: 'the first connect attempt to start' });
+  const t0 = Date.now();
+  d.child.kill('SIGTERM');
+  assert.equal(await d.exited, 0);
+  assert.ok(Date.now() - t0 < 5000, 'SIGTERM interrupts an in-flight connect attempt, not just the backoff sleep');
+});
+
 test('a tampered secret store fails with one clear line, never a stack trace (Review Focus 5)', { timeout: 30000 }, async (t) => {
   const ctx = setUp(t);
   const fp = feishuPaths(ctx.paths);

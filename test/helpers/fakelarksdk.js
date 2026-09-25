@@ -4,7 +4,8 @@
  * A module with @larksuite/channel's exports, loaded through CCS_FEISHU_SDK by main.js / setup.js / the launcher in
  * tests. Steered by environment variables so a spawned daemon can be driven by its test:
  *   FAKE_LARK_LOG      JSONL file every call is appended to ({ev, pid, …})
- *   FAKE_LARK_CONNECT  'fail' → connect() always rejects (Feishu unreachable)
+ *   FAKE_LARK_CONNECT  'fail' → connect() always rejects (Feishu unreachable); 'slowfail' → connect() logs
+ *                      'connect' immediately, then rejects ~1500 ms later (an in-flight attempt to interrupt)
  *   FAKE_LARK_VERIFY   'fail' → getAppInfo() rejects (bad credentials)
  *   FAKE_LARK_OWNER    owner open_id (default ou_owner)
  *   FAKE_LARK_SCOPES   comma list of scopes the app reports as granted (default none)
@@ -12,6 +13,9 @@
  */
 const fs = require('node:fs');
 const { FakeChannel, larkError } = require('./fakechannel.js');
+
+/** @param {number} ms */
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 /** @param {string} ev @param {object} [data] */
 function log(ev, data = {}) {
@@ -30,6 +34,7 @@ function createLarkChannel(opts) {
   ch.connect = async () => {
     log('connect');
     if (process.env.FAKE_LARK_CONNECT === 'fail') throw larkError('not_connected');
+    if (process.env.FAKE_LARK_CONNECT === 'slowfail') { await sleep(1500); throw larkError('not_connected'); }
     return connect();
   };
   const getAppInfo = ch.getAppInfo;
