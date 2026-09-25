@@ -92,7 +92,21 @@ async function main({ env = process.env } = {}) {
     delete sessionEnv.CCS_FEISHU_SDK;
     const c = new Connector({ gateway: g, paths, registry: createRegistry(paths), env: sessionEnv, log: say, lock });
     conn = c;
-    await c.start();
+    // M2: once the gateway is up, a transient failure in c.start() (ownerId()/dmChat() hitting a network blip or a
+    // 5xx) used to be fatal — the daemon exited 1 and nothing restarted it. Retry with the same interruptible
+    // backoff loop as g.connect() above; a LOCKED error (the lock is already this process's own, so this should
+    // be unreachable in practice) is still fatal, never retried. Connector.start() itself guards against
+    // registering its gateway/index listeners twice across retries on the same instance.
+    for (let delay = 1000; !stopping; delay = Math.min(60000, delay * 2)) {
+      try { await c.start(); break; } catch (e) {
+        if (/** @type {any} */ (e).code === 'LOCKED') throw e;
+        writeStatus({ connected: false, lastError: `could not start: ${oneLine(e)}` });
+        say('start.error', { error: oneLine(e), retryMs: delay });
+        if (stopping) break;
+        await new Promise((r) => { const tm = setTimeout(r, delay); wake = () => { clearTimeout(tm); r(undefined); }; });
+      }
+    }
+    if (stopping) return 0;
     writeStatus({ connected: true, lastError: null, linked: Object.values(c.state.groups).filter((x) => !x.removed).length });
     say('started', { appId: cfg.appId });
     const tick = setInterval(() => writeStatus({ linked: Object.values(c.state.groups).filter((x) => !x.removed).length }), 5000);

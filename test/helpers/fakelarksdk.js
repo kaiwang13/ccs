@@ -7,6 +7,8 @@
  *   FAKE_LARK_CONNECT  'fail' → connect() always rejects (Feishu unreachable); 'slowfail' → connect() logs
  *                      'connect' immediately, then rejects ~1500 ms later (an in-flight attempt to interrupt)
  *   FAKE_LARK_VERIFY   'fail' → getAppInfo() rejects (bad credentials)
+ *   FAKE_LARK_OWNER_FAIL_ONCE  '1' → the first getAppInfo() call on this channel rejects with a transient error;
+ *                      every later call (a retry, or the periodic owner refresh) succeeds normally
  *   FAKE_LARK_OWNER    owner open_id (default ou_owner)
  *   FAKE_LARK_SCOPES   comma list of scopes the app reports as granted (default none)
  *   FAKE_LARK_TENANT   tenant_brand registerApp reports (default feishu)
@@ -38,9 +40,11 @@ function createLarkChannel(opts) {
     return connect();
   };
   const getAppInfo = ch.getAppInfo;
+  let ownerFailOnceUsed = false;
   ch.getAppInfo = async (/** @type {any[]} */ ...a) => {
     log('getAppInfo');
     if (process.env.FAKE_LARK_VERIFY === 'fail') throw larkError('permission_denied');
+    if (process.env.FAKE_LARK_OWNER_FAIL_ONCE === '1' && !ownerFailOnceUsed) { ownerFailOnceUsed = true; throw larkError('internal_error'); }
     return getAppInfo(...a);
   };
   for (const m of ['send', 'updateCard', 'createChat', 'addReaction', 'disconnect']) {

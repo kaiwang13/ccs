@@ -99,6 +99,17 @@ test('SIGTERM during an in-flight connect attempt still stops promptly (fix roun
   assert.ok(Date.now() - t0 < 3000, 'SIGTERM interrupts an in-flight connect attempt, not just the backoff sleep that would follow it');
 });
 
+test('a transient failure in c.start() (ownerId) is retried, not fatal (M2)', { timeout: 30000 }, async (t) => {
+  const ctx = setUp(t, { FAKE_LARK_OWNER_FAIL_ONCE: '1' });
+  const d = spawnDaemon(ctx);
+  t.after(() => { try { d.child.kill('SIGTERM'); } catch { /* gone */ } });
+  await waitFor(() => status(ctx)?.connected === true, { timeoutMs: 15000, what: 'connected despite the transient start() failure' });
+  assert.equal(status(ctx).lastError, null);
+  assert.ok(larkLog(ctx).filter((e) => e.ev === 'getAppInfo').length >= 2, 'ownerId() was retried, not fatal');
+  d.child.kill('SIGTERM');
+  assert.equal(await d.exited, 0);
+});
+
 test('a tampered secret store fails with one clear line, never a stack trace (Review Focus 5)', { timeout: 30000 }, async (t) => {
   const ctx = setUp(t);
   const fp = feishuPaths(ctx.paths);

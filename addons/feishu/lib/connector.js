@@ -168,6 +168,9 @@ class Connector {
     /** True once stop() has begun: background work (retries, deferred saves, newly discovered sessions) must not
      *  start touching state, the gateway or sockets past this point — only stop()'s own final, synchronous save. */
     this.stopped = false;
+    /** True once start() has registered its gw/index event handlers (M2): guards a retried start() on this same
+     *  instance (main.js retries a transient ownerId()/dmChat() failure) from registering a second set. */
+    this._listenersBound = false;
     /** @type {ReturnType<typeof setInterval>|null} */
     this.tailTimer = null;
     /** @type {ReturnType<typeof setTimeout>|null} */
@@ -204,26 +207,33 @@ class Connector {
     if (!this.state.dmChat) { this.state.dmChat = await this.gw.dmChat(this.owner); this._save(); }
     await this._closeStaleCards();
     await this._flushPendingFinals();
-    this.gw.on('message', (m) => { this.router.onMessage(m).catch((e) => this.log('route.error', { error: String(e) })); });
-    this.gw.on('action', (a) => { this.router.onAction(a).catch((e) => this.log('action.error', { error: String(e) })); });
-    this.gw.on('down', () => { this.online = false; });
-    this.gw.on('up', () => {
-      this.online = true;
-      if (this.stopped) return;
-      // A session whose group never got created (item 5: createGroup failed, or the whole connector started while
-      // Feishu was down) is retried here too, not just on the throttled tail-timer tick below — reconnecting is
-      // exactly when it is worth trying again right away.
-      for (const r of this.rt.values()) {
-        try {
-          if (!this.state.groups[r.info.id]) { this._track(this._ensureGroup(r)); continue; }
-          this._catchUp(r, 'While Feishu was unreachable');
-        } catch (e) { this.log('up.error', { id: r.info.id, error: String(e) }); }
-      }
-    });
-    this.index.on('added', (i) => { this._track(this._added(i)); });
-    this.index.on('changed', (i) => { this._changed(i); });
-    this.index.on('removed', (id) => { this._track(this._removed(id)); });
-    this.index.on('warn', (e) => this.log('index.warn', { error: String(e) }));
+    // M2: main.js retries a failed start() on this SAME instance (ownerId()/dmChat() above are the calls that can
+    // transiently fail). Everything above this point is safe to redo — it reacts to state, not to accumulating
+    // listeners — but gw.on()/index.on() below are not: a second start() attempt must never register a second
+    // set of handlers on the shared gateway/index and so handle every event twice.
+    if (!this._listenersBound) {
+      this._listenersBound = true;
+      this.gw.on('message', (m) => { this.router.onMessage(m).catch((e) => this.log('route.error', { error: String(e) })); });
+      this.gw.on('action', (a) => { this.router.onAction(a).catch((e) => this.log('action.error', { error: String(e) })); });
+      this.gw.on('down', () => { this.online = false; });
+      this.gw.on('up', () => {
+        this.online = true;
+        if (this.stopped) return;
+        // A session whose group never got created (item 5: createGroup failed, or the whole connector started while
+        // Feishu was down) is retried here too, not just on the throttled tail-timer tick below — reconnecting is
+        // exactly when it is worth trying again right away.
+        for (const r of this.rt.values()) {
+          try {
+            if (!this.state.groups[r.info.id]) { this._track(this._ensureGroup(r)); continue; }
+            this._catchUp(r, 'While Feishu was unreachable');
+          } catch (e) { this.log('up.error', { id: r.info.id, error: String(e) }); }
+        }
+      });
+      this.index.on('added', (i) => { this._track(this._added(i)); });
+      this.index.on('changed', (i) => { this._changed(i); });
+      this.index.on('removed', (id) => { this._track(this._removed(id)); });
+      this.index.on('warn', (e) => this.log('index.warn', { error: String(e) }));
+    }
     await this.index.start();
     await this._reconcileRemoved();
     this.tailTimer = setInterval(() => {
