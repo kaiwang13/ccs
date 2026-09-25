@@ -19,7 +19,14 @@ function normalizeInbound(s) {
  *   resume: (id: string) => Promise<{ok: boolean, error?: string}>,
  *   deliver: (id: string, op: {text?: string, key?: string}) => Promise<{ok: boolean, error?: string}>,
  *   screen: (id: string) => Promise<string|null>, statusText: (id: string) => string, overview: () => OutMessage,
- *   noteSent: (id: string, text: string) => void, debounceMs?: number}} RouterDeps */
+ *   noteSent: (id: string, text: string) => void, debounceMs?: number,
+ *   history?: (id: string, skip: number) => Promise<OutMessage>}} RouterDeps */
+/** @typedef {import('./types').InAction} InAction */
+
+/** The screen snapshot as a message. @param {string|null} s @returns {OutMessage} */
+function screenMessage(s) {
+  return { kind: 'text', text: s === null ? 'the session is not running' : `\`\`\`\n${s}\n\`\`\`` };
+}
 
 class Router {
   /** @param {RouterDeps} deps */
@@ -32,7 +39,7 @@ class Router {
     this.inflight = new Set();
   }
 
-  /** @param {{chatId: string, messageId: string, senderId: string, text: string}} m */
+  /** @param {import('./types').InMessage} m */
   async onMessage(m) {
     const owner = this.d.ownerId();
     if (!owner || m.senderId !== owner) return;
@@ -44,9 +51,10 @@ class Router {
     const target = this.d.sessionForChat(m.chatId);
     if (!target) return;
     if (target.removed) { await this._fail(m.chatId, [m.messageId], 'this session was removed; its history stays here'); return; }
+    if (m.unsupported) { await this._fail(m.chatId, [m.messageId], 'images and files are not supported yet — send text'); return; }
     const id = target.id;
     const name = this.d.sessionState(id).name;
-    if (text === '/screen') { const s = await this.d.screen(id); await this._send(m.chatId, { kind: 'text', text: s === null ? 'the session is not running' : `\`\`\`\n${s}\n\`\`\`` }); return; }
+    if (text === '/screen') { await this._send(m.chatId, screenMessage(await this.d.screen(id))); return; }
     if (text === '/status') { await this._send(m.chatId, { kind: 'text', text: this.d.statusText(id) }); return; }
     if (text === '/interrupt') { await this._run(m.chatId, id, [m.messageId], { key: 'esc' }); return; }
     if (text === '/exit' || text === '/quit') { await this._fail(m.chatId, [m.messageId], `stopping a session stays in the CLI: ccs stop ${name}`); return; }
@@ -57,6 +65,35 @@ class Router {
     if (p.timer) clearTimeout(p.timer);
     p.timer = setTimeout(() => { p.timer = null; this._track(this._flush(m.chatId)); }, this.debounceMs);
     this.pending.set(m.chatId, p);
+  }
+
+  /**
+   * A card-button click (spec §6.3, §10). Owner only; a button acts only on the session of the group it sits in, so a
+   * forwarded or copied card can never drive another session. Unknown actions and malformed values are ignored.
+   * @param {InAction} a
+   */
+  async onAction(a) {
+    const owner = this.d.ownerId();
+    if (!owner || a.operatorId !== owner) return;
+    const target = this.d.sessionForChat(a.chatId);
+    if (!target || target.id !== a.value.s) return;
+    if (target.removed) { await this._send(a.chatId, { kind: 'text', text: 'this session was removed; its history stays here' }); return; }
+    const id = target.id;
+    switch (a.value.a) {
+      case 'screen': await this._send(a.chatId, screenMessage(await this.d.screen(id))); return;
+      case 'interrupt': {
+        const r = await this.d.deliver(id, { key: 'esc' });
+        await this._send(a.chatId, { kind: 'text', text: r.ok ? 'interrupt sent (Esc)' : `not sent: ${r.error || 'unknown error'}` });
+        return;
+      }
+      case 'history': {
+        const skip = Number(a.value.b);
+        if (!Number.isSafeInteger(skip) || skip < 0 || !this.d.history) return;
+        await this._send(a.chatId, await this.d.history(id, skip));
+        return;
+      }
+      default:
+    }
   }
 
   /** Deliver everything pending now and wait for all in-flight work (tests, shutdown). */
@@ -119,4 +156,4 @@ class Router {
   }
 }
 
-module.exports = { Router, normalizeInbound, MAX_TEXT_BYTES };
+module.exports = { Router, normalizeInbound, screenMessage, MAX_TEXT_BYTES };

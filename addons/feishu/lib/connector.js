@@ -39,6 +39,8 @@ function wrapGateway(gw) {
     send: (chatId, msg) => gw.send(chatId, sanitizeMessage(msg)),
     update: (messageId, msg) => gw.update(messageId, sanitizeMessage(msg)),
     react: (messageId, emoji) => gw.react(messageId, emoji),
+    pin: (messageId) => gw.pin(messageId),
+    chatLink: (chatId) => gw.chatLink(chatId),
     on: (event, fn) => gw.on(event, fn),
   };
 }
@@ -157,6 +159,7 @@ class Connector {
       resume: (id) => this._resume(id), deliver: (id, op) => this._deliver(id, op),
       screen: (id) => this._screen(id), statusText: (id) => (this.rt.get(id)?.statusText || 'unknown'),
       overview: () => this._overview(),
+      history: (id, skip) => this._history(id, skip),
       noteSent: (id, text) => {
         const r = this.rt.get(id);
         if (!r) return;
@@ -176,6 +179,7 @@ class Connector {
     await this._closeStaleCards();
     await this._flushPendingFinals();
     this.gw.on('message', (m) => { this.router.onMessage(m).catch((e) => this.log('route.error', { error: String(e) })); });
+    this.gw.on('action', (a) => { this.router.onAction(a).catch((e) => this.log('action.error', { error: String(e) })); });
     this.gw.on('down', () => { this.online = false; });
     this.gw.on('up', () => {
       this.online = true;
@@ -280,7 +284,8 @@ class Connector {
         const all = new TurnAssembler();
         const ht = historyTail(file);
         for (let lines = ht.read(); lines.length; lines = ht.read()) for (const l of lines) all.push(this._parse(r, l));
-        if (all.turns.some((t) => t.done)) await this._send(chatId, renderHistory(all.turns));
+        const done = all.turns.filter((t) => t.done).length;
+        if (done) await this._send(chatId, renderHistory(all.turns, 5, done > 5 ? this._moreButton(r.info.id, 5) : null));
         if (!r.tail) this._follow(r, file, ht.offset);
       }
       this._touchOverview();
@@ -642,15 +647,49 @@ class Connector {
     }, this.statusMs);
   }
 
-  /** @param {Runtime} r */
+  /** @param {string} id @param {number} skip @returns {import('./types').OutButton} */
+  _moreButton(id, skip) { return { text: 'Load earlier', value: { a: 'history', s: id, b: String(skip) } }; }
+
+  /**
+   * The five finished turns before the `skip` most recent ones, from the transcript's recent window (the same 2 MiB
+   * tail the first history card came from). Older than that window stays at the terminal. @param {string} id @param {number} skip
+   * @returns {Promise<OutMessage>}
+   */
+  async _history(id, skip) {
+    const r = this.rt.get(id);
+    const file = r ? (r.tail ? r.tail.file : this._transcriptFile(r)) : null;
+    const name = r ? r.info.name : id;
+    if (!file) return { kind: 'text', text: `no transcript yet for ${name}` };
+    const all = new TurnAssembler();
+    const ht = historyTail(file);
+    for (let lines = ht.read(); lines.length; lines = ht.read()) for (const l of lines) all.push(this._parse(/** @type {Runtime} */ (r), l));
+    const done = all.turns.filter((t) => t.done);
+    const end = done.length - skip;
+    if (end <= 0) return { kind: 'text', text: `no earlier turns in the recent window; for the rest open it at a terminal: ccs a ${name}` };
+    const start = Math.max(0, end - 5);
+    return renderHistory(done.slice(start, end), 5, start > 0 ? this._moreButton(id, skip + 5) : null);
+  }
+
+  /** @param {Runtime} r @returns {OutMessage} */
+  _statusCard(r) {
+    return {
+      kind: 'card', title: `${r.info.name} · ${r.statusText}`,
+      sections: [{ body: `status: **${r.statusText}** (${r.info.agent})` }],
+      buttons: [{ text: 'Screen', value: { a: 'screen', s: r.info.id } }, { text: 'Interrupt', style: 'danger', value: { a: 'interrupt', s: r.info.id } }],
+      footer: 'send a message here to type it into the session',
+    };
+  }
+
+  /** The group's status card: updated in place, pinned when first sent (spec §6.3). @param {Runtime} r */
   async _writeStatus(r) {
     const g = this.state.groups[r.info.id];
     if (!g || g.removed || r.statusSentText === r.statusText) return;
-    const msg = /** @type {OutMessage} */ ({ kind: 'text', text: `status: ${r.statusText}` });
+    const msg = this._statusCard(r);
     if (g.statusMessageId) { try { await this.gw.update(g.statusMessageId, msg); r.statusSentText = r.statusText; return; } catch { /* resend below */ } }
     g.statusMessageId = await this.gw.send(g.chatId, msg);
     r.statusSentText = r.statusText;
     this._save();
+    try { await this.gw.pin(g.statusMessageId); } catch (e) { this.log('pin.error', { id: r.info.id, error: String(e) }); }
   }
 
   _touchOverview() {
@@ -669,10 +708,19 @@ class Connector {
     this._save();
   }
 
-  /** @returns {OutMessage} */
+  /** Every session, its agent and status, and a button that opens its group (spec §6.1). @returns {OutMessage} */
   _overview() {
     const rows = [...this.rt.values()].map((r) => ({ heading: `${r.info.name} · ${r.info.agent}`, body: r.statusText }));
-    return sanitizeMessage({ kind: 'card', title: 'ccs sessions', sections: rows.length ? rows : [{ body: 'no sessions' }] });
+    /** @type {import('./types').OutButton[]} */
+    const buttons = [];
+    for (const r of this.rt.values()) {
+      const g = this.state.groups[r.info.id];
+      if (g && !g.removed) buttons.push({ text: r.info.name, url: this.gw.chatLink(g.chatId) });
+    }
+    /** @type {OutMessage} */
+    const msg = { kind: 'card', title: 'ccs sessions', sections: rows.length ? rows : [{ body: 'no sessions' }] };
+    if (buttons.length) msg.buttons = buttons;
+    return sanitizeMessage(msg);
   }
 
   // ---- inbound helpers (for the router) -----------------------------------------------------------------------------

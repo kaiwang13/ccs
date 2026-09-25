@@ -21,9 +21,11 @@ class FakeGateway extends EventEmitter {
     this.fail = null;
     /** @type {Map<string, number>} method name -> remaining injected-failure count */
     this.failCounts = new Map();
+    /** @type {string[]} */
+    this.pins = [];
   }
 
-  /** Make the next `n` call(s) to `method` (one of 'createGroup'|'renameGroup'|'send'|'update') throw. Each call
+  /** Make the next `n` call(s) to `method` (one of 'createGroup'|'renameGroup'|'send'|'update'|'pin') throw. Each call
    *  consumes one; once the count reaches 0 the method behaves normally again. @param {string} method @param {number} [n] */
   failNext(method, n = 1) { this.failCounts.set(method, (this.failCounts.get(method) || 0) + n); }
 
@@ -63,6 +65,20 @@ class FakeGateway extends EventEmitter {
   }
   /** @param {string} messageId @param {string} emoji */
   async react(messageId, emoji) { this.reactions.set(messageId, [...(this.reactions.get(messageId) || []), emoji]); }
+  /** @param {string} messageId */
+  async pin(messageId) { this._maybeFail('pin'); this.pins.push(messageId); }
+  /** @param {string} chatId */
+  chatLink(chatId) { return `https://fake.feishu/chat/${chatId}`; }
+  /** Drive: the user taps a card button. @param {string} chatId @param {string} messageId @param {Record<string, string>} value @param {string} [operatorId] */
+  userClicks(chatId, messageId, value, operatorId = this.owner) {
+    this.emit('action', { chatId, messageId, operatorId, value });
+  }
+  /** Drive: the user sends an image. @param {string} chatId @param {string} [senderId] */
+  userSendsImage(chatId, senderId = this.owner) {
+    const messageId = `om_in_${++this.seq}`;
+    this.emit('message', { chatId, messageId, senderId, text: '', unsupported: true });
+    return messageId;
+  }
 
   /** Drive: the user sends `text` in `chatId`. @param {string} chatId @param {string} text @param {string} [senderId] */
   userSays(chatId, text, senderId = this.owner) {

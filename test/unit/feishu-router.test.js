@@ -137,3 +137,40 @@ test('a resume or delivery that throws is reported, never an unhandled rejection
   assert.deepEqual(boom.gw.reactionsOn(id), ['ERROR']);
   assert.match(JSON.stringify(boom.gw.messages(boom.group)), /internal error: registry unreachable/);
 });
+
+test('an image or file is answered "not supported yet" with ✗, and nothing is delivered', async () => {
+  const { gw, group, calls, r } = await setup();
+  const id = gw.userSendsImage(group);
+  await tick(80); await r.flushAll();
+  assert.deepEqual(calls.filter((c) => c[0] === 'deliver'), []);
+  assert.deepEqual(gw.reactionsOn(id), ['ERROR']);
+  assert.match(JSON.stringify(gw.messages(group)), /not supported yet/);
+});
+
+test('card clicks: Screen and Interrupt act on the group\'s own session; Load earlier asks for history', async () => {
+  const hist = /** @type {any[]} */ ([]);
+  const { gw, group, calls, r } = await setup({ history: async (/** @type {string} */ id, /** @type {number} */ skip) => { hist.push([id, skip]); return { kind: 'text', text: 'older turns' }; } });
+  await r.onAction({ chatId: group, messageId: 'om_s', operatorId: gw.owner, value: { a: 'screen', s: 'aaaa1111' } });
+  assert.match(JSON.stringify(gw.messages(group)), /screen text/);
+  await r.onAction({ chatId: group, messageId: 'om_s', operatorId: gw.owner, value: { a: 'interrupt', s: 'aaaa1111' } });
+  assert.deepEqual(calls.filter((c) => c[0] === 'deliver'), [['deliver', 'aaaa1111', { key: 'esc' }]]);
+  assert.match(JSON.stringify(gw.messages(group)), /interrupt sent/);
+  await r.onAction({ chatId: group, messageId: 'om_h', operatorId: gw.owner, value: { a: 'history', s: 'aaaa1111', b: '5' } });
+  assert.deepEqual(hist, [['aaaa1111', 5]]);
+  assert.match(JSON.stringify(gw.messages(group)), /older turns/);
+});
+
+test('card clicks from a stranger, for another session, in an unknown chat, or with a bad skip do nothing', async () => {
+  const hist = /** @type {any[]} */ ([]);
+  const { gw, group, calls, r } = await setup({ history: async () => { hist.push(1); return { kind: 'text', text: 'x' }; } });
+  const before = gw.messages(group).length;
+  await r.onAction({ chatId: group, messageId: 'm', operatorId: 'ou_stranger', value: { a: 'interrupt', s: 'aaaa1111' } });
+  await r.onAction({ chatId: group, messageId: 'm', operatorId: gw.owner, value: { a: 'interrupt', s: 'bbbb2222' } });
+  await r.onAction({ chatId: 'oc_elsewhere', messageId: 'm', operatorId: gw.owner, value: { a: 'interrupt', s: 'aaaa1111' } });
+  await r.onAction({ chatId: group, messageId: 'm', operatorId: gw.owner, value: { a: 'history', s: 'aaaa1111', b: '-1' } });
+  await r.onAction({ chatId: group, messageId: 'm', operatorId: gw.owner, value: { a: 'history', s: 'aaaa1111', b: 'x' } });
+  await r.onAction({ chatId: group, messageId: 'm', operatorId: gw.owner, value: { a: 'nonsense', s: 'aaaa1111' } });
+  assert.deepEqual(calls.filter((c) => c[0] === 'deliver'), []);
+  assert.deepEqual(hist, []);
+  assert.equal(gw.messages(group).length, before);
+});
