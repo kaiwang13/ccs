@@ -6,7 +6,7 @@
  * `--app-id` and type the secret. The credentials are verified with Feishu before anything is written.
  */
 const { resolvePaths } = require('../../src/common/paths.js');
-const { loadSdk, domainFor } = require('./lib/gateway.js');
+const { loadSdk, domainFor, quietLogger } = require('./lib/gateway.js');
 const { saveConfig, setEnabled } = require('./lib/config.js');
 const { writeSecret } = require('./lib/secrets.js');
 
@@ -120,8 +120,10 @@ async function runSetup({ argv, env, io }) {
     if (!opts.tenant && r.user_info && r.user_info.tenant_brand === 'lark') tenant = 'lark';
   }
 
-  // Verify before writing anything: the owner lookup is the call the connector depends on first.
-  const ch = sdk.createLarkChannel({ appId, appSecret, domain: domainFor(tenant), source: 'ccs' });
+  // Verify before writing anything: the owner lookup is the call the connector depends on first. M3: the SDK's
+  // default logger can be handed a transport failure's request config (which, for the token call, includes the
+  // app_secret body) — drop it entirely here rather than let it reach the terminal.
+  const ch = sdk.createLarkChannel({ appId, appSecret, domain: domainFor(tenant), source: 'ccs', logger: quietLogger(() => {}) });
   let info;
   try { info = await ch.getAppInfo({ userIdType: 'open_id' }); } catch (e) {
     io.err.write(`ccs: could not verify the app with Feishu: ${String(/** @type {any} */ (e).message || e)}\n`);

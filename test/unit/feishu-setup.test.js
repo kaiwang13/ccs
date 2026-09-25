@@ -53,6 +53,26 @@ test('--app-id with the secret on stdin: verified, stored encrypted, enabled; mi
   for (const s of REQUIRED_SCOPES) assert.match(out + err, new RegExp(s.replace('.', '\\.')));
 });
 
+test('the SDK logger passed during verification never leaks the secret, on captured io or the real terminal (M3)', async (t) => {
+  const { env } = mkEnv(t, { FAKE_LARK_LOGGER_LEAK_TEST: '1' });
+  const o = io('the-secret-xyz\n');
+  // The vulnerability the review found is specifically that the SDK's own DEFAULT logger writes straight to the
+  // real terminal, bypassing whatever io.out/io.err a caller captures — so this also has to watch the real
+  // process.stdout/stderr, not just runSetup's io.
+  const origOut = process.stdout.write.bind(process.stdout);
+  const origErr = process.stderr.write.bind(process.stderr);
+  let real = '';
+  /** @type {any} */ (process.stdout).write = (/** @type {any} */ chunk, ...a) => { real += chunk; return origOut(chunk, ...a); };
+  /** @type {any} */ (process.stderr).write = (/** @type {any} */ chunk, ...a) => { real += chunk; return origErr(chunk, ...a); };
+  t.after(() => { process.stdout.write = origOut; process.stderr.write = origErr; });
+  let code;
+  try { code = await runSetup({ argv: ['--app-id', 'cli_abc'], env, io: o.io }); }
+  finally { process.stdout.write = origOut; process.stderr.write = origErr; }
+  const { out, err } = o.text();
+  assert.equal(code, 0, err);
+  assert.doesNotMatch(out + err + real, /the-secret-xyz/, 'the secret must reach neither the captured io nor the real terminal');
+});
+
 test('QR binding: prints the link, stores what registerApp returns, takes the tenant it reports', async (t) => {
   const { env, paths } = mkEnv(t, { FAKE_LARK_TENANT: 'lark', FAKE_LARK_SCOPES: 'im:message.group_msg,im:chat' });
   const o = io();

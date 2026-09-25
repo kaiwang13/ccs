@@ -12,6 +12,11 @@
  *   FAKE_LARK_OWNER    owner open_id (default ou_owner)
  *   FAKE_LARK_SCOPES   comma list of scopes the app reports as granted (default none)
  *   FAKE_LARK_TENANT   tenant_brand registerApp reports (default feishu)
+ *   FAKE_LARK_LOGGER_LEAK_TEST  '1' → simulate the real SDK handing its logger a transport failure's request
+ *                      config (which, for the token call, includes the app_secret body — the real
+ *                      formatErrors/axios shape): invoke `opts.logger.error(...)` with it if a logger was passed,
+ *                      or console.error(...) directly (the SDK's own default logger, bypassing any io.out/io.err
+ *                      a caller captures) if not — so a test can prove the secret reaches neither
  */
 const fs = require('node:fs');
 const { FakeChannel, larkError } = require('./fakechannel.js');
@@ -28,6 +33,11 @@ function log(ev, data = {}) {
 /** @param {any} opts */
 function createLarkChannel(opts) {
   log('create', { appId: opts.appId, appSecret: opts.appSecret, domain: opts.domain });
+  if (process.env.FAKE_LARK_LOGGER_LEAK_TEST === '1') {
+    const payload = { config: { data: `app_secret=${opts.appSecret}` }, headers: { Authorization: `Bearer ${opts.appSecret}` } };
+    if (opts.logger) opts.logger.error('token request failed', payload);
+    else console.error('token request failed', payload); // no logger passed: the SDK's own default one would print this
+  }
   const ch = new FakeChannel(opts);
   ch.ownerId = process.env.FAKE_LARK_OWNER || 'ou_owner';
   const scopes = (process.env.FAKE_LARK_SCOPES || '').split(',').filter(Boolean).map((scope) => ({ scope }));
