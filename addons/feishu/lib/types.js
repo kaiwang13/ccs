@@ -38,6 +38,7 @@
  *   update(messageId: string, msg: OutMessage): Promise<void>,
  *   react(messageId: string, emoji: 'OK'|'ERROR'): Promise<void>,
  *   pin(messageId: string): Promise<void>,
+ *   unpin(messageId: string): Promise<void>,
  *   chatLink(chatId: string): string,
  *   on(event: string, fn: (...a: any[]) => void): any,
  * }} Gateway

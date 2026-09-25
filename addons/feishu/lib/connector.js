@@ -42,6 +42,7 @@ function wrapGateway(gw) {
     update: (messageId, msg) => gw.update(messageId, sanitizeMessage(msg)),
     react: (messageId, emoji) => gw.react(messageId, emoji),
     pin: (messageId) => gw.pin(messageId),
+    unpin: (messageId) => gw.unpin(messageId),
     chatLink: (chatId) => gw.chatLink(chatId),
     on: (event, fn) => gw.on(event, fn),
   };
@@ -308,12 +309,10 @@ class Connector {
       if (this.stopped) return;
       const file = this._transcriptFile(r);
       if (file) {
-        const all = new TurnAssembler();
-        const ht = historyTail(file);
-        for (let lines = ht.read(); lines.length; lines = ht.read()) for (const l of lines) all.push(this._parse(r, l));
-        const done = all.turns.filter((t) => t.done).length;
-        if (done) await this._send(chatId, renderHistory(all.turns, 5, done > 5 ? this._moreButton(r.info.id, 5) : null));
-        if (!r.tail) this._follow(r, file, ht.offset);
+        const { turns, offset } = this._readRecentTurns(r, file);
+        const done = turns.filter((t) => t.done).length;
+        if (done) await this._send(chatId, renderHistory(turns, 5, done > 5 ? this._moreButton(r.info.id, 5) : null));
+        if (!r.tail) this._follow(r, file, offset);
       }
       this._touchOverview();
     } catch (e) {
@@ -574,6 +573,19 @@ class Connector {
     return r.info.agent === 'codex' ? parseCodexRecord(rec) : parseClaudeRecord(rec);
   }
 
+  /**
+   * The turns assembled from a transcript's recent window (the same 2 MiB tail `historyTail` reads), and the tail's
+   * end offset — shared by the new-group history card (`_ensureGroup`) and the Load-earlier paging (`_history`), so
+   * the two can never disagree about what "recent" means. @param {Runtime} r @param {string} file
+   * @returns {{turns: import('./turns').Turn[], offset: number}}
+   */
+  _readRecentTurns(r, file) {
+    const all = new TurnAssembler();
+    const ht = historyTail(file);
+    for (let lines = ht.read(); lines.length; lines = ht.read()) for (const l of lines) all.push(this._parse(r, l));
+    return { turns: all.turns, offset: ht.offset };
+  }
+
   // ---- outbound -----------------------------------------------------------------------------------------------------
 
   /** Read new transcript lines into the assembler. @param {Runtime} r */
@@ -712,10 +724,8 @@ class Connector {
     const file = r ? (r.tail ? r.tail.file : this._transcriptFile(r)) : null;
     const name = r ? r.info.name : id;
     if (!file) return { kind: 'text', text: `no transcript yet for ${name}` };
-    const all = new TurnAssembler();
-    const ht = historyTail(file);
-    for (let lines = ht.read(); lines.length; lines = ht.read()) for (const l of lines) all.push(this._parse(/** @type {Runtime} */ (r), l));
-    const done = all.turns.filter((t) => t.done);
+    const { turns } = this._readRecentTurns(/** @type {Runtime} */ (r), file);
+    const done = turns.filter((t) => t.done);
     const end = done.length - skip;
     if (end <= 0) return { kind: 'text', text: `no earlier turns in the recent window; for the rest open it at a terminal: ccs a ${name}` };
     const start = Math.max(0, end - 5);
@@ -732,16 +742,20 @@ class Connector {
     };
   }
 
-  /** The group's status card: updated in place, pinned when first sent (spec §6.3). @param {Runtime} r */
+  /** The group's status card: updated in place, pinned when first sent (spec §6.3). A failed update falls back to a
+   *  resend, which is pinned in turn — the old message id is then best-effort unpinned so a run of failed updates
+   *  can never leave two (or more) status cards pinned at once. @param {Runtime} r */
   async _writeStatus(r) {
     const g = this.state.groups[r.info.id];
     if (!g || g.removed || r.statusSentText === r.statusText) return;
     const msg = this._statusCard(r);
-    if (g.statusMessageId) { try { await this.gw.update(g.statusMessageId, msg); r.statusSentText = r.statusText; return; } catch { /* resend below */ } }
+    const oldId = g.statusMessageId;
+    if (oldId) { try { await this.gw.update(oldId, msg); r.statusSentText = r.statusText; return; } catch { /* resend below */ } }
     g.statusMessageId = await this.gw.send(g.chatId, msg);
     r.statusSentText = r.statusText;
     this._save();
     try { await this.gw.pin(g.statusMessageId); } catch (e) { this.log('pin.error', { id: r.info.id, error: String(e) }); }
+    if (oldId) { try { await this.gw.unpin(oldId); } catch (e) { this.log('unpin.error', { id: r.info.id, error: String(e) }); } }
   }
 
   _touchOverview() {

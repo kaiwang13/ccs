@@ -25,7 +25,7 @@ class FakeChannel {
       im: { v1: {
         message: { create: rec('message.create', () => ({ data: { chat_id: 'oc_dm', message_id: `om_${++this.seq}` } })) },
         chat: { update: rec('chat.update', () => ({ code: 0 })) },
-        pin: { create: rec('pin.create', () => ({ code: 0 })) },
+        pin: { create: rec('pin.create', () => ({ code: 0 })), delete: rec('pin.delete', () => ({ code: 0 })) },
       } },
       application: { v6: { application: { get: rec('application.get', () => ({ data: { app: { scopes: [] } } })) } } },
     };

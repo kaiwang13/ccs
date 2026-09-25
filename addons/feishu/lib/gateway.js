@@ -168,6 +168,11 @@ class FeishuGateway extends EventEmitter {
     await this._call(() => this.ch.rawClient.im.v1.pin.create({ data: { message_id: messageId } }));
   }
 
+  /** @param {string} messageId */
+  async unpin(messageId) {
+    await this._call(() => this.ch.rawClient.im.v1.pin.delete({ path: { message_id: messageId } }));
+  }
+
   /** A link that opens a group in the Feishu/Lark app. @param {string} chatId */
   chatLink(chatId) {
     const host = this.tenant === 'lark' ? 'applink.larksuite.com' : 'applink.feishu.cn';

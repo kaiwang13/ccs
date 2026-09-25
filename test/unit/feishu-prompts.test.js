@@ -48,6 +48,10 @@ test('options must run 1, 2, 3 in order; a screen without "1." has no dialog', (
   assert.deepEqual(p.options.map((o) => o.key), ['1']);
 });
 
+test('a malformed lines array (non-string entries above the option block) is tolerated, never thrown', () => {
+  assert.doesNotThrow(() => parseClaudePrompt(/** @type {any} */ ([undefined, null, 5, ' 1. x'])));
+});
+
 test('Codex: the approval question is detected; its options are never parsed as digits', () => {
   const lines = peek('codex-approval.txt');
   assert.deepEqual(detectCodexPrompt(lines), { question: 'Would you like to run the following command?' });

@@ -169,6 +169,9 @@ test('card clicks from a stranger, for another session, in an unknown chat, or w
   await r.onAction({ chatId: 'oc_elsewhere', messageId: 'm', operatorId: gw.owner, value: { a: 'interrupt', s: 'aaaa1111' } });
   await r.onAction({ chatId: group, messageId: 'm', operatorId: gw.owner, value: { a: 'history', s: 'aaaa1111', b: '-1' } });
   await r.onAction({ chatId: group, messageId: 'm', operatorId: gw.owner, value: { a: 'history', s: 'aaaa1111', b: 'x' } });
+  await r.onAction({ chatId: group, messageId: 'm', operatorId: gw.owner, value: { a: 'history', s: 'aaaa1111', b: '1e3' } });
+  await r.onAction({ chatId: group, messageId: 'm', operatorId: gw.owner, value: { a: 'history', s: 'aaaa1111', b: '0x10' } });
+  await r.onAction({ chatId: group, messageId: 'm', operatorId: gw.owner, value: { a: 'history', s: 'aaaa1111', b: '' } });
   await r.onAction({ chatId: group, messageId: 'm', operatorId: gw.owner, value: { a: 'nonsense', s: 'aaaa1111' } });
   assert.deepEqual(calls.filter((c) => c[0] === 'deliver'), []);
   assert.deepEqual(hist, []);

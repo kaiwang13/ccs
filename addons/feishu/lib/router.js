@@ -88,9 +88,8 @@ class Router {
         return;
       }
       case 'history': {
-        const skip = Number(a.value.b);
-        if (!Number.isSafeInteger(skip) || skip < 0 || !this.d.history) return;
-        await this._send(a.chatId, await this.d.history(id, skip));
+        if (!/^\d{1,6}$/.test(String(a.value.b)) || !this.d.history) return;
+        await this._send(a.chatId, await this.d.history(id, Number(a.value.b)));
         return;
       }
       case 'answer': {

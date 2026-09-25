@@ -39,7 +39,7 @@ function parseClaudePrompt(lines) {
     /** @type {string[]} */
     const question = [];
     for (let k = i - 1; k >= 0 && question.length < 3; k--) {
-      const s = lines[k].trim();
+      const s = String(lines[k] ?? '').trim();
       if (RULE_RE.test(s)) break;
       question.unshift(s);
     }

@@ -25,7 +25,7 @@ class FakeGateway extends EventEmitter {
     this.pins = [];
   }
 
-  /** Make the next `n` call(s) to `method` (one of 'createGroup'|'renameGroup'|'send'|'update'|'pin') throw. Each call
+  /** Make the next `n` call(s) to `method` (one of 'createGroup'|'renameGroup'|'send'|'update'|'pin'|'unpin') throw. Each call
    *  consumes one; once the count reaches 0 the method behaves normally again. @param {string} method @param {number} [n] */
   failNext(method, n = 1) { this.failCounts.set(method, (this.failCounts.get(method) || 0) + n); }
 
@@ -67,6 +67,8 @@ class FakeGateway extends EventEmitter {
   async react(messageId, emoji) { this.reactions.set(messageId, [...(this.reactions.get(messageId) || []), emoji]); }
   /** @param {string} messageId */
   async pin(messageId) { this._maybeFail('pin'); this.pins.push(messageId); }
+  /** @param {string} messageId */
+  async unpin(messageId) { this._maybeFail('unpin'); this.pins = this.pins.filter((p) => p !== messageId); }
   /** @param {string} chatId */
   chatLink(chatId) { return `https://fake.feishu/chat/${chatId}`; }
   /** Drive: the user taps a card button. @param {string} chatId @param {string} messageId @param {Record<string, string>} value @param {string} [operatorId] */

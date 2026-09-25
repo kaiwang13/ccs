@@ -47,6 +47,8 @@ test('owner, DM chat, group create/rename, pin and chat links go to the right SD
   assert.deepEqual(ch().last('chat.update').a[0], { path: { chat_id: chat }, data: { name: 'ccs · b' } });
   await gw.pin('om_9');
   assert.deepEqual(ch().last('pin.create').a[0], { data: { message_id: 'om_9' } });
+  await gw.unpin('om_9');
+  assert.deepEqual(ch().last('pin.delete').a[0], { path: { message_id: 'om_9' } });
   assert.equal(gw.chatLink('oc_1'), 'https://applink.feishu.cn/client/chat/open?openChatId=oc_1');
   assert.equal(mk({ tenant: 'lark' }).gw.chatLink('oc_1'), 'https://applink.larksuite.com/client/chat/open?openChatId=oc_1');
 });

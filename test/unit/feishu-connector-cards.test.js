@@ -5,7 +5,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const { Connector } = require('../../addons/feishu/lib/connector.js');
 const { FakeGateway } = require('../helpers/fakefeishu.js');
-const { waitFor } = require('../helpers/waitfor.js');
+const { waitFor, sleep } = require('../helpers/waitfor.js');
 const { FakeRegistry, mkRec, tmpPaths, appendTranscript, turn } = require('../helpers/feishuconn.js');
 
 /** @param {any} o */
@@ -29,6 +29,48 @@ test('the status card has Screen and Interrupt buttons and is pinned once', asyn
   assert.equal(card.kind, 'card');
   assert.deepEqual(card.buttons.map((/** @type {any} */ b) => [b.text, b.value.a, b.value.s]), [['Screen', 'screen', 's1'], ['Interrupt', 'interrupt', 's1']]);
   assert.equal(gw.pins.length, 1, 'updated in place, not re-sent and re-pinned');
+});
+
+test('a failed status update re-sends and re-pins, without leaving the old pin behind', async (t) => {
+  const paths = tmpPaths(t);
+  const registry = new FakeRegistry();
+  registry.set(mkRec('s1'));
+  const gw = new FakeGateway();
+  const conn = mkConn({ gateway: gw, paths, registry });
+  t.after(() => conn.stop());
+  await conn.start();
+  await waitFor(() => gw.chatByName('ccs · s1') !== null, { timeoutMs: 3000, what: 'group' });
+  const r = /** @type {any} */ (conn.rt.get('s1'));
+  conn._setStatus(r, 'idle');
+  await waitFor(() => gw.pins.length === 1, { timeoutMs: 3000, what: 'status pinned' });
+  const firstId = gw.pins[0];
+  // Let the overview's own (independent, statusMs-driven) update cycle settle before injecting the failure, so it
+  // can't steal the one injected failure meant for the status card's own update below.
+  await sleep(conn.statusMs + 30);
+  gw.failNext('update');
+  conn._setStatus(r, 'working');
+  await waitFor(() => JSON.stringify(gw.msgs.get(gw.pins[0])).includes('working'), { timeoutMs: 3000, what: 'new card pinned' });
+  assert.equal(gw.pins.length, 1, 'exactly one pin remains');
+  assert.notEqual(gw.pins[0], firstId, 'the remaining pin is the new card, not the old one');
+});
+
+test('a failed pin on the first status write still sends the card, and later status changes still update it', async (t) => {
+  const paths = tmpPaths(t);
+  const registry = new FakeRegistry();
+  registry.set(mkRec('s1'));
+  const gw = new FakeGateway();
+  gw.failNext('pin');
+  const conn = mkConn({ gateway: gw, paths, registry });
+  t.after(() => conn.stop());
+  await conn.start();
+  await waitFor(() => gw.chatByName('ccs · s1') !== null, { timeoutMs: 3000, what: 'group' });
+  const r = /** @type {any} */ (conn.rt.get('s1'));
+  conn._setStatus(r, 'idle');
+  const chatId = /** @type {string} */ (gw.chatByName('ccs · s1'));
+  await waitFor(() => gw.messages(chatId).some((/** @type {any} */ m) => m.kind === 'card' && JSON.stringify(m).includes('idle')), { timeoutMs: 3000, what: 'status card sent despite the failed pin' });
+  assert.deepEqual(gw.pins, []);
+  conn._setStatus(r, 'working');
+  await waitFor(() => JSON.stringify(gw.messages(chatId)).includes('working'), { timeoutMs: 3000, what: 'status still updates in place' });
 });
 
 test('the overview lists every session with a button that opens its group', async (t) => {
