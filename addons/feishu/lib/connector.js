@@ -118,6 +118,7 @@ function nextLineStart(file, start) {
  *   sessionId: string|null, tail: TranscriptTail|null, assembler: TurnAssembler, sent: Array<{text: string, at: number}>,
  *   cards: Map<number, {ids: string[], title?: string, lastAt: number, timer: ReturnType<typeof setTimeout>|null, chain: Promise<void>}>,
  *   statusText: string, statusSentText: string|null, statusTimer: ReturnType<typeof setTimeout>|null,
+ *   statusWriting: boolean, statusWriteAgain: boolean,
  *   catchingUp: boolean, since: number, discoverAt: number, creatingGroup: boolean, groupRetryAt: number,
  *   prompt: Prompt|null, peekAt: number, promptQuietUntil: number}} Runtime
  */
@@ -516,7 +517,7 @@ class Connector {
     if (r) return r;
     /** @type {Runtime} */
     const nr = { info, link: null, pollTimer: null, state: null, sessionId: info.sessionId, tail: null, sent: [], cards: new Map(),
-      statusText: info.live ? 'running' : 'stopped', statusSentText: null, statusTimer: null, catchingUp: false,
+      statusText: info.live ? 'running' : 'stopped', statusSentText: null, statusTimer: null, statusWriting: false, statusWriteAgain: false, catchingUp: false,
       since: Date.now(), discoverAt: 0, creatingGroup: false, groupRetryAt: 0, assembler: /** @type {any} */ (null),
       prompt: null, peekAt: 0, promptQuietUntil: 0 };
     nr.assembler = new TurnAssembler({
@@ -757,9 +758,31 @@ class Connector {
     if (r.statusTimer) return;
     r.statusTimer = setTimeout(() => {
       r.statusTimer = null;
-      this._track(this._writeStatus(r));
+      this._track(this._runStatusWrite(r));
       this._touchOverview();
     }, this.statusMs);
+  }
+
+  /** Serializes `_writeStatus` per runtime (M1): a slow write — under the rate limiter, with rate-limit retries —
+   *  can still be running when the next status timer fires. Two overlapping calls would both read the same old
+   *  pinned message id, and a failure in both would resend and pin twice, each only unpinning that same stale id
+   *  (leaving two cards pinned) — and since `_writeStatus` marks a write done by re-reading the (shared, mutable)
+   *  `r.statusText` rather than a value it captured up front, an overlapping first write can also stomp
+   *  `r.statusSentText` with a newer status than the card it just actually sent, silently skipping the second
+   *  write's real content forever. A trigger that arrives while a write is already in flight never starts a
+   *  second one — it just asks the in-flight write to run once more, right after it settles, so the re-run always
+   *  starts from a fully-settled state and picks up whatever `r.statusText` is by then. @param {Runtime} r */
+  async _runStatusWrite(r) {
+    if (r.statusWriting) { r.statusWriteAgain = true; return; }
+    r.statusWriting = true;
+    try {
+      do {
+        r.statusWriteAgain = false;
+        await this._writeStatus(r);
+      } while (r.statusWriteAgain);
+    } finally {
+      r.statusWriting = false;
+    }
   }
 
   /** @param {string} id @param {number} skip @returns {import('./types').OutButton} */
@@ -795,15 +818,20 @@ class Connector {
 
   /** The group's status card: updated in place, pinned when first sent (spec §6.3). A failed update falls back to a
    *  resend, which is pinned in turn — the old message id is then best-effort unpinned so a run of failed updates
-   *  can never leave two (or more) status cards pinned at once. @param {Runtime} r */
+   *  can never leave two (or more) status cards pinned at once. Only `_runStatusWrite` calls this (M1): it never
+   *  overlaps a call for the same runtime, so `oldId` is always the id this same write itself is racing nobody
+   *  else to replace. `text` is captured once, up front alongside `msg`: `r.statusText` can still change while
+   *  this write is in flight (`_runStatusWrite`'s re-run picks that up afterwards), and `r.statusSentText` must
+   *  end up recording what `msg` actually says, never a newer status this call never sent. @param {Runtime} r */
   async _writeStatus(r) {
     const g = this.state.groups[r.info.id];
     if (!g || g.removed || r.statusSentText === r.statusText) return;
+    const text = r.statusText;
     const msg = this._statusCard(r);
     const oldId = g.statusMessageId;
-    if (oldId) { try { await this.gw.update(oldId, msg); r.statusSentText = r.statusText; return; } catch { /* resend below */ } }
+    if (oldId) { try { await this.gw.update(oldId, msg); r.statusSentText = text; return; } catch { /* resend below */ } }
     g.statusMessageId = await this.gw.send(g.chatId, msg);
-    r.statusSentText = r.statusText;
+    r.statusSentText = text;
     this._save();
     try { await this.gw.pin(g.statusMessageId); } catch (e) { this.log('pin.error', { id: r.info.id, error: String(e) }); }
     if (oldId) { try { await this.gw.unpin(oldId); } catch (e) { this.log('unpin.error', { id: r.info.id, error: String(e) }); } }
