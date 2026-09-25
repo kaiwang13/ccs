@@ -37,21 +37,42 @@ function parse(argv) {
   return o;
 }
 
-/** One line from a stream (the secret). A terminal gets a prompt and no echo. @param {any} stdin @param {{write(s: string): void}} out @returns {Promise<string>} */
+/** Thrown by readLine's TTY branch on Ctrl-C (M4); runSetup catches it and returns exit code 130. */
+class SetupAborted extends Error {}
+
+/** One line from a stream (the secret). A terminal gets a prompt, no echo, and (M4) Backspace/Ctrl-C handling: a
+ *  non-TTY stream (piped input, or a test) is read as whole lines, unchanged. @param {any} stdin
+ *  @param {{write(s: string): void}} out @returns {Promise<string>} */
 async function readLine(stdin, out) {
-  const tty = !!stdin.isTTY;
-  if (tty) { out.write('App secret (input hidden): '); stdin.setRawMode(true); }
-  let buf = '';
-  try {
+  if (!stdin.isTTY) {
+    let buf = '';
     for await (const chunk of stdin) {
       buf += chunk.toString('utf8');
-      const nl = buf.search(tty ? /[\r\n]/ : /\n/);
+      const nl = buf.search(/\n/);
       if (nl >= 0) { buf = buf.slice(0, nl); break; }
     }
-  } finally {
-    if (tty) { stdin.setRawMode(false); out.write('\n'); }
+    return buf.replace(/\r$/, '').trim();
   }
-  return buf.replace(/\r$/, '').trim();
+  out.write('App secret (input hidden): ');
+  stdin.setRawMode(true);
+  let restored = false;
+  const restore = () => { if (!restored) { restored = true; stdin.setRawMode(false); } };
+  let buf = '';
+  try {
+    line: for await (const chunk of stdin) {
+      for (const ch of chunk.toString('utf8')) {
+        const code = ch.charCodeAt(0);
+        if (code === 0x03) { restore(); out.write('\n'); throw new SetupAborted('setup cancelled'); } // Ctrl-C
+        if (code === 0x7f || code === 0x08) { buf = buf.slice(0, -1); continue; } // Backspace/^H
+        if (code === 0x0d || code === 0x0a) break line; // Enter
+        buf += ch;
+      }
+    }
+  } finally {
+    restore();
+  }
+  out.write('\n');
+  return buf.trim();
 }
 
 /** @param {string} url @param {{write(s: string): void}} out */
@@ -79,7 +100,8 @@ async function runSetup({ argv, env, io }) {
   let tenant = opts.tenant || 'feishu';
   if (opts.appId) {
     appId = opts.appId;
-    appSecret = await readLine(io.stdin, io.out);
+    try { appSecret = await readLine(io.stdin, io.out); }
+    catch (e) { if (e instanceof SetupAborted) return 130; throw e; }
     if (!appSecret) { io.err.write('ccs: the app secret is empty\n'); return 2; }
   } else {
     io.out.write('Scan the QR code with the Feishu app and create (or choose) an app for ccs.\n');

@@ -30,6 +30,15 @@ function io(input = '') {
   return { io: { out: { write: (/** @type {string} */ s) => { out += s; } }, err: { write: (/** @type {string} */ s) => { err += s; } }, stdin: Readable.from([input]) }, text: () => ({ out, err }) };
 }
 
+/** A fake TTY stdin (M4): isTTY true, setRawMode(v) recorded, bytes delivered via push(). */
+function fakeTty() {
+  const s = new Readable({ read() {} });
+  /** @type {any} */ (s).isTTY = true;
+  /** @type {any} */ (s).rawModeCalls = /** @type {boolean[]} */ ([]);
+  /** @type {any} */ (s).setRawMode = (/** @type {boolean} */ v) => { /** @type {any} */ (s).rawModeCalls.push(v); };
+  return s;
+}
+
 test('--app-id with the secret on stdin: verified, stored encrypted, enabled; missing scopes are warned about', async (t) => {
   const { env, paths } = mkEnv(t);
   const o = io('the-secret\n');
@@ -64,6 +73,37 @@ test('credentials Feishu rejects: exit 1 with the reason, and nothing is written
   assert.match(o.text().err, /could not verify/);
   assert.equal(loadConfig(paths), null);
   assert.equal(isEnabled(paths), false);
+});
+
+test('the secret prompt on a real TTY handles Backspace (M4)', async (t) => {
+  const { env, paths } = mkEnv(t);
+  const stdin = fakeTty();
+  const o = io();
+  const p = runSetup({ argv: ['--app-id', 'cli_bs'], env, io: { ...o.io, stdin } });
+  stdin.push('ab');
+  stdin.push('X'); // a typo
+  stdin.push('\x7f'); // Backspace removes it
+  stdin.push('c\r');
+  stdin.push(null);
+  const code = await p;
+  const { err } = o.text();
+  assert.equal(code, 0, err);
+  assert.deepEqual(/** @type {any} */ (stdin).rawModeCalls, [true, false], 'raw mode is entered once and always restored');
+  assert.equal(readSecret(paths, 'appSecret'), 'abc');
+});
+
+test('Ctrl-C during the secret prompt restores the terminal and exits 130, without writing anything (M4)', async (t) => {
+  const { env, paths } = mkEnv(t);
+  const stdin = fakeTty();
+  const o = io();
+  const p = runSetup({ argv: ['--app-id', 'cli_ctrlc'], env, io: { ...o.io, stdin } });
+  stdin.push('partial-secret');
+  stdin.push('\x03'); // Ctrl-C
+  stdin.push(null);
+  const code = await p;
+  assert.equal(code, 130);
+  assert.deepEqual(/** @type {any} */ (stdin).rawModeCalls, [true, false], 'raw mode is restored even on Ctrl-C');
+  assert.equal(loadConfig(paths), null, 'nothing is written on a cancelled setup');
 });
 
 test('usage errors: a bad tenant, an empty secret', async (t) => {
