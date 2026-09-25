@@ -32,12 +32,31 @@ function flatStrings(v) {
   return !!v && typeof v === 'object' && !Array.isArray(v) && Object.values(v).every((x) => typeof x === 'string');
 }
 
+/**
+ * A Logger for the SDK (passed to createLarkChannel) that forwards only a short, safe first line — never an
+ * object, and never a second argument (M3). The SDK's own formatErrors can hand its logger a request's axios
+ * config, which for the token call includes the app_secret in its body; a logger that stringified that object
+ * (or echoed extra arguments) would print the secret to a terminal or a log file. `forward` receives the level
+ * and the short message; passing `() => {}` drops everything.
+ * @param {(level: 'fatal'|'error'|'warn'|'info'|'debug'|'trace', msg: string) => void} forward
+ */
+function quietLogger(forward) {
+  /** @param {'fatal'|'error'|'warn'|'info'|'debug'|'trace'} level */
+  const only = (level) => (/** @type {any[]} */ ...args) => {
+    const first = args[0];
+    forward(level, typeof first === 'string' ? first.split('\n')[0].slice(0, 200) : `${level} (no message)`);
+  };
+  return { fatal: only('fatal'), error: only('error'), warn: only('warn'), info: only('info'), debug: only('debug'), trace: only('trace') };
+}
+
 class FeishuGateway extends EventEmitter {
   /**
    * @param {{appId: string, appSecret: string, tenant?: 'feishu'|'lark', reactions?: {OK: string, ERROR: string},
-   *   createChannel?: (opts: any) => any, log?: (event: string, fields?: object) => void, ratePerSec?: number, retryBaseMs?: number}} o
+   *   createChannel?: (opts: any) => any, log?: (event: string, fields?: object) => void, ratePerSec?: number, retryBaseMs?: number,
+   *   statusPollMs?: number}} o
    */
-  constructor({ appId, appSecret, tenant = 'feishu', reactions = DEFAULT_REACTIONS, createChannel, log = () => {}, ratePerSec = 5, retryBaseMs = 1000 }) {
+  constructor({ appId, appSecret, tenant = 'feishu', reactions = DEFAULT_REACTIONS, createChannel, log = () => {}, ratePerSec = 5, retryBaseMs = 1000,
+    statusPollMs = 5000 }) {
     super();
     this.appId = appId;
     this.appSecret = appSecret;
@@ -47,6 +66,7 @@ class FeishuGateway extends EventEmitter {
     this.log = log;
     this.ratePerSec = ratePerSec;
     this.retryBaseMs = retryBaseMs;
+    this.statusPollMs = statusPollMs;
     /** @type {any} */
     this.ch = null;
     /** @type {number[]} start times of recent calls, for the limiter */
@@ -54,6 +74,8 @@ class FeishuGateway extends EventEmitter {
     /** @type {Promise<void>} */
     this.gate = Promise.resolve();
     this.up = false;
+    /** @type {ReturnType<typeof setInterval>|null} */
+    this.statusTimer = null;
   }
 
   async connect() {
@@ -63,6 +85,7 @@ class FeishuGateway extends EventEmitter {
       safety: { chatQueue: { enabled: false } },
       keepalive: { enabled: true, onUnrecoverable: (/** @type {any} */ e) => this.log('gateway.unrecoverable', { error: String(e && e.message || e) }) },
       handshakeTimeoutMs: 8000, connectTimeoutMs: 30000, httpTimeoutMs: 30000, respectProxyEnv: true,
+      logger: quietLogger((level, msg) => this.log('sdk.log', { level, msg })),
     });
     ch.on('message', (/** @type {any} */ m) => {
       const unsupported = m.rawContentType !== 'text' && m.rawContentType !== 'post';
@@ -80,9 +103,26 @@ class FeishuGateway extends EventEmitter {
     this.ch = ch;
     await ch.connect();
     this.up = true;
+    // The SDK's own 'reconnected' event never fires after keepalive's watchdog force-reconnects a dead socket
+    // (it only resolves 'onReady'), which otherwise leaves the connector believing it is down forever after any
+    // outage that outlasts the SDK's own quick retry (Critical #1). Poll the SDK's own idea of the connection
+    // instead, and drive the same up/down transitions through `this.up` so each still fires exactly once.
+    this.statusTimer = setInterval(() => this._pollStatus(), this.statusPollMs);
+    if (this.statusTimer.unref) this.statusTimer.unref();
+  }
+
+  /** A throwing or undefined status is ignored: only a definite state seen from the SDK ever flips `this.up`. */
+  _pollStatus() {
+    let s;
+    try { s = this.ch.getConnectionStatus(); } catch { return; }
+    if (!s || typeof s.state !== 'string') return;
+    const connected = s.state === 'connected';
+    if (connected && !this.up) { this.up = true; this.emit('up'); }
+    else if (!connected && this.up) { this.up = false; this.emit('down'); }
   }
 
   async close() {
+    if (this.statusTimer) { clearInterval(this.statusTimer); this.statusTimer = null; }
     if (!this.ch) return;
     try { await this.ch.disconnect(); } catch (e) { this.log('gateway.close_error', { error: String(e) }); }
     this.up = false;
@@ -180,4 +220,4 @@ class FeishuGateway extends EventEmitter {
   }
 }
 
-module.exports = { FeishuGateway, loadSdk, domainFor, DEFAULT_REACTIONS };
+module.exports = { FeishuGateway, loadSdk, domainFor, DEFAULT_REACTIONS, quietLogger };

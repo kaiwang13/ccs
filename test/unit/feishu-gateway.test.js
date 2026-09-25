@@ -2,8 +2,9 @@
 // @ts-check
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { FeishuGateway, loadSdk, domainFor, DEFAULT_REACTIONS } = require('../../addons/feishu/lib/gateway.js');
+const { FeishuGateway, loadSdk, domainFor, DEFAULT_REACTIONS, quietLogger } = require('../../addons/feishu/lib/gateway.js');
 const { FakeChannel, larkError } = require('../helpers/fakechannel.js');
+const { waitFor } = require('../helpers/waitfor.js');
 
 /** @param {any} [o] */
 function mk(o = {}) {
@@ -11,7 +12,7 @@ function mk(o = {}) {
   let ch = null;
   const logs = /** @type {any[]} */ ([]);
   const gw = new FeishuGateway({
-    appId: 'cli_x', appSecret: 's', tenant: 'feishu', retryBaseMs: 5, ratePerSec: 1000,
+    appId: 'cli_x', appSecret: 's', tenant: 'feishu', retryBaseMs: 5, ratePerSec: 1000, statusPollMs: 10,
     createChannel: (opts) => { ch = new FakeChannel(opts); return ch; }, log: (ev, f) => logs.push({ ev, ...f }), ...o,
   });
   return { gw, ch: () => /** @type {FakeChannel} */ (ch), logs };
@@ -135,6 +136,92 @@ test('a card click whose value is not a flat string map is dropped', async () =>
   ch().fire('cardAction', { messageId: 'm', chatId: 'c', operator: { openId: 'o' }, action: { tag: 'button', value: 'str' } });
   ch().fire('cardAction', { messageId: 'm', chatId: 'c', operator: { openId: 'o' }, action: { tag: 'button', value: { a: { nested: 1 } } } });
   assert.deepEqual(seen, []);
+});
+
+test('a keepalive-driven reconnect that never fires "reconnected" is still caught, via getConnectionStatus polling (C1)', async () => {
+  const { gw, ch } = mk();
+  /** @type {string[]} */
+  const seen = [];
+  gw.on('down', () => seen.push('down'));
+  gw.on('up', () => seen.push('up'));
+  await gw.connect();
+  // The SDK's watchdog force-reconnects without ever emitting 'reconnecting'/'reconnected' (the whole point of the
+  // Critical bug): only getConnectionStatus() ever reflects the drop and the recovery.
+  ch().connStatus = { state: 'reconnecting', reconnectAttempts: 1 };
+  await waitFor(() => seen.includes('down'), { timeoutMs: 2000, what: 'down from a poll alone' });
+  assert.deepEqual(seen, ['down']);
+  ch().connStatus = { state: 'connected', reconnectAttempts: 0 };
+  await waitFor(() => seen.includes('up'), { timeoutMs: 2000, what: 'up from a poll alone' });
+  assert.deepEqual(seen, ['down', 'up'], 'exactly one down then one up, never repeated while the state is unchanged');
+  // Holding at 'connected' across more polls must not re-fire 'up'.
+  await new Promise((r) => setTimeout(r, 50));
+  assert.deepEqual(seen, ['down', 'up']);
+});
+
+test('getConnectionStatus and the reconnecting/reconnected events drive the SAME up flag, so a transition never double-fires (C1)', async () => {
+  const { gw, ch } = mk();
+  /** @type {string[]} */
+  const seen = [];
+  gw.on('down', () => seen.push('down'));
+  gw.on('up', () => seen.push('up'));
+  await gw.connect();
+  ch().fire('reconnecting');
+  await waitFor(() => seen.includes('down'), { timeoutMs: 2000, what: 'down from the SDK event' });
+  assert.deepEqual(seen, ['down']);
+  // While still down, the poll agreeing (also 'reconnecting') must not fire a second 'down'.
+  ch().connStatus = { state: 'reconnecting' };
+  await new Promise((r) => setTimeout(r, 50));
+  assert.deepEqual(seen, ['down']);
+  ch().fire('reconnected');
+  assert.deepEqual(seen, ['down', 'up']);
+  // Once up, the poll agreeing (also 'connected') must not fire a second 'up'.
+  ch().connStatus = { state: 'connected' };
+  await new Promise((r) => setTimeout(r, 50));
+  assert.deepEqual(seen, ['down', 'up']);
+});
+
+test('a throwing or undefined getConnectionStatus is ignored, never a crash', async () => {
+  const { gw, ch } = mk();
+  await gw.connect();
+  ch().getConnectionStatus = () => { throw new Error('boom'); };
+  await new Promise((r) => setTimeout(r, 50)); // several poll ticks at statusPollMs: 10
+  assert.equal(gw.up, true, 'a throwing status never flips the flag');
+});
+
+test('close() stops the status poll (C1)', async () => {
+  const { gw, ch } = mk();
+  /** @type {string[]} */
+  const seen = [];
+  gw.on('down', () => seen.push('down'));
+  await gw.connect();
+  await gw.close();
+  ch().connStatus = { state: 'reconnecting' };
+  await new Promise((r) => setTimeout(r, 50));
+  assert.deepEqual(seen, [], 'no polling after close()');
+});
+
+test('the quiet SDK logger never forwards an object or a second argument (M3)', () => {
+  /** @type {any[]} */
+  const seen = [];
+  const lg = quietLogger((level, msg) => seen.push({ level, msg }));
+  lg.error(`boom: ${'x'.repeat(300)}`);
+  lg.error({ config: { data: 'app_secret=SUPER_SECRET' } }, 'a second argument the SDK might also pass');
+  lg.info('short one\nsecond line is dropped');
+  assert.equal(seen.length, 3);
+  assert.ok(seen[0].msg.length <= 200, 'a long line is capped');
+  assert.equal(seen[1].msg, 'error (no message)', 'an object argument is never echoed');
+  assert.equal(seen[2].msg, 'short one');
+  assert.doesNotMatch(JSON.stringify(seen), /SUPER_SECRET/);
+});
+
+test('connect() passes the quiet logger to createChannel, wired to this.log (M3)', async () => {
+  const { gw, ch, logs } = mk();
+  await gw.connect();
+  const logger = ch().opts.logger;
+  assert.equal(typeof logger.error, 'function');
+  logger.error({ config: { data: 'app_secret=SUPER_SECRET' } });
+  assert.ok(logs.some((l) => l.ev === 'sdk.log' && l.level === 'error'));
+  assert.doesNotMatch(JSON.stringify(logs), /SUPER_SECRET/);
 });
 
 test('close disconnects; loadSdk honours CCS_FEISHU_SDK', async () => {

@@ -12,6 +12,8 @@ class FakeChannel {
     this.calls = [];
     this.connected = false;
     this.seq = 0;
+    /** @type {any} what getConnectionStatus() returns; undefined by default (ignored, like a real gap in the SDK's contract) */
+    this.connStatus = undefined;
     /** @type {Map<string, any>} method -> error to throw once */
     this.failOnce = new Map();
     this.ownerId = 'ou_owner';
@@ -38,6 +40,8 @@ class FakeChannel {
 
   async connect() { this.calls.push({ m: 'connect', a: [] }); const e = this.failOnce.get('connect'); if (e) { this.failOnce.delete('connect'); throw e; } this.connected = true; }
   async disconnect() { this.calls.push({ m: 'disconnect', a: [] }); this.connected = false; }
+  /** A settable stand-in for WSClient#getConnectionStatus(): a test drives it directly (`ch.connStatus = {state: 'connected'}`). */
+  getConnectionStatus() { return this.connStatus; }
   /** @param {string} name @param {Function} fn */
   on(name, fn) { this.handlers[name] = fn; return () => { delete this.handlers[name]; }; }
   /** Drive an SDK event. @param {string} name @param {any} [arg] */
