@@ -16,6 +16,7 @@ const USAGE = `usage:
   ccs restart NAME
   ccs rm NAME
   ccs doctor [--lite] [--accept-config]
+  ccs feishu setup|start|stop|status|disable   optional Feishu add-on (docs/feishu.md)
 keys while attached: Ctrl+Z or Ctrl+\\ detaches (the session keeps running)
 `;
 
@@ -63,6 +64,7 @@ async function main(argv, io = {}) {
       case 'stop': return await require('./commands/stop.js').run(rest, ctx);
       case 'restart': return await require('./commands/restart.js').run(rest, ctx);
       case 'rm': return await require('./commands/rm.js').run(rest, ctx);
+      case 'feishu': return await require('./commands/feishu.js').run(rest, ctx);
       default:
         err.write(`ccs: unknown command '${cmd}'\n${USAGE}`);
         return 2;
