@@ -54,7 +54,10 @@ check_prereqs() {
 feishu_deps() {
   [ -f "$STATE/feishu/enabled" ] || return 0
   [ -f "$1/addons/feishu/package-lock.json" ] || return 0
-  [ -d "$1/addons/feishu/node_modules/@larksuite/channel" ] && return 0
+  # node_modules/.package-lock.json is the file npm writes LAST (M5): its absence means an earlier `npm ci` was
+  # interrupted and left a partial tree, which checking @larksuite/channel's own package.json alone would miss
+  # and never repair — the same check src/cli/commands/feishu.js's depsInstalled() makes.
+  [ -d "$1/addons/feishu/node_modules/@larksuite/channel" ] && [ -f "$1/addons/feishu/node_modules/.package-lock.json" ] && return 0
   say "installing the Feishu add-on's dependencies…"
   ( cd "$1/addons/feishu" && npm ci --omit=dev --silent --no-audit --no-fund ) || die "could not install the Feishu add-on's dependencies"
 }

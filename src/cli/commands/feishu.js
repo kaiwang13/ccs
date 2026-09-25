@@ -37,7 +37,14 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 /** @param {string} file @returns {any} */
 function readJson(file) { try { return JSON.parse(fs.readFileSync(file, 'utf8')); } catch { return null; } }
 
-function depsInstalled() { return fs.existsSync(path.join(ADDON, 'node_modules', '@larksuite', 'channel', 'package.json')); }
+/** M5: `node_modules/.package-lock.json` is the file npm writes LAST, so its absence means an earlier `npm ci`
+ *  was interrupted and left a partial tree — checking only for @larksuite/channel's own package.json (present
+ *  early in the install) would miss that and never repair it. `dir` defaults to the real add-on directory; a
+ *  test passes a temp one. @param {string} [dir] */
+function depsInstalled(dir = ADDON) {
+  return fs.existsSync(path.join(dir, 'node_modules', '@larksuite', 'channel', 'package.json'))
+    && fs.existsSync(path.join(dir, 'node_modules', '.package-lock.json'));
+}
 
 function npmBin() {
   const sibling = path.join(path.dirname(process.execPath), 'npm');
@@ -150,4 +157,4 @@ async function run(argv, ctx) {
   }
 }
 
-module.exports = { run, feishuFiles };
+module.exports = { run, feishuFiles, depsInstalled };
