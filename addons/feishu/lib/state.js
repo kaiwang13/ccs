@@ -13,7 +13,7 @@ const SCHEMA = 'ccs.feishu-state/1';
  *   groups: Record<string, {chatId: string, removed: boolean, statusMessageId: string|null, name?: string, renamePending?: boolean}>,
  *   cursors: Record<string, {file: string, offset: number}>,
  *   openCards: Record<string, Array<{turnId: number, ids: string[], title: string}>>,
- *   pendingFinals: Array<{chatId: string, text: string}>}} FeishuState
+ *   pendingFinals: Array<{chatId: string, text: string, attempts?: number, nextAt?: number, createdAt?: number}>}} FeishuState
  */
 
 /** @param {{stateDir: string}} paths */

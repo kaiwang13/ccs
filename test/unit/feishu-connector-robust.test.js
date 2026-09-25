@@ -95,6 +95,48 @@ test('a recovered final write clears its open-card record, so a restart leaves t
   assert.equal(JSON.stringify(cards(gw, chatId)), before, 'the already-finished card was left untouched by the restart');
 });
 
+test('a final write with a non-retryable error is dropped after one attempt, not retried forever (I2)', async (t) => {
+  const paths = tmpPaths(t);
+  const registry = new FakeRegistry();
+  const sid = '88888888-8888-8888-8888-888888888888';
+  registry.set(mkRec('s1', { sessionId: sid }));
+  const gw = new FakeGateway();
+  const logs = /** @type {any[]} */ ([]);
+  const conn = mkConn({ gateway: gw, paths, registry, log: (ev, f) => logs.push({ ev, ...f }) });
+  t.after(() => conn.stop());
+  await conn.start();
+  await waitFor(() => gw.chatByName('ccs · s1') !== null, { timeoutMs: 3000, what: 'group' });
+  const chatId = /** @type {string} */ (gw.chatByName('ccs · s1'));
+  appendTranscript(paths, sid, [userRec('go'), asstRec('partial')]);
+  await waitFor(() => cards(gw, chatId).some((/** @type {any} */ m) => m.title.includes('go')), { timeoutMs: 3000, what: 'open card' });
+  // The owner left (or removed the bot from) the group: every write to it now fails with a non-retryable code.
+  gw.fail = Object.assign(new Error('target_revoked'), { code: 'target_revoked' });
+  appendTranscript(paths, sid, [asstRec('FINAL ANSWER'), endRec(1000)]);
+  await waitFor(() => logs.some((l) => l.ev === 'final.lost'), { timeoutMs: 3000, what: 'the final write is given up on' });
+  assert.equal(conn.retries.length, 0, 'never queued for retry');
+  await new Promise((r) => setTimeout(r, 250)); // several _maintain passes: it must not come back
+  assert.equal(logs.filter((l) => l.ev === 'final.lost').length, 1, 'dropped exactly once, never retried');
+});
+
+test('a pendingFinals entry that keeps failing is attempted with growing gaps, not every pass (I2)', async (t) => {
+  const paths = tmpPaths(t);
+  const gw = new FakeGateway();
+  gw.chats.set('oc_gone', { name: 'gone', order: [] }); // the chat still exists; the write itself keeps failing
+  gw.fail = new Error('transient'); // no .code: retryable
+  const logs = /** @type {any[]} */ ([]);
+  const conn = mkConn({ gateway: gw, paths, registry: new FakeRegistry(), pollMs: 20, retryBaseMs: 80, log: (ev, f) => logs.push({ ev, ...f, at: Date.now() }) });
+  t.after(() => conn.stop());
+  await conn.start();
+  conn.state.pendingFinals.push({ chatId: 'oc_gone', text: 'the answer' });
+  await waitFor(() => logs.filter((l) => l.ev === 'final.pending').length >= 3, { timeoutMs: 5000, what: 'three failed attempts' });
+  const at = logs.filter((l) => l.ev === 'final.pending').map((l) => l.at);
+  const gap1 = at[1] - at[0];
+  const gap2 = at[2] - at[1];
+  assert.ok(gap1 > conn.pollMs * 4, `attempts must not repeat every poll tick (gap1=${gap1}ms, pollMs=${conn.pollMs}ms)`);
+  assert.ok(gap2 > gap1 * 1.3, `each gap must grow (gap1=${gap1}ms, gap2=${gap2}ms)`);
+  assert.ok(conn.state.pendingFinals.length === 1 && conn.state.pendingFinals[0].attempts >= 3, 'the entry survives with its attempt count updated');
+});
+
 test('a card open when the connector stops is closed on the next start with a pointer to the catch-up', async (t) => {
   const paths = tmpPaths(t);
   const registry = new FakeRegistry();

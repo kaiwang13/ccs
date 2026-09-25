@@ -26,6 +26,13 @@ const { ensureRunning } = require('../../../src/cli/commands/attach.js');
 const SMALL_FILE = 256 * 1024;
 const RECENT_SENT_MS = 60000;
 const HISTORY_WINDOW = 2 * 1024 * 1024;
+/** I2: an owed final write is given up on (logged as 'final.lost', never retried again) once it hits either cap,
+ *  or at once on a non-retryable error code — a dissolved/left group or a revoked scope, which will never
+ *  succeed no matter how many times it is retried. Without this, `this.retries` and `state.pendingFinals` grow
+ *  without bound and flood the global rate limiter, starving every other session's cards and status updates. */
+const FINAL_MAX_ATTEMPTS = 12;
+const FINAL_MAX_AGE_MS = 24 * 60 * 60 * 1000;
+const FINAL_NONRETRYABLE = new Set(['target_revoked', 'permission_denied']);
 
 /**
  * Every outgoing string must be masked (spec §8): one facade in front of the raw gateway, used by the connector
@@ -139,7 +146,7 @@ class Connector {
     this.ownerRefreshMs = ownerRefreshMs;
     this.ownerAt = 0;
     this.maintainAt = 0;
-    /** @type {Array<{id: string, chatId: string, card: any, turn: any, attempts: number, nextAt: number}>} final writes still owed */
+    /** @type {Array<{id: string, chatId: string, card: any, turn: any, attempts: number, nextAt: number, createdAt: number}>} final writes still owed */
     this.retries = [];
     /** @type {Set<string>} group ids with a rename in flight — in-memory only, never persisted (state.groups[id]
      *  is written straight to disk, so this guard must live off that object). */
@@ -408,19 +415,41 @@ class Connector {
     this._save(true);
   }
 
-  /** A final answer that stop() could not deliver last time (spec §9): one attempt per entry, dropping the ones
-   *  that land. @returns {Promise<boolean>} whether the list shrank */
+  /** A final answer that stop() could not deliver last time (spec §9): due entries get one attempt each, dropping
+   *  the ones that land, giving up (I2) on the ones that hit a cap or a non-retryable error, and giving the rest
+   *  the same exponential backoff as `_retryFinal` — old entries loaded without `attempts`/`nextAt`/`createdAt`
+   *  default to "due now, freshly started" so this reads them exactly as before the fix. @returns {Promise<boolean>}
+   *  whether anything changed (landed, was dropped, or was delayed further) — the only cases worth a save. */
   async _sendPendingFinals() {
-    const before = this.state.pendingFinals.length;
-    if (!before) return false;
+    if (!this.state.pendingFinals.length) return false;
+    const now = Date.now();
     const remaining = [];
+    let changed = false;
     for (const p of this.state.pendingFinals) {
-      try { await this.gw.send(p.chatId, { kind: 'text', text: p.text }); }
-      catch (e) { this.log('final.pending', { error: String(e) }); remaining.push(p); }
+      if ((p.nextAt || 0) > now) { remaining.push(p); continue; }
+      try {
+        await this.gw.send(p.chatId, { kind: 'text', text: p.text });
+        changed = true;
+      } catch (e) {
+        changed = true;
+        const attempts = (p.attempts || 0) + 1;
+        const createdAt = p.createdAt || now;
+        if (this._finalGiveUp(e, attempts, createdAt)) { this.log('final.lost', { chatId: p.chatId, attempts, error: String(e) }); continue; }
+        this.log('final.pending', { error: String(e) });
+        remaining.push({ chatId: p.chatId, text: p.text, attempts, createdAt, nextAt: now + this._finalBackoff(attempts) });
+      }
     }
     this.state.pendingFinals = remaining;
-    return remaining.length !== before;
+    return changed;
   }
+
+  /** @param {any} e @param {number} attempts @param {number} createdAt */
+  _finalGiveUp(e, attempts, createdAt) {
+    return FINAL_NONRETRYABLE.has(e && e.code) || attempts >= FINAL_MAX_ATTEMPTS || Date.now() - createdAt > FINAL_MAX_AGE_MS;
+  }
+
+  /** @param {number} attempts */
+  _finalBackoff(attempts) { return Math.min(60000, this.retryBaseMs * 2 ** attempts); }
 
   /** On start: deliver whatever `stop()` couldn't last time, right away. */
   async _flushPendingFinals() {
@@ -453,7 +482,10 @@ class Connector {
   /** One more attempt at a final card write; after four, send the answer as plain text instead (spec §9). Either
    *  way, a landed attempt closes this turn's open-card record — leaving it would let the next start's
    *  `_closeStaleCards()` overwrite an already-finished card (or one whose answer already went out as plain
-   *  text) with a stale "continued below" placeholder. @param {any} job */
+   *  text) with a stale "continued below" placeholder. A non-retryable error, or a job that hits the attempt or
+   *  age cap, is given up on instead (I2): nothing ever landed, so the open-card record is left alone — the same
+   *  as stop()'s own drain — for `_closeStaleCards()` to patch on a future restart if the group ever comes back.
+   *  @param {any} job */
   async _retryFinal(job) {
     job.nextAt = Infinity; // not due again until this attempt settles
     job.attempts++;
@@ -464,8 +496,14 @@ class Connector {
       this._clearOpenCard(job.id, job.turn.id);
       this._save();
     } catch (e) {
+      if (this._finalGiveUp(e, job.attempts, job.createdAt)) {
+        this.log('final.lost', { id: job.id, attempts: job.attempts, error: String(e) });
+        this.retries = this.retries.filter((j) => j !== job);
+        this._save();
+        return;
+      }
       this.log('card.retry_error', { id: job.id, attempts: job.attempts, error: String(e) });
-      job.nextAt = Date.now() + Math.min(60000, this.retryBaseMs * 2 ** job.attempts);
+      job.nextAt = Date.now() + this._finalBackoff(job.attempts);
     }
   }
 
@@ -650,7 +688,10 @@ class Connector {
         () => this._noteOpenCard(r, turn, card),
         (e) => {
           this.log('card.error', { error: String(e) });
-          if (final) this.retries.push({ id: r.info.id, chatId: g.chatId, card, turn, attempts: 0, nextAt: Date.now() + this.retryBaseMs });
+          if (!final) return;
+          const createdAt = Date.now();
+          if (this._finalGiveUp(e, 0, createdAt)) { this.log('final.lost', { id: r.info.id, attempts: 0, error: String(e) }); return; }
+          this.retries.push({ id: r.info.id, chatId: g.chatId, card, turn, attempts: 0, nextAt: Date.now() + this.retryBaseMs, createdAt });
         });
       this._track(card.chain);
       if (final) card.chain.then(() => r.cards.delete(turn.id));
