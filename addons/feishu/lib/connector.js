@@ -126,10 +126,12 @@ class Connector {
   /**
    * @param {{gateway: Gateway, paths: any, registry: any, env: Record<string, string|undefined>, tailMs?: number, pollMs?: number,
    *   updateMs?: number, statusMs?: number, linkWaitMs?: number, log?: (event: string, fields?: object) => void,
-   *   lock?: {release(): void}|null, linkFactory?: (o: {sockPath: string, label: string}) => any, retryBaseMs?: number, ownerRefreshMs?: number}} o
+   *   lock?: {release(): void}|null, linkFactory?: (o: {sockPath: string, label: string}) => any, retryBaseMs?: number, ownerRefreshMs?: number,
+   *   keepTurns?: number}} o
    */
   constructor({ gateway, paths, registry, env, tailMs = 500, pollMs = 5000, updateMs = 1000, statusMs = 5000, linkWaitMs = 10000,
-    log = () => {}, lock = null, linkFactory = (/** @type {any} */ o) => new ControlLink(o), retryBaseMs = 1000, ownerRefreshMs = 30 * 60 * 1000 }) {
+    log = () => {}, lock = null, linkFactory = (/** @type {any} */ o) => new ControlLink(o), retryBaseMs = 1000, ownerRefreshMs = 30 * 60 * 1000,
+    keepTurns = 50 }) {
     this.gw = wrapGateway(gateway);
     this.paths = paths;
     this.registry = registry;
@@ -139,6 +141,7 @@ class Connector {
     this.updateMs = updateMs;
     this.statusMs = statusMs;
     this.linkWaitMs = linkWaitMs;
+    this.keepTurns = keepTurns;
     this.log = log;
     this.preLock = lock;
     this.linkFactory = linkFactory;
@@ -516,7 +519,14 @@ class Connector {
       statusText: info.live ? 'running' : 'stopped', statusSentText: null, statusTimer: null, catchingUp: false,
       since: Date.now(), discoverAt: 0, creatingGroup: false, groupRetryAt: 0, assembler: /** @type {any} */ (null),
       prompt: null, peekAt: 0, promptQuietUntil: 0 };
-    nr.assembler = new TurnAssembler({ isFeishuPrompt: (text) => nr.sent.some((s) => s.text === text && Date.now() - s.at < RECENT_SENT_MS) });
+    nr.assembler = new TurnAssembler({
+      isFeishuPrompt: (text) => nr.sent.some((s) => s.text === text && Date.now() - s.at < RECENT_SENT_MS),
+      keep: this.keepTurns,
+      // I3: a turn still shown by an open card, or still the subject of a final-write retry job, must survive
+      // trimming — _catchUp's `r.assembler.turns.find((x) => x.id === tid)` (for a card) and _retryFinal (for a
+      // job) both need to find it later. Evaluated lazily, only when a trim is about to happen.
+      protect: () => { const ids = [...nr.cards.keys()]; for (const j of this.retries) if (j.id === info.id) ids.push(j.turn.id); return ids; },
+    });
     nr.assembler.on('update', (turn) => { if (!nr.catchingUp) this._cardUpdate(nr, turn, false); });
     nr.assembler.on('done', (turn) => { if (!nr.catchingUp) this._cardUpdate(nr, turn, true); });
     this.rt.set(info.id, nr);

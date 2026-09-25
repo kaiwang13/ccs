@@ -17,11 +17,18 @@ const SEEN_CAP = 20000;
 /** Spec §8: a turn with this many tools or more shows tool headers only (the bridge's COLLAPSE_TOOL_THRESHOLD). */
 const COLLAPSE_TOOLS = 3;
 
+/** I3: kept per runtime assembler by default — enough for /history and catch-up, small enough that a daemon
+ *  running for weeks next to busy sessions does not grow its heap without bound (a turn keeps its full text,
+ *  thinking and untruncated tool inputs/results; only rendering truncates). */
+const DEFAULT_KEEP = 50;
+
 class TurnAssembler extends EventEmitter {
-  /** @param {{isFeishuPrompt?: (text: string) => boolean}} [o] */
-  constructor({ isFeishuPrompt = () => false } = {}) {
+  /** @param {{isFeishuPrompt?: (text: string) => boolean, keep?: number, protect?: () => Iterable<number>}} [o] */
+  constructor({ isFeishuPrompt = () => false, keep = DEFAULT_KEEP, protect = null } = {}) {
     super();
     this.isFeishuPrompt = isFeishuPrompt;
+    this.keep = keep;
+    this.protect = protect;
     /** @type {Turn[]} */
     this.turns = [];
     /** @type {Turn|null} */
@@ -29,6 +36,19 @@ class TurnAssembler extends EventEmitter {
     /** @type {Set<string>} */
     this.seen = new Set();
     this.nextId = 1;
+  }
+
+  /** Keep the newest `this.keep` finished turns, plus any that is still open (never in `doneIds`, so never
+   *  dropped) or whose id `this.protect()` names right now — a turn the connector still has an open card for, or
+   *  a job in `this.retries` still trying to deliver (I3). Ids are never reused, so trimming never affects
+   *  monotonicity. */
+  _trim() {
+    if (this.turns.length <= this.keep) return;
+    const doneIds = this.turns.filter((t) => t.done).map((t) => t.id);
+    if (doneIds.length <= this.keep) return;
+    const keepIds = new Set(doneIds.slice(-this.keep));
+    const protect = this.protect ? new Set(this.protect()) : null;
+    this.turns = this.turns.filter((t) => !t.done || keepIds.has(t.id) || (protect && protect.has(t.id)));
   }
 
   /** @param {TEvent[]} events */
@@ -60,6 +80,7 @@ class TurnAssembler extends EventEmitter {
     this.open = null;
     this.emit('update', t);
     this.emit('done', t);
+    this._trim();
   }
 
   /** The open chat turn, or a new continuing one (events whose prompt came before we started reading). */

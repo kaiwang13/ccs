@@ -8,7 +8,7 @@ const { loadState, saveState } = require('../../addons/feishu/lib/state.js');
 const { Connector } = require('../../addons/feishu/lib/connector.js');
 const { FakeGateway } = require('../helpers/fakefeishu.js');
 const { waitFor } = require('../helpers/waitfor.js');
-const { FakeRegistry, mkRec, tmpPaths, appendTranscript, userRec, asstRec, endRec, cards } = require('../helpers/feishuconn.js');
+const { FakeRegistry, mkRec, tmpPaths, appendTranscript, userRec, asstRec, endRec, turn, cards } = require('../helpers/feishuconn.js');
 
 /** @param {any} o */
 const mkConn = (o) => new Connector({ env: {}, tailMs: 20, pollMs: 100, updateMs: 30, statusMs: 5000, retryBaseMs: 20, ...o });
@@ -135,6 +135,36 @@ test('a pendingFinals entry that keeps failing is attempted with growing gaps, n
   assert.ok(gap1 > conn.pollMs * 4, `attempts must not repeat every poll tick (gap1=${gap1}ms, pollMs=${conn.pollMs}ms)`);
   assert.ok(gap2 > gap1 * 1.3, `each gap must grow (gap1=${gap1}ms, gap2=${gap2}ms)`);
   assert.ok(conn.state.pendingFinals.length === 1 && conn.state.pendingFinals[0].attempts >= 3, 'the entry survives with its attempt count updated');
+});
+
+test('a turn still referenced by a pending final-write retry survives trimming (I3)', async (t) => {
+  const paths = tmpPaths(t);
+  const registry = new FakeRegistry();
+  const sid = '99999999-9999-9999-9999-999999999999';
+  registry.set(mkRec('s1', { sessionId: sid }));
+  const gw = new FakeGateway();
+  // keepTurns is tiny so the test doesn't need 50+ turns; retryBaseMs is huge so the queued job's own retry never
+  // fires and clears it out of `this.retries` (and so out of `protect()`) before the assertions below run.
+  const conn = mkConn({ gateway: gw, paths, registry, keepTurns: 3, retryBaseMs: 600000 });
+  t.after(() => conn.stop());
+  await conn.start();
+  const chatId = /** @type {string} */ (await waitFor(() => gw.chatByName('ccs · s1'), { timeoutMs: 3000, what: 'group' }));
+  gw.failNext('update', 1);
+  gw.failNext('send', 1);
+  appendTranscript(paths, sid, turn('go 1', 'ok 1'));
+  await waitFor(() => conn.retries.length === 1, { timeoutMs: 3000, what: 'turn 1 queued for retry' });
+  const r = /** @type {any} */ (conn.rt.get('s1'));
+  const protectedId = conn.retries[0].turn.id;
+  // One turn at a time, each waited out to a finished card, so `_trim()` sees each turn's real, settled state
+  // (its own r.cards entry cleared) rather than a burst of still-in-flight writes that would transiently protect
+  // all of them at once.
+  for (let i = 2; i <= 8; i++) {
+    appendTranscript(paths, sid, turn(`go ${i}`, `ok ${i}`));
+    await waitFor(() => cards(gw, chatId).some((/** @type {any} */ m) => m.title.includes(`go ${i}`) && /✓/.test(String(m.footer))),
+      { timeoutMs: 3000, what: `turn ${i}'s card finished` });
+  }
+  assert.deepEqual(r.assembler.turns.map((/** @type {any} */ x) => x.id).sort((a, b) => a - b), [protectedId, 6, 7, 8],
+    'the protected turn survives alongside the newest 3, even though it long ago fell out of that window');
 });
 
 test('a card open when the connector stops is closed on the next start with a pointer to the catch-up', async (t) => {

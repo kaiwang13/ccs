@@ -145,6 +145,32 @@ test('a finished turn with 3+ tools shows one headers-only panel per run of tool
   assert.equal(secs[1].body, 'all done');
 });
 
+test('the assembler keeps only the newest `keep` finished turns, plus any open one or an id in protect() (I3)', () => {
+  const protectedIds = new Set();
+  const a = new TurnAssembler({ keep: 5, protect: () => protectedIds });
+  const chat = (n) => [{ kind: 'prompt', key: `p${n}`, text: `q${n}` }, { kind: 'turn_end', key: `e${n}`, durationMs: 1 }];
+  for (let i = 1; i <= 5; i++) a.push(chat(i));
+  assert.deepEqual(a.turns.map((t) => t.id), [1, 2, 3, 4, 5], 'nothing dropped while at or under the cap');
+  protectedIds.add(1); // still referenced by an open card / a retry job, per the connector
+  for (let i = 6; i <= 10; i++) a.push(chat(i));
+  assert.deepEqual(a.turns.map((t) => t.id), [1, 6, 7, 8, 9, 10], 'the protected turn survives even though it fell out of the newest 5');
+  protectedIds.delete(1); // the card resolved, or the retry landed
+  a.push(chat(11));
+  assert.deepEqual(a.turns.map((t) => t.id), [7, 8, 9, 10, 11], 'once unprotected, a later trim drops it');
+  a.push([{ kind: 'prompt', key: 'p12', text: 'q12' }]); // an open (unfinished) turn: the cap is on FINISHED turns
+  assert.deepEqual(a.turns.map((t) => t.id), [7, 8, 9, 10, 11, 12], 'the open turn is additional, never counted against the cap or dropped');
+  assert.equal(/** @type {any} */ (a.open).id, 12);
+  assert.equal(a.nextId, 13, 'ids stay monotonic across trimming');
+});
+
+test('the default keep is 50', () => {
+  const a = new TurnAssembler();
+  for (let i = 1; i <= 60; i++) a.push([{ kind: 'prompt', key: `p${i}`, text: `q${i}` }, { kind: 'turn_end', key: `e${i}`, durationMs: 1 }]);
+  assert.equal(a.turns.length, 50);
+  assert.equal(a.turns[0].id, 11);
+  assert.equal(a.turns[49].id, 60);
+});
+
 test('renderHistory carries an optional Load earlier button; turnText flattens a turn for the plain fallback', () => {
   const { a } = run([
     { kind: 'prompt', key: 'p1', text: 'q1' }, { kind: 'text', key: 't1', text: 'a1' }, { kind: 'turn_end', key: 'e1', durationMs: 1 },
