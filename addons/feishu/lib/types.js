@@ -16,10 +16,18 @@
  *   One normalised transcript event. `key` is unique per event within a session and is used to drop duplicates.
  *
  * @typedef {{heading?: string, body: string, collapsed?: boolean}} OutSection
- * @typedef {{kind: 'text', text: string} | {kind: 'card', title: string, sections: OutSection[], footer?: string}} OutMessage
- *   A platform-neutral message; plan 08's gateway turns a card into Feishu card JSON.
+ * @typedef {{text: string, style?: 'default'|'primary'|'danger', value?: Record<string, string>, url?: string}} OutButton
+ *   A card button: `value` makes it a callback (delivered as a gateway 'action' event), `url` makes it a link.
+ * @typedef {{kind: 'text', text: string}
+ *   | {kind: 'card', title: string, sections: OutSection[], footer?: string, buttons?: OutButton[]}} OutMessage
+ *   A platform-neutral message; `render/card.js` turns it into Feishu card JSON.
  *
  * @typedef {{id: string, name: string, agent: string, cwd: string, live: boolean, lifecycle: string|null, sessionId: string|null}} SessionInfo
+ *
+ * @typedef {{chatId: string, messageId: string, senderId: string, text: string, unsupported?: boolean}} InMessage
+ *   `unsupported` is set for images, files, audio, video and stickers (spec §2: answered "not supported yet").
+ * @typedef {{chatId: string, messageId: string, operatorId: string, value: Record<string, string>}} InAction
+ *   A card-button click. `value` is the button's `OutButton.value`, as Feishu echoes it back.
  *
  * @typedef {{
  *   ownerId(): Promise<string>,
@@ -29,8 +37,10 @@
  *   send(chatId: string, msg: OutMessage): Promise<string>,
  *   update(messageId: string, msg: OutMessage): Promise<void>,
  *   react(messageId: string, emoji: 'OK'|'ERROR'): Promise<void>,
+ *   pin(messageId: string): Promise<void>,
+ *   chatLink(chatId: string): string,
  *   on(event: string, fn: (...a: any[]) => void): any,
  * }} Gateway
- *   Events: 'message' ({chatId, messageId, senderId, text}); 'down'; 'up'.
+ *   Events: 'message' (InMessage); 'action' (InAction); 'down'; 'up'.
  */
 module.exports = {};

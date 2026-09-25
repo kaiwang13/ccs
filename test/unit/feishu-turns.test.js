@@ -2,7 +2,7 @@
 // @ts-check
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { TurnAssembler, renderTurn, renderHistory, CARD_BUDGET } = require('../../addons/feishu/lib/turns.js');
+const { TurnAssembler, renderTurn, renderHistory, turnText, CARD_BUDGET, COLLAPSE_TOOLS } = require('../../addons/feishu/lib/turns.js');
 
 /** @param {any[]} evs @param {object} [o] */
 function run(evs, o = {}) {
@@ -87,7 +87,11 @@ test('tool bodies are capped by how many tools the turn has; long turns split in
   const body = (/** @type {any} */ t) => renderTurn(t)[0].sections[0].body.length;
   assert.ok(body(turnWithTools(1)) < 2600 && body(turnWithTools(1)) > 2400);
   assert.ok(body(turnWithTools(2)) < 1300 && body(turnWithTools(2)) > 1100);
-  assert.ok(body(turnWithTools(3)) < 700 && body(turnWithTools(3)) > 500);
+  // 3+ tools (spec §8): earlier tools collapse to header lines; the latest tool of a still-open turn keeps its capped body.
+  const three = renderTurn(turnWithTools(3))[0].sections;
+  assert.equal(three[0].heading, '🔧 2 tool calls');
+  assert.equal(three[0].body, '- ✓ **Read** — f\n- ✓ **Read** — f');
+  assert.ok(three[1].body.length < 700 && three[1].body.length > 500);
   const long = run([{ kind: 'prompt', key: 'p', text: 'x' }, { kind: 'text', key: 't', text: 'z'.repeat(70000) }]).a.turns[0];
   const parts = renderTurn(long);
   assert.ok(parts.length >= 3);
@@ -125,4 +129,30 @@ test('the oversize splitter never cuts an emoji surrogate pair in half', () => {
     if (m.kind !== 'card') continue;
     for (const s of m.sections) assert.equal(lone.test(s.body), false, 'a chunk boundary split an emoji');
   }
+});
+
+test('a finished turn with 3+ tools shows one headers-only panel per run of tools, text kept in order', () => {
+  const evs = [{ kind: 'prompt', key: 'p', text: 'x' }];
+  for (let i = 0; i < COLLAPSE_TOOLS; i++) {
+    evs.push({ kind: 'tool', key: `t${i}`, toolId: `id${i}`, name: 'Bash', input: `cmd${i}\nsecond line` });
+    evs.push({ kind: 'tool_result', key: `r${i}`, toolId: `id${i}`, text: 'out', isError: i === 1 });
+  }
+  evs.push({ kind: 'text', key: 'a', text: 'all done' }, { kind: 'turn_end', key: 'e', durationMs: 1000 });
+  const secs = renderTurn(run(evs).a.turns[0])[0].sections;
+  assert.deepEqual(secs.map((s) => s.heading), ['🔧 3 tool calls', undefined]);
+  assert.equal(secs[0].body, '- ✓ **Bash** — cmd0\n- ✗ **Bash** — cmd1\n- ✓ **Bash** — cmd2');
+  assert.equal(secs[0].collapsed, true);
+  assert.equal(secs[1].body, 'all done');
+});
+
+test('renderHistory carries an optional Load earlier button; turnText flattens a turn for the plain fallback', () => {
+  const { a } = run([
+    { kind: 'prompt', key: 'p1', text: 'q1' }, { kind: 'text', key: 't1', text: 'a1' }, { kind: 'turn_end', key: 'e1', durationMs: 1 },
+  ]);
+  const more = { text: 'Load earlier', value: { a: 'history', s: 'abc', b: '5' } };
+  const h = renderHistory(a.turns, 5, more);
+  assert.ok(h.kind === 'card' && h.buttons && h.buttons[0] === more);
+  const plain = renderHistory(a.turns);
+  assert.ok(plain.kind === 'card' && plain.buttons === undefined);
+  assert.equal(turnText(a.turns[0]), '⌨ q1\n\na1\n\n✓ 0s');
 });

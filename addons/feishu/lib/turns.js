@@ -14,6 +14,8 @@ const { truncate, sanitizeMessage } = require('./text.js');
 
 const CARD_BUDGET = 28000;
 const SEEN_CAP = 20000;
+/** Spec §8: a turn with this many tools or more shows tool headers only (the bridge's COLLAPSE_TOOL_THRESHOLD). */
+const COLLAPSE_TOOLS = 3;
 
 class TurnAssembler extends EventEmitter {
   /** @param {{isFeishuPrompt?: (text: string) => boolean}} [o] */
@@ -129,17 +131,47 @@ function toolCap(n) { return n <= 1 ? 2500 : n === 2 ? 1200 : 600; }
 /** @param {string} s */
 const fence = (s) => `\`\`\`\n${s}\n\`\`\``;
 
+/** One tool as a header line: status mark, name, first line of its input (the bridge's toolHeaderText). @param {any} i */
+function toolHeader(i) {
+  const mark = i.result === null ? '⏳' : i.isError ? '✗' : '✓';
+  const what = firstLine(i.input, 80);
+  return what ? `${mark} **${i.name}** — ${what}` : `${mark} **${i.name}**`;
+}
+
+/** @param {any} i @param {number} cap @returns {OutSection} */
+function toolSection(i, cap) {
+  const result = i.result === null ? '' : `\n${i.isError ? '✗' : '→'} ${i.result}`;
+  return { heading: `🔧 ${i.name}`, body: truncate(`${i.input}${result}`, cap), collapsed: true };
+}
+
 /** @param {Turn} t @returns {OutSection[]} */
 function sections(t) {
   if (t.kind !== 'chat') return [{ body: t.output === null ? '…' : fence(truncate(t.output, 2500)) }];
   if (t.items.length === 0) return [{ body: t.done ? '(no reply)' : '…' }];
-  const cap = toolCap(t.items.filter((i) => i.type === 'tool').length);
-  return t.items.map((i) => {
-    if (i.type === 'text') return { body: i.text };
-    if (i.type === 'thinking') return { heading: 'Thinking', body: truncate(i.text, 2500), collapsed: true };
-    const result = i.result === null ? '' : `\n${i.isError ? '✗' : '→'} ${i.result}`;
-    return { heading: `🔧 ${i.name}`, body: truncate(`${i.input}${result}`, cap), collapsed: true };
-  });
+  const tools = t.items.filter((i) => i.type === 'tool');
+  const cap = toolCap(tools.length);
+  // 3+ tools: every tool becomes a header line inside one collapsed panel per consecutive run — except, while the
+  // turn is still open, its latest tool, which keeps its (capped) body so the phone shows what is running now.
+  const many = tools.length >= COLLAPSE_TOOLS;
+  const live = t.done ? null : tools[tools.length - 1];
+  /** @type {OutSection[]} */
+  const out = [];
+  /** @type {string[]} */
+  let run = [];
+  const flush = () => {
+    if (!run.length) return;
+    out.push({ heading: `🔧 ${run.length} tool call${run.length === 1 ? '' : 's'}`, body: run.join('\n'), collapsed: true });
+    run = [];
+  };
+  for (const i of t.items) {
+    if (i.type === 'tool' && many && i !== live) { run.push(`- ${toolHeader(i)}`); continue; }
+    flush();
+    if (i.type === 'text') out.push({ body: i.text });
+    else if (i.type === 'thinking') out.push({ heading: 'Thinking', body: truncate(i.text, 2500), collapsed: true });
+    else out.push(toolSection(i, cap));
+  }
+  flush();
+  return out;
 }
 
 /** @param {Turn} t */
@@ -188,14 +220,31 @@ function renderTurn(t) {
   return out.map((m) => sanitizeMessage(m));
 }
 
-/** The last turns as one compact message (spec §6.1). @param {Turn[]} turns @param {number} [n] @returns {OutMessage} */
-function renderHistory(turns, n = 5) {
+/**
+ * The last turns as one compact message (spec §6.1), with an optional "Load earlier" button.
+ * @param {Turn[]} turns @param {number} [n] @param {import('./types').OutButton|null} [more] @returns {OutMessage}
+ */
+function renderHistory(turns, n = 5, more = null) {
   const last = turns.filter((t) => t.done).slice(-n);
   const secs = last.map((t) => {
     const text = t.kind === 'chat' ? t.items.filter((i) => i.type === 'text').map((i) => /** @type {any} */ (i).text).join('\n') : (t.output || '');
     return { heading: title(t), body: truncate(text || '…', 600) };
   });
-  return sanitizeMessage({ kind: 'card', title: 'Recent history', sections: secs.length ? secs : [{ body: 'no finished turns yet' }], footer: `last ${secs.length} turn(s)` });
+  /** @type {OutMessage} */
+  const msg = sanitizeMessage({ kind: 'card', title: 'Recent history', sections: secs.length ? secs : [{ body: 'no finished turns yet' }], footer: `last ${secs.length} turn(s)` });
+  // Attached after sanitizing: sanitizeMessage's walk always rebuilds objects (even unchanged ones), so masking
+  // the button here would silently swap it for a clone and break callers that key off the button's identity.
+  // A button's `value` is a structured callback payload, not free-form transcript text, so it needs no masking anyway.
+  if (more) msg.buttons = [more];
+  return msg;
 }
 
-module.exports = { TurnAssembler, renderTurn, renderHistory, CARD_BUDGET };
+/** A turn as plain markdown: title, reply text, footer — the "final answer is never dropped" fallback (spec §9). @param {Turn} t */
+function turnText(t) {
+  const body = t.kind === 'chat'
+    ? t.items.filter((i) => i.type === 'text').map((i) => /** @type {any} */ (i).text).join('\n\n')
+    : (t.output || '');
+  return `${title(t)}\n\n${body || '(no reply)'}\n\n${footer(t)}`;
+}
+
+module.exports = { TurnAssembler, renderTurn, renderHistory, turnText, CARD_BUDGET, COLLAPSE_TOOLS };
