@@ -8,6 +8,8 @@ conversation seen from two places. Turning the add-on off, or never setting it u
 
 - **One group per session**, named `ccs · <name>`. The first card is the recent history; a pinned status card shows
   idle / working / waiting / stopped with **Screen** and **Interrupt** buttons.
+- **Kept in sync:** every few minutes the add-on compares Feishu's groups with your sessions. A live session whose group
+  was disbanded gets a new one, a stale group name is fixed, and a bot-owned `ccs · …` group no session owns is deleted.
 - **Your direct chat with the bot** has the overview card: every session, its agent and status, and a button that
   opens its group. Send `/sessions` there to refresh it.
 - **A message in a group** is typed into that session (bursts within 600 ms are merged). A stopped session is
@@ -54,7 +56,7 @@ Use one Feishu app per host: two hosts on one app split its messages between the
 | `ccs feishu stop` | stop it (SIGTERM, then wait) |
 | `ccs feishu status` | running, connection, app, proxy, linked sessions, last error, log path |
 | `ccs proxy feishu URL\|none\|shell` | the connector's proxy; then `ccs feishu stop && ccs feishu start` |
-| `ccs feishu disable [--purge]` | stop and turn off; `--purge` also deletes local credentials and state (never Feishu groups) |
+| `ccs feishu disable [--purge]` | stop and turn off; `--purge` also deletes local credentials and state (Feishu groups of live sessions are left alone) |
 
 The connector is not started at boot; run `ccs feishu start` after a reboot. `install.sh update` restarts it if it
 was running. Its log: `ccs feishu status` prints the path.
@@ -84,7 +86,7 @@ Run against a real Feishu app before a release that changes the add-on (the real
    answer one at the terminal and see "answered at the terminal".
 6. `/screen`, the Screen and Interrupt buttons, and Load earlier work.
 7. Message a stopped session: it starts and receives the prompt.
-8. `ccs rename` a session: the group follows. `ccs rm` one: its group becomes "(removed)".
+8. `ccs rename` a session: the group follows. `ccs rm` one: its group is deleted (disbanded, history included).
 9. Turn Wi-Fi off for a minute mid-turn, then on: one catch-up card, and the open card is finalised.
 10. `ccs feishu stop` during a turn, then `start`: the open card points at the catch-up.
 11. Check reactions render; set `reactions` in config.json if not.

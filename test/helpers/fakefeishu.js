@@ -25,7 +25,7 @@ class FakeGateway extends EventEmitter {
     this.pins = [];
   }
 
-  /** Make the next `n` call(s) to `method` (one of 'createGroup'|'renameGroup'|'send'|'update'|'pin'|'unpin') throw. Each call
+  /** Make the next `n` call(s) to `method` (one of 'createGroup'|'renameGroup'|'deleteGroup'|'listGroups'|'send'|'update'|'pin'|'unpin') throw. Each call
    *  consumes one; once the count reaches 0 the method behaves normally again. @param {string} method @param {number} [n] */
   failNext(method, n = 1) { this.failCounts.set(method, (this.failCounts.get(method) || 0) + n); }
 
@@ -42,6 +42,9 @@ class FakeGateway extends EventEmitter {
   async createGroup(name, _ownerId) { this._maybeFail('createGroup'); const id = `oc_${++this.seq}`; this.chats.set(id, { name, order: [] }); return id; }
   /** @param {string} chatId @param {string} name */
   async renameGroup(chatId, name) { this._maybeFail('renameGroup'); const c = this.chats.get(chatId); if (c) c.name = name; }
+  /** @param {string} chatId */
+  async deleteGroup(chatId) { this._maybeFail('deleteGroup'); this.chats.delete(chatId); }
+  async listGroups() { this._maybeFail('listGroups'); return [...this.chats].filter(([id]) => id !== this.dm).map(([chatId, c]) => ({ chatId, name: c.name, ours: !c.foreign })); }
   /** @param {string} chatId @param {any} msg */
   async send(chatId, msg) {
     this._maybeFail('send');

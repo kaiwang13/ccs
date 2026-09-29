@@ -34,6 +34,8 @@
  *   dmChat(ownerId: string): Promise<string>,
  *   createGroup(name: string, ownerId: string): Promise<string>,
  *   renameGroup(chatId: string, name: string): Promise<void>,
+ *   deleteGroup(chatId: string): Promise<void>,
+ *   listGroups(): Promise<{chatId: string, name: string, ours: boolean}[]>,
  *   send(chatId: string, msg: OutMessage): Promise<string>,
  *   update(messageId: string, msg: OutMessage): Promise<void>,
  *   react(messageId: string, emoji: 'OK'|'ERROR'): Promise<void>,

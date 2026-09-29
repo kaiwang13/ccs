@@ -102,8 +102,8 @@ test('the connector links sessions, syncs both directions, resumes, catches up, 
   }, { timeoutMs: 60000, what: 'resumed and typed' });
   await waitFor(() => gw.reactionsOn(wake).includes('OK'), { timeoutMs: 10000, what: '✓ after resume' });
 
-  // 8. removal renames the group
+  // 8. removal deletes the group
   assert.equal((await runCcs(ctx, ['stop', 's1'])).code, 0);
   assert.equal((await runCcs(ctx, ['rm', 's1'])).code, 0);
-  await waitFor(() => gw.chats.get(group)?.name === 'ccs · s1 (removed)', { timeoutMs: 10000, what: 'group marked removed' });
+  await waitFor(() => !gw.chats.has(group), { timeoutMs: 10000, what: 'group deleted' });
 });

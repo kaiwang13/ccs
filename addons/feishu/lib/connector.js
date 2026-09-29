@@ -45,6 +45,8 @@ function wrapGateway(gw) {
     dmChat: (ownerId) => gw.dmChat(ownerId),
     createGroup: (name, ownerId) => gw.createGroup(maskEmails(name), ownerId),
     renameGroup: (chatId, name) => gw.renameGroup(chatId, maskEmails(name)),
+    deleteGroup: (chatId) => gw.deleteGroup(chatId),
+    listGroups: () => gw.listGroups(),
     send: (chatId, msg) => gw.send(chatId, sanitizeMessage(msg)),
     update: (messageId, msg) => gw.update(messageId, sanitizeMessage(msg)),
     react: (messageId, emoji) => gw.react(messageId, emoji),
@@ -139,11 +141,11 @@ class Connector {
   /**
    * @param {{gateway: Gateway, paths: any, registry: any, env: Record<string, string|undefined>, tailMs?: number, pollMs?: number,
    *   updateMs?: number, statusMs?: number, linkWaitMs?: number, startWaitMs?: number, log?: (event: string, fields?: object) => void,
-   *   lock?: {release(): void}|null, linkFactory?: (o: {sockPath: string, label: string}) => any, retryBaseMs?: number, ownerRefreshMs?: number,
+   *   lock?: {release(): void}|null, linkFactory?: (o: {sockPath: string, label: string}) => any, retryBaseMs?: number, ownerRefreshMs?: number, syncMs?: number,
    *   keepTurns?: number}} o
    */
   constructor({ gateway, paths, registry, env, tailMs = 500, pollMs = 5000, updateMs = 1000, statusMs = 5000, linkWaitMs = 10000, startWaitMs = 30000,
-    log = () => {}, lock = null, linkFactory = (/** @type {any} */ o) => new ControlLink(o), retryBaseMs = 1000, ownerRefreshMs = 30 * 60 * 1000,
+    log = () => {}, lock = null, linkFactory = (/** @type {any} */ o) => new ControlLink(o), retryBaseMs = 1000, ownerRefreshMs = 30 * 60 * 1000, syncMs = 5 * 60 * 1000,
     keepTurns = 50 }) {
     this.gw = wrapGateway(gateway);
     this.paths = paths;
@@ -162,6 +164,9 @@ class Connector {
     this.retryBaseMs = retryBaseMs;
     this.ownerRefreshMs = ownerRefreshMs;
     this.ownerAt = 0;
+    this.syncMs = syncMs;
+    this.syncAt = 0;
+    this.syncing = false;
     this.maintainAt = 0;
     /** @type {Array<{id: string, chatId: string, card: any, turn: any, attempts: number, nextAt: number, createdAt: number}>} final writes still owed */
     this.retries = [];
@@ -249,6 +254,8 @@ class Connector {
     }
     await this.index.start();
     await this._reconcileRemoved();
+    this.syncAt = Date.now() + this.syncMs;
+    this._track(this._syncGroups());
     this.tailTimer = setInterval(() => {
       if (this.stopped || !this.online) return;
       for (const r of this.rt.values()) {
@@ -338,7 +345,7 @@ class Connector {
       const chatId = await this.gw.createGroup(`ccs · ${r.info.name}`, /** @type {string} */ (this.owner));
       // Record the group even when stop() arrived meanwhile: it exists in Feishu now, and forgetting it would make
       // the next start create a duplicate. stop() drains this job before its final save.
-      this.state.groups[r.info.id] = { chatId, removed: false, statusMessageId: null, name: r.info.name };
+      this.state.groups[r.info.id] = { chatId, removed: false, statusMessageId: null, name: r.info.name, createdAt: Date.now() };
       this._save(true);
       if (this.stopped) return;
       const file = this._transcriptFile(r);
@@ -394,25 +401,26 @@ class Connector {
     if (r) { this._stopRuntime(r); this.rt.delete(id); }
     if (g && !g.removed) {
       g.removed = true;
-      g.renamePending = true;
+      g.deletePending = true;
       if (r) g.name = r.info.name;
       this._save(true);
-      await this._retryRename(id, g);
+      await this._retryDelete(id, g);
     }
     this._touchOverview();
   }
 
-  /** Rename a removed session's group; on failure leave `renamePending` for `_maintain` to retry. Guarded by
-   *  `this.renaming` (in-memory only) so an in-flight attempt for this id is never started twice.
+  /** Disband a removed session's group and forget it; on failure leave `deletePending` for `_maintain` to retry.
+   *  Guarded by `this.renaming` (in-memory only) so an in-flight attempt for this id is never started twice.
    *  @param {string} id @param {any} g */
-  async _retryRename(id, g) {
+  async _retryDelete(id, g) {
     if (this.renaming.has(id)) return;
     this.renaming.add(id);
     try {
-      await this.gw.renameGroup(g.chatId, `ccs · ${g.name || id} (removed)`);
-      delete g.renamePending;
+      await this.gw.deleteGroup(g.chatId);
+      delete this.state.groups[id];
       this._save();
-    } catch (e) { this.log('rename.error', { id, error: String(e) }); }
+      this._touchOverview();
+    } catch (e) { this.log('delete.error', { id, error: String(e) }); }
     finally { this.renaming.delete(id); }
   }
 
@@ -424,6 +432,43 @@ class Connector {
       try { rec = await this.registry.get(id); } catch (e) { this.log('index.warn', { error: String(e) }); continue; }
       if (!rec) this._track(this._removed(id));
     }
+  }
+
+  /**
+   * Make Feishu's groups match ccs's sessions, in both directions, from what Feishu says exists:
+   *  - a live session's group that is gone (disbanded by hand) is forgotten and created again;
+   *  - a live session whose group carries an old name is renamed;
+   *  - a bot-owned "ccs · …" group nothing tracks (a crash between creating it and saving it, a lost state file)
+   *    is deleted.
+   * Does nothing unless Feishu answered with a complete list, and while any group is being created (it would not
+   * be tracked yet). Guarded by `this.syncing`.
+   */
+  async _syncGroups() {
+    if (this.syncing || this.stopped || !this.online) return;
+    this.syncing = true;
+    try {
+      let list;
+      try { list = await this.gw.listGroups(); } catch (e) { this.log('sync.error', { error: String(e) }); return; }
+      if ([...this.rt.values()].some((r) => r.creatingGroup)) return;
+      const listed = new Set(list.map((c) => c.chatId));
+      const tracked = new Set(Object.values(this.state.groups).map((g) => g.chatId));
+      const now = Date.now();
+      for (const [id, g] of Object.entries(this.state.groups)) {
+        const r = this.rt.get(id);
+        if (g.removed || !r) continue;
+        if (!listed.has(g.chatId) && now - (g.createdAt || 0) > 2 * 60 * 1000) {
+          this.log('sync.group_missing', { id });
+          delete this.state.groups[id];
+          this._save(true);
+          this._track(this._ensureGroup(r));
+        } else if (g.name !== r.info.name) this._track(this._renameGroup(r, r.info.name));
+      }
+      for (const c of list) {
+        if (!c.ours || !c.name.startsWith('ccs · ') || tracked.has(c.chatId) || c.chatId === this.state.dmChat) continue;
+        this.log('sync.orphan', { chatId: c.chatId });
+        try { await this.gw.deleteGroup(c.chatId); } catch (e) { this.log('sync.error', { error: String(e) }); }
+      }
+    } finally { this.syncing = false; }
   }
 
   /** Cards a previous run left mid-turn (spec §5): point them at the catch-up that follows, then forget them. */
@@ -497,9 +542,10 @@ class Connector {
     const now = Date.now();
     if (this.stopped || now < this.maintainAt) return;
     this.maintainAt = now + this.pollMs;
-    for (const [id, g] of Object.entries(this.state.groups)) if (g.removed && g.renamePending) this._track(this._retryRename(id, g));
+    for (const [id, g] of Object.entries(this.state.groups)) if (g.removed && g.deletePending) this._track(this._retryDelete(id, g));
     for (const job of this.retries.filter((j) => j.nextAt <= now)) this._track(this._retryFinal(job));
     if (this.state.pendingFinals.length) this._track(this._retryPendingFinals());
+    if (now >= this.syncAt) { this.syncAt = now + this.syncMs; this._track(this._syncGroups()); }
     if (now >= this.ownerAt) {
       this.ownerAt = now + this.ownerRefreshMs;
       this._track(this.gw.ownerId().then((o) => { if (o) this.owner = o; }));

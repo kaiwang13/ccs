@@ -180,6 +180,30 @@ class FeishuGateway extends EventEmitter {
     await this._call(() => this.ch.rawClient.im.v1.chat.update({ path: { chat_id: chatId }, data: { name } }));
   }
 
+  /** Disband a session's group. A group that is already gone counts as deleted. @param {string} chatId */
+  async deleteGroup(chatId) {
+    try {
+      await this._call(() => this.ch.rawClient.im.v1.chat.delete({ path: { chat_id: chatId } }));
+    } catch (e) {
+      if (!/not exist|not found|dissolved|disbanded/i.test(String(/** @type {any} */ (e).message || e))) throw e;
+    }
+  }
+
+  /** Every group the bot is in. `ours` is true for groups the app itself owns, which is what ccs creates.
+   *  @returns {Promise<{chatId: string, name: string, ours: boolean}[]>} */
+  async listGroups() {
+    /** @type {{chatId: string, name: string, ours: boolean}[]} */
+    const out = [];
+    let pageToken;
+    do {
+      const r = await this._call(() => this.ch.rawClient.im.v1.chat.list({ params: { page_size: 100, page_token: pageToken } }));
+      const data = (r && r.data) || {};
+      for (const c of data.items || []) out.push({ chatId: String(c.chat_id), name: String(c.name || ''), ours: c.owner_id_type === 'app_id' });
+      pageToken = data.has_more ? data.page_token : undefined;
+    } while (pageToken);
+    return out;
+  }
+
   /** @param {string} chatId @param {OutMessage} msg */
   async send(chatId, msg) {
     try {

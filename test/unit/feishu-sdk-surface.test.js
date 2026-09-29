@@ -22,6 +22,8 @@ test('the installed @larksuite/channel still offers every call the add-on makes'
   }
   assert.equal(typeof ch.rawClient.im.v1.message.create, 'function');
   assert.equal(typeof ch.rawClient.im.v1.chat.update, 'function');
+  assert.equal(typeof ch.rawClient.im.v1.chat.delete, 'function');
+  assert.equal(typeof ch.rawClient.im.v1.chat.list, 'function');
   assert.equal(typeof ch.rawClient.im.v1.pin.create, 'function');
   assert.equal(typeof ch.rawClient.im.v1.pin.delete, 'function');
   assert.equal(typeof ch.rawClient.application.v6.application.get, 'function');

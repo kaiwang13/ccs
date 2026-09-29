@@ -189,7 +189,7 @@ test('a card open when the connector stops is closed on the next start with a po
   assert.deepEqual(loadState(paths).openCards, {});
 });
 
-test('a group whose session was removed while the connector was down is renamed on start', async (t) => {
+test('a group whose session was removed while the connector was down is deleted on start', async (t) => {
   const paths = tmpPaths(t);
   const registry = new FakeRegistry();
   const gw = new FakeGateway();
@@ -200,11 +200,11 @@ test('a group whose session was removed while the connector was down is renamed 
   const conn = mkConn({ gateway: gw, paths, registry });
   t.after(() => conn.stop());
   await conn.start();
-  await waitFor(() => gw.chats.get(chatId)?.name === 'ccs · gone (removed)', { timeoutMs: 3000, what: 'renamed' });
-  assert.equal(loadState(paths).groups.gone.removed, true);
+  await waitFor(() => !gw.chats.has(chatId), { timeoutMs: 3000, what: 'deleted' });
+  await waitFor(() => !loadState(paths).groups.gone, { timeoutMs: 3000, what: 'forgotten' });
 });
 
-test('a failed "(removed)" rename is retried until it succeeds', async (t) => {
+test('a failed group delete is retried until it succeeds', async (t) => {
   const paths = tmpPaths(t);
   const registry = new FakeRegistry();
   registry.set(mkRec('s1'));
@@ -214,10 +214,10 @@ test('a failed "(removed)" rename is retried until it succeeds', async (t) => {
   await conn.start();
   await waitFor(() => gw.chatByName('ccs · s1') !== null, { timeoutMs: 3000, what: 'group' });
   const chatId = /** @type {string} */ (gw.chatByName('ccs · s1'));
-  gw.failNext('renameGroup', 2);
+  gw.failNext('deleteGroup', 2);
   registry.recs.delete('s1');
-  await waitFor(() => gw.chats.get(chatId)?.name === 'ccs · s1 (removed)', { timeoutMs: 8000, what: 'rename retried' });
-  await waitFor(() => !loadState(paths).groups.s1.renamePending, { timeoutMs: 3000, what: 'renamePending cleared and saved' });
+  await waitFor(() => !gw.chats.has(chatId), { timeoutMs: 8000, what: 'delete retried' });
+  await waitFor(() => !loadState(paths).groups.s1, { timeoutMs: 3000, what: 'group forgotten and saved' });
 });
 
 test('the owner is refreshed periodically (spec §10)', async (t) => {
@@ -241,4 +241,38 @@ test('a pre-acquired lock is used instead of taking a second one', async (t) => 
   assert.equal(conn.lock, lock);
   await conn.stop();
   assert.ok(acquireLock(paths), 'stop() released the lock it was given');
+});
+
+test('a group nothing tracks is deleted; foreign chats and tracked groups are left alone', async (t) => {
+  const paths = tmpPaths(t);
+  const registry = new FakeRegistry();
+  registry.set(mkRec('s1'));
+  const gw = new FakeGateway();
+  const orphan = await gw.createGroup('ccs · lost', 'ou_owner');
+  const foreign = await gw.createGroup('ccs · not ours', 'ou_owner');
+  gw.chats.get(foreign).foreign = true;
+  const other = await gw.createGroup('team chat', 'ou_owner');
+  const conn = mkConn({ gateway: gw, paths, registry });
+  t.after(() => conn.stop());
+  await conn.start();
+  await waitFor(() => !gw.chats.has(orphan), { timeoutMs: 3000, what: 'orphan deleted' });
+  await waitFor(() => gw.chatByName('ccs · s1') !== null, { timeoutMs: 3000, what: 'group' });
+  assert.ok(gw.chats.has(foreign) && gw.chats.has(other) && gw.chats.has(gw.chatByName('ccs · s1')));
+});
+
+test('a live session whose group was disbanded by hand gets a new one', async (t) => {
+  const paths = tmpPaths(t);
+  const registry = new FakeRegistry();
+  registry.set(mkRec('s1'));
+  const gw = new FakeGateway();
+  const conn = mkConn({ gateway: gw, paths, registry, syncMs: 100 });
+  t.after(() => conn.stop());
+  await conn.start();
+  await waitFor(() => gw.chatByName('ccs · s1') !== null, { timeoutMs: 3000, what: 'group' });
+  const first = /** @type {string} */ (gw.chatByName('ccs · s1'));
+  conn.state.groups.s1.createdAt = 1; // old enough to be trusted as gone
+  gw.chats.delete(first);
+  await waitFor(() => gw.chatByName('ccs · s1') !== null, { timeoutMs: 5000, what: 'group recreated' });
+  assert.notEqual(gw.chatByName('ccs · s1'), first);
+  assert.equal(loadState(paths).groups.s1.chatId, gw.chatByName('ccs · s1'));
 });
