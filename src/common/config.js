@@ -6,6 +6,9 @@
  * ccs never refuses to start or restore a session because of a config error.
  */
 const fs = require('node:fs');
+const path = require('node:path');
+const { writeAtomic } = require('./atomic.js');
+const { isProxySetting, isProxyUrl, isNoProxyList } = require('./proxy.js');
 
 /**
  * @template T
@@ -46,6 +49,8 @@ const DEFAULTS = deepFreeze({
   },
   defaultAgent: 'claude',
   env: { passthrough: [], sshAuthSock: null },
+  // src/common/proxy.js: a URL, 'none', or null (keep the shell's). `ccs proxy` edits these.
+  proxy: { session: null, feishu: null, noProxy: null },
   size: {
     floorCols: 50, hardMinCols: 40, floorRows: 15, maxCols: 240, maxRows: 150, defaultCols: 120, defaultRows: 40,
     shrinkDebounceMs: 100, shrinkMaxWaitMs: 400, growDebounceMs: 2000, growMinCols: 4, growMinRows: 2,
@@ -104,6 +109,10 @@ const LEAVES = {
   'defaultAgent': (v) => typeof v === 'string' && require('../agents/index.js').KNOWN_AGENTS.includes(v),
   'env.passthrough': arrayOf((v) => typeof v === 'string' && /^[A-Za-z_*][A-Za-z0-9_*]*$/.test(v)),
   'env.sshAuthSock': (v) => v === null || (typeof v === 'string' && v.startsWith('/')),
+  'proxy.session': isProxySetting,
+  // The Feishu SDK speaks only http(s) proxies.
+  'proxy.feishu': (v) => v === null || v === 'none' || (isProxyUrl(v) && /^https?:/.test(v)),
+  'proxy.noProxy': (v) => v === null || isNoProxyList(v),
   'size.floorCols': int(40, 240),
   'size.hardMinCols': int(20, 240),
   'size.floorRows': int(5, 150),
@@ -215,4 +224,32 @@ function loadConfig(file, onInvalid = () => {}) {
   return deepFreeze(out);
 }
 
-module.exports = { DEFAULTS, loadConfig };
+/**
+ * Set one `section.leaf` in the config file, keeping every other key as written. `undefined` removes
+ * the leaf (back to its default). Throws on a value the loader would reject, or on a file that is not
+ * a JSON object (it is never overwritten then).
+ * @param {string} file @param {string} dotted @param {unknown} value
+ */
+function setConfigValue(file, dotted, value) {
+  const check = LEAVES[dotted];
+  const [section, leaf] = dotted.split('.');
+  if (!check || !leaf) throw new Error(`unknown config key ${dotted}`);
+  if (value !== undefined && !check(value)) throw new Error(`invalid value for ${dotted}: ${JSON.stringify(value)}`);
+  /** @type {any} */
+  let raw = { schema: DEFAULTS.schema };
+  let text = null;
+  try { text = fs.readFileSync(file, 'utf8'); } catch (err) {
+    if (/** @type {NodeJS.ErrnoException} */ (err).code !== 'ENOENT') throw err;
+  }
+  if (text !== null) {
+    try { raw = JSON.parse(text); } catch (err) { throw new Error(`${file} is not valid JSON (${/** @type {Error} */ (err).message}); fix it by hand first`); }
+    if (!isPlainObject(raw)) throw new Error(`${file} is not a JSON object; fix it by hand first`);
+  }
+  if (!isPlainObject(raw[section])) raw[section] = {};
+  if (value === undefined) delete raw[section][leaf]; else raw[section][leaf] = value;
+  if (!Object.keys(raw[section]).length) delete raw[section];
+  fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 });
+  writeAtomic(file, raw, { mode: 0o600 });
+}
+
+module.exports = { DEFAULTS, loadConfig, setConfigValue };

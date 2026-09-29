@@ -316,9 +316,33 @@ Optional, at `~/.config/ccs/config.json` (override with `CCS_CONFIG`):
 }
 ```
 
-Proxy variables (`http_proxy`, `https_proxy`, `no_proxy`, …) and CA-certificate variables are forwarded to
-`claude` by default. The environment is **snapshotted when the session is created** and replayed on every
-restart, so a session created in a shell without your proxy set will never have it.
+CA-certificate variables are forwarded to `claude` by default. The environment is **snapshotted when the session
+is created** and replayed on every restart.
+
+### Proxy
+
+Without any proxy setting a session keeps the proxy variables of the shell that ran `ccs new`. To choose it
+instead, use `ccs proxy` (it edits the `proxy` section of `config.json`):
+
+```bash
+ccs proxy                                        # what every session and Feishu use
+ccs proxy default http://172.25.101.2:2717       # every session without its own proxy
+ccs proxy session NAME none                      # one session: a URL, none, or default (follow the default)
+ccs new NAME --proxy http://HOST:PORT            # the same, at creation
+ccs proxy feishu http://172.25.101.2:2718        # the Feishu connector (http(s) only)
+ccs proxy no-proxy localhost,127.0.0.1,.corp     # hosts proxied sessions reach directly (reset: shell's/localhost)
+ccs proxy check                                  # CONNECT through the configured proxies; is local DNS needed?
+```
+
+`none` removes every proxy variable; `shell` (for `default` and `feishu`) goes back to the shell's. A URL sets
+`http_proxy`, `https_proxy`, `all_proxy` and their upper-case forms, plus `no_proxy`. The setting is read at every
+start, so a running session picks up a change at `ccs restart NAME` (the Feishu connector at `ccs feishu stop &&
+ccs feishu start`).
+
+DNS: a client that uses these variables hands the host **name** to the proxy (HTTP `CONNECT`, or `socks5h://`), and
+the proxy resolves it — this covers `claude`, `codex`, `curl`, `git`, `pip`, `npm`. Only programs that ignore the
+proxy variables (raw sockets, `ssh`, `dig`) and `no_proxy` hosts use this host's own resolver. `ccs proxy check`
+shows both.
 
 `CCS_PINNED_NODE` pins the interpreter `doctor` expects, for hosts that keep several around.
 

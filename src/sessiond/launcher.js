@@ -20,6 +20,7 @@
 const fs = require('fs');
 const path = require('path');
 const { buildEnv, loadXwe } = require('./env.js');
+const { resolveSessionProxy } = require('../common/proxy.js');
 const { TESTED_VERSIONS } = require('../claude/tested.js');
 
 const SEMVER_RE = /^\d+\.\d+\.\d+$/;
@@ -156,7 +157,8 @@ function buildLaunch({ intent, state, paths, config, claudeSettings, transcriptE
   const argv = exists ? [b.path, '--resume', sessionId, ...tail] : [b.path, '--session-id', sessionId, ...tail];
   const resumeArgv = [b.path, '--resume', '{sessionId}', ...tail];
   // loadXwe falls back to the newest recorded list for a version without its own file (plan 01).
-  const env = buildEnv(intent.env || {}, { xwe: loadXwe(b.version), ccsId: intent.ccsId, runtimeDir: paths.runtimeDir, sshAuthSock: (config.env && config.env.sshAuthSock) || null });
+  const { proxy, noProxy } = resolveSessionProxy(intent, config);
+  const env = buildEnv(intent.env || {}, { xwe: loadXwe(b.version), ccsId: intent.ccsId, runtimeDir: paths.runtimeDir, sshAuthSock: (config.env && config.env.sshAuthSock) || null, proxy, noProxy });
   return { argv, resumeArgv, env, cwd: intent.cwd, settingsFile, version: b.version, theme: resolveTheme(settings, config), name, mode: exists ? 'resume' : 'new', sessionId };
 }
 

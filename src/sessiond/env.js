@@ -13,6 +13,7 @@
  */
 const fs = require('node:fs');
 const path = require('node:path');
+const { applyProxyEnv } = require('../common/proxy.js');
 
 const ALLOW_NAMES = new Set([
   'HOME', 'USER', 'LOGNAME', 'SHELL', 'LANG', 'LANGUAGE', 'TZ', 'TMPDIR', 'PATH', 'EDITOR', 'VISUAL', 'PAGER',
@@ -70,10 +71,12 @@ function captureIntentEnv(env, { passthrough = [] } = {}) {
 
 /**
  * @param {Record<string, string>} intentEnv the captured snapshot (intent.json env)
- * @param {{xwe: string[], ccsId: string, runtimeDir: string, sshAuthSock?: string|null}} opts
+ * @param {{xwe: string[], ccsId: string, runtimeDir: string, sshAuthSock?: string|null,
+ *          proxy?: string|null, noProxy?: string|null}} opts
+ *   proxy/noProxy: the resolved setting (src/common/proxy.js); null keeps the snapshot's proxy variables.
  * @returns {Record<string, string>}
  */
-function buildEnv(intentEnv, { xwe, ccsId, runtimeDir, sshAuthSock = null }) {
+function buildEnv(intentEnv, { xwe, ccsId, runtimeDir, sshAuthSock = null, proxy = null, noProxy = null }) {
   const xweSet = new Set(xwe);
   /** @type {Record<string, string>} */
   const env = {};
@@ -83,6 +86,7 @@ function buildEnv(intentEnv, { xwe, ccsId, runtimeDir, sshAuthSock = null }) {
     env[name] = name === 'PATH' ? cleanPath(value) : value;
   }
   if (typeof sshAuthSock === 'string' && sshAuthSock !== '') env.SSH_AUTH_SOCK = sshAuthSock;
+  applyProxyEnv(env, proxy, noProxy);
   Object.assign(env, {
     TERM: 'xterm-256color',
     COLORTERM: 'truecolor',

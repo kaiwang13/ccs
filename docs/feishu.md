@@ -28,9 +28,12 @@ also visible to Feishu the service.
 1. `ccs feishu setup` — installs the add-on's dependencies (once), shows a QR code: scan it in the Feishu app and
    create (or pick) an app for ccs. Already have an app? `ccs feishu setup --app-id cli_… [--tenant lark]` and type
    its secret. The secret is stored encrypted in `~/.local/state/ccs/feishu/`.
-   If this host reaches Feishu through a different proxy than the rest of the internet, add
-   `--proxy http://HOST:PORT`: setup and the connector then send every Feishu request through it, whatever proxy
-   your shell sets (your sessions keep the shell's proxy). It is remembered; `--proxy none` removes it.
+   If this host reaches Feishu through a different proxy than the rest of the internet, set it once with
+   `ccs proxy feishu http://HOST:PORT` (before or after setup): setup and the connector then send every Feishu
+   request through it, whatever proxy your shell sets. Sessions have their own proxy (`ccs proxy default`, see the
+   README). `ccs proxy feishu none` connects directly; `ccs proxy feishu shell` goes back to the shell's proxy.
+   `ccs feishu setup --proxy URL` still works and wins over `ccs proxy feishu` until `--proxy none` or the next
+   `ccs proxy feishu` removes it.
 2. In the Feishu developer console for that app, check:
    - **Events & callbacks → subscription mode:** long connection (no public URL needed; ccs opens no port).
    - **Events:** `im.message.receive_v1`. **Callbacks:** `card.action.trigger`.
@@ -49,7 +52,8 @@ Use one Feishu app per host: two hosts on one app split its messages between the
 | `ccs feishu setup [--app-id ID] [--tenant feishu\|lark] [--proxy URL\|none]` | bind an app (again); a re-run keeps the saved proxy unless `--proxy` is given |
 | `ccs feishu start` | start the connector in the background (idempotent) |
 | `ccs feishu stop` | stop it (SIGTERM, then wait) |
-| `ccs feishu status` | running, connection, app, linked sessions, last error, log path |
+| `ccs feishu status` | running, connection, app, proxy, linked sessions, last error, log path |
+| `ccs proxy feishu URL\|none\|shell` | the connector's proxy; then `ccs feishu stop && ccs feishu start` |
 | `ccs feishu disable [--purge]` | stop and turn off; `--purge` also deletes local credentials and state (never Feishu groups) |
 
 The connector is not started at boot; run `ccs feishu start` after a reboot. `install.sh update` restarts it if it
@@ -61,8 +65,8 @@ was running. Its log: `ccs feishu status` prints the path.
   `~/.local/state/ccs/feishu/config.json`: `"reactions": {"OK": "DONE", "ERROR": "CrossMark"}` (any emoji key your
   tenant accepts), then `ccs feishu stop && ccs feishu start`.
 - **`setup failed: Client network socket disconnected before secure TLS connection was established`:** this host
-  cannot reach Feishu (often a proxy that blocks it). Find a proxy that can and pass it: `ccs feishu setup --proxy
-  http://HOST:PORT`.
+  cannot reach Feishu (often a proxy that blocks it). Find a proxy that can (`ccs proxy check http://HOST:PORT`
+  tests one) and set it: `ccs proxy feishu http://HOST:PORT`.
 - **Nothing arrives in groups:** check the long-connection subscription and `im:message.group_msg`.
 - **"this session runs an older ccs":** restart that session (`ccs restart NAME`) after updating ccs.
 

@@ -1,7 +1,7 @@
 'use strict';
 // @ts-check
 /**
- * `ccs new [NAME] [--cwd DIR] [--no-attach] [--allow-setup] [--resume SESSION_ID] [--name-from-cwd] [-- extra]`
+ * `ccs new [NAME] [--cwd DIR] [--no-attach] [--allow-setup] [--resume SESSION_ID] [--name-from-cwd] [--proxy URL|none] [-- extra]`
  * (spec §3.14, §4.1).
  *
  * Default name: where other accounts can read process command lines (the platform says so), every account
@@ -16,6 +16,7 @@ const { normalizeName, sanitizeName } = require('../../common/registry.js');
 const { KNOWN_AGENTS, DEFAULT_AGENT, formatUnknownAgent, getAgent } = require('../../agents/index.js');
 const { runNfsOp } = require('../../common/nfsworker.js');
 const { captureIntentEnv } = require('../../sessiond/env.js');
+const { parseProxyArg } = require('../../common/proxy.js');
 const { validateExtraArgs } = require('../../sessiond/launcher.js');
 const { queryTermColors } = require('../termcolors.js');
 const { attach, attachPrecheck } = require('../attach.js');
@@ -35,8 +36,13 @@ function nameFromCwdByDefault(config, argvHidden) {
 
 /** @param {string[]} argv @param {any} ctx */
 async function run(argv, ctx) {
-  const { flags, positional, rest } = parseArgs(argv, { bool: ['--no-attach', '--allow-setup', '--name-from-cwd'], value: ['--cwd', '--resume', '--agent'] });
+  const { flags, positional, rest } = parseArgs(argv, { bool: ['--no-attach', '--allow-setup', '--name-from-cwd'], value: ['--cwd', '--resume', '--agent', '--proxy'] });
   if (positional.length > 1) throw new UsageError('ccs new takes at most one NAME (put claude arguments after --)');
+  /** @type {string|null} */
+  let proxy = null;
+  if (flags['--proxy'] !== undefined) {
+    try { proxy = parseProxyArg(flags['--proxy'], 'default'); } catch (e) { ctx.err.write(`ccs: --proxy: ${(/** @type {any} */ (e)).message}\n`); return 2; }
+  }
   const io = { stdin: ctx.stdin, stdout: ctx.out, stderr: ctx.err, env: ctx.env };
   if (!flags['--no-attach']) {
     const refused = attachPrecheck(io);
@@ -110,7 +116,7 @@ async function run(argv, ctx) {
   // Query the terminal this `ccs new` runs in for its real default colours (spawn-time only: Codex asks
   // OSC 10/11 once, ~29 ms after the agent spawns, and never again, so this must already be known by then).
   const termColors = await queryTermColors({ stdin: ctx.stdin, stdout: ctx.out });
-  const rec = await ctx.registry.create({ name, cwd, claudeArgs: rest, env, trustExpected: !trusted, initialSessionId, resumeRequested: !!flags['--resume'], agent, termColors });
+  const rec = await ctx.registry.create({ name, cwd, claudeArgs: rest, env, trustExpected: !trusted, initialSessionId, resumeRequested: !!flags['--resume'], agent, termColors, proxy });
   const finalName = rec.intent.nameAtCreate;
   if (!trusted) {
     ctx.err.write(`ccs: ${tildify(cwd)} is not trusted by Claude yet — its trust dialog will appear; ${flags['--no-attach'] ? `answer it with: ccs a ${finalName} --allow-setup` : 'answer it in this terminal'}\n`);

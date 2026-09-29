@@ -119,7 +119,9 @@ function status(ctx, f) {
   const cfg = readJson(f.config);
   ctx.out.write(running && s ? `ccs: Feishu connector: running (pid ${s.pid})\n` : 'ccs: Feishu connector: not running\n');
   if (cfg) ctx.out.write(`  app: ${cfg.appId} (${cfg.tenant})${fs.existsSync(f.enabled) ? '' : ' — disabled'}\n`);
+  const ccsProxy = ctx.config.proxy && ctx.config.proxy.feishu;
   if (cfg && cfg.proxy) ctx.out.write(`  proxy: ${cfg.proxy} (for Feishu only)\n`);
+  else if (ccsProxy) ctx.out.write(`  proxy: ${ccsProxy === 'none' ? 'none (direct)' : ccsProxy} (for Feishu only; ccs proxy feishu)\n`);
   if (running && s) {
     ctx.out.write(`  connection: ${s.connected ? 'connected' : 'connecting…'}\n`);
     ctx.out.write(`  linked sessions: ${s.linked}\n`);

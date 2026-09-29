@@ -14,7 +14,8 @@ const { writeAtomic } = require('../../src/common/atomic.js');
 const { procStart } = require('../../src/common/procinfo.js');
 const { closeNfsWorker } = require('../../src/common/nfsworker.js');
 const { acquireLock } = require('./lib/state.js');
-const { feishuPaths, loadConfig, isEnabled, applyProxy } = require('./lib/config.js');
+const { loadConfig: loadCcsConfig } = require('../../src/common/config.js');
+const { feishuPaths, loadConfig, isEnabled, effectiveProxy, applyProxy } = require('./lib/config.js');
 const { readSecret } = require('./lib/secrets.js');
 const { FeishuGateway, loadSdk } = require('./lib/gateway.js');
 const { Connector } = require('./lib/connector.js');
@@ -67,10 +68,13 @@ async function main({ env = process.env } = {}) {
     const cfg = loadConfig(paths);
     if (!cfg) { writeStatus({ lastError: 'not set up' }); return 2; }
     // Resumed sessions inherit the environment ccs feishu start was given — taken before the Feishu proxy is applied,
-    // so the agents keep the shell's own proxy. The test-only SDK override stays with the connector.
+    // so sessiond never sees it (the agents' own proxy comes from ccs's proxy.session). The test-only SDK override
+    // stays with the connector.
     const sessionEnv = { ...env };
     delete sessionEnv.CCS_FEISHU_SDK;
-    if (cfg.proxy) applyProxy(process.env, cfg.proxy); // the SDK reads process.env
+    const proxy = effectiveProxy(cfg, loadCcsConfig(paths.configFile));
+    if (proxy) applyProxy(process.env, proxy); // the SDK reads process.env
+    say('proxy', { proxy: proxy || 'shell' });
     const appSecret = readSecret(paths, 'appSecret');
     writeStatus({ appId: cfg.appId });
 

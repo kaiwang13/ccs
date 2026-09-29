@@ -9,13 +9,14 @@ const { UsageError } = require('./args.js');
 
 const USAGE = `usage:
   ccs                                   picker on a terminal, otherwise ccs ls
-  ccs new [NAME] [--cwd DIR] [--no-attach] [--allow-setup] [--resume SESSION_ID] [--name-from-cwd] [--agent AGENT] [-- --model opus …]
+  ccs new [NAME] [--cwd DIR] [--no-attach] [--allow-setup] [--resume SESSION_ID] [--name-from-cwd] [--agent AGENT] [--proxy URL|none] [-- --model opus …]
   ccs attach|a [NAME] [--shrink] [--allow-setup]
   ccs ls [--json]
   ccs stop NAME|--all
   ccs restart NAME
   ccs rm NAME
   ccs doctor [--lite] [--accept-config]
+  ccs proxy [default|session|feishu|no-proxy|check …]   see and change the proxies (ccs proxy help)
   ccs feishu setup|start|stop|status|disable   optional Feishu add-on (docs/feishu.md)
 keys while attached: Ctrl+Z or Ctrl+\\ detaches (the session keeps running)
 `;
@@ -65,6 +66,7 @@ async function main(argv, io = {}) {
       case 'restart': return await require('./commands/restart.js').run(rest, ctx);
       case 'rm': return await require('./commands/rm.js').run(rest, ctx);
       case 'feishu': return await require('./commands/feishu.js').run(rest, ctx);
+      case 'proxy': return await require('./commands/proxy.js').run(rest, ctx);
       default:
         err.write(`ccs: unknown command '${cmd}'\n${USAGE}`);
         return 2;

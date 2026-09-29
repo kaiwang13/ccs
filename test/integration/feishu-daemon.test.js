@@ -145,3 +145,17 @@ test('a saved proxy is applied to the daemon\'s Feishu traffic, whatever proxy t
   d.child.kill('SIGTERM');
   assert.equal(await d.exited, 0);
 });
+
+test('without its own proxy the daemon uses ccs config proxy.feishu', { timeout: 60000 }, async (t) => {
+  const ctx = setUp(t, { HTTPS_PROXY: 'http://shell-proxy:2717', https_proxy: 'http://shell-proxy:2717' });
+  const cfg = JSON.parse(fs.readFileSync(ctx.configFile, 'utf8'));
+  fs.writeFileSync(ctx.configFile, JSON.stringify({ ...cfg, proxy: { session: 'http://session-proxy:2717', feishu: 'http://ccs-feishu:2718' } }));
+  const d = spawnDaemon(ctx);
+  t.after(() => { try { d.child.kill('SIGTERM'); } catch { /* gone */ } });
+  await waitFor(() => status(ctx)?.connected === true, { timeoutMs: 15000, what: 'connected status' });
+  const create = larkLog(ctx).find((e) => e.ev === 'create');
+  assert.equal(create.proxy, 'http://ccs-feishu:2718');
+  assert.equal(create.proxyLower, 'http://ccs-feishu:2718');
+  d.child.kill('SIGTERM');
+  assert.equal(await d.exited, 0);
+});

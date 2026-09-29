@@ -77,6 +77,34 @@ test('checkClaudeJson applies every rule of spec §3.11 item 2', () => {
   assert.equal(pf.checkClaudeJson(claudeJsonFixture({ fillerKeys: 60, projects: 43 }), { keys: 90, projects: 61 }).ok, true); // exactly ≥70 %
 });
 
+test('checkClaudeJson: a fresh file of another account is accepted; a shrunk file of the same account is not', () => {
+  const oldAccount = pf.hashAccount(claudeJsonFixture({ accountUuid: 'old-account' }));
+  const baseline = { keys: 91, projects: 75, account: oldAccount };
+  // 2026-09-29: /login with another account left 47 keys and 2 projects.
+  const fresh = pf.checkClaudeJson(claudeJsonFixture({ fillerKeys: 44, projects: 2, accountUuid: 'new-account' }), baseline);
+  assert.equal(fresh.ok, true);
+  assert.equal(fresh.accountSwitched, true);
+  assert.equal(pf.checkClaudeJson(claudeJsonFixture({ fillerKeys: 44, projects: 2, accountUuid: 'old-account' }), baseline).reason, 'KEYS_SHRANK');
+  // Truncation that lost oauthAccount is still damage, even with a stored credential.
+  assert.equal(pf.checkClaudeJson(claudeJsonFixture({ fillerKeys: 44, projects: 2, oauth: false }), baseline, { storedCredential: true }).reason, 'KEYS_SHRANK');
+  // A baseline from before accounts were recorded cannot tell, so it stays strict.
+  assert.equal(pf.checkClaudeJson(claudeJsonFixture({ fillerKeys: 44, projects: 2, accountUuid: 'new-account' }), { keys: 91, projects: 75 }).reason, 'KEYS_SHRANK');
+  // The other damage rules still apply to a switched account.
+  assert.equal(pf.checkClaudeJson(claudeJsonFixture({ fillerKeys: 5, projects: 2, accountUuid: 'new-account' }), baseline).reason, 'TOO_FEW_KEYS');
+  assert.equal(pf.checkClaudeJson(claudeJsonFixture({ onboarding: false, accountUuid: 'new-account' }), baseline).reason, 'ONBOARDING_NOT_COMPLETED');
+});
+
+test('claudeJsonGuard reads the baseline\'s account from the backup file', async (t) => {
+  const s = setup(t);
+  s.writeBackup('20260927T160040.912Z-testhost.json', claudeJsonFixture({ projects: 75, fillerKeys: 80, accountUuid: 'old-account' }));
+  s.writeClaudeJson(claudeJsonFixture({ projects: 2, fillerKeys: 44, accountUuid: 'new-account' }));
+  const r = await pf.claudeJsonGuard({ paths: s.paths, sleep: fastSleep });
+  assert.equal(r.ok, true);
+  assert.equal(r.accountSwitched, true);
+  s.writeClaudeJson(claudeJsonFixture({ projects: 2, fillerKeys: 44, accountUuid: 'old-account' }));
+  assert.equal((await pf.claudeJsonGuard({ paths: s.paths, sleep: fastSleep })).reason, 'KEYS_SHRANK');
+});
+
 test('claudeJsonGuard: missing, unparseable, retry after a torn read, baseline comparison', async (t) => {
   const s = setup(t);
   assert.equal((await pf.claudeJsonGuard({ paths: s.paths, sleep: fastSleep })).reason, 'MISSING');

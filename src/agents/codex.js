@@ -14,6 +14,7 @@
 const { resolveCodexBin } = require('../codex/bin.js');
 const { validateExtraArgs, LaunchError } = require('../sessiond/launcher.js');
 const { buildEnv } = require('./../sessiond/env.js');
+const { resolveSessionProxy } = require('../common/proxy.js');
 
 /** @typedef {import('../common/types').Capabilities} Capabilities */
 /** @typedef {import('../common/types').Agent} Agent */
@@ -48,11 +49,12 @@ function buildLaunch({ intent, state, paths, config, bin }) {
   // make ccs try to "resume" a thread that was never created.
   const sessionId = (state && state.lastSessionId) || (intent.resumeRequested ? intent.initialSessionId : null);
   const tail = ['-C', cwd, ...extra];
+  const { proxy, noProxy } = resolveSessionProxy(intent, config);
   // Codex takes no name argument — `name` here is ccs's own label, used for display only.
   return {
     argv: sessionId ? [b.path, 'resume', sessionId, ...tail] : [b.path, ...tail],
     resumeArgv: [b.path, 'resume', '{sessionId}', ...tail],
-    env: buildEnv(intent.env || {}, { xwe: [], ccsId: intent.ccsId, runtimeDir: paths.runtimeDir, sshAuthSock: (config.env && config.env.sshAuthSock) || null }),
+    env: buildEnv(intent.env || {}, { xwe: [], ccsId: intent.ccsId, runtimeDir: paths.runtimeDir, sshAuthSock: (config.env && config.env.sshAuthSock) || null, proxy, noProxy }),
     cwd,
     name: intent.nameAtCreate,
     mode: sessionId ? 'resume' : 'new',

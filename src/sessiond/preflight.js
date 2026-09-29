@@ -73,8 +73,15 @@ function hasEnvCredential(env = process.env) {
  * (onboarding flag, key/project counts, shrinkage against the newest backup) stay exactly as they
  * were; only "is there a credential?" widens. A file with no credential at all is still unhealthy,
  * because that claude really cannot run -- see `allowNoCredential` for the explicit exception.
+ *
+ * Logging in with a different account makes claude write a fresh file (a few dozen keys, only the
+ * projects opened since), which is not damage: when both the file and the baseline name an account
+ * and the two differ, the shrinkage comparison is skipped and `accountSwitched` is set. Every other
+ * rule still applies, and a truncated file keeps its account (or loses oauthAccount entirely), so
+ * the incident above is still caught.
  * @param {any} obj parsed ~/.claude.json
- * @param {{keys: number, projects: number}|null} baseline counts of the newest readable backup
+ * @param {{keys: number, projects: number, account?: string|null}|null} baseline counts (and
+ *   hashAccount) of the newest readable backup
  * @param {{envCredential?: boolean, storedCredential?: boolean, allowNoCredential?: boolean}} [o]
  */
 function checkClaudeJson(obj, baseline, o = {}) {
@@ -91,7 +98,9 @@ function checkClaudeJson(obj, baseline, o = {}) {
   }
   if (c.keys < 20) return { ok: false, reason: 'TOO_FEW_KEYS', ...c };
   if (!obj.projects || typeof obj.projects !== 'object' || Array.isArray(obj.projects)) return { ok: false, reason: 'NO_PROJECTS', ...c };
-  if (baseline) {
+  const account = hashAccount(obj);
+  const accountSwitched = Boolean(baseline && baseline.account && account && baseline.account !== account);
+  if (baseline && !accountSwitched) {
     if (c.keys < 0.7 * baseline.keys) return { ok: false, reason: 'KEYS_SHRANK', ...c };
     if (c.projects < 0.7 * baseline.projects) return { ok: false, reason: 'PROJECTS_SHRANK', ...c };
   }
@@ -99,7 +108,7 @@ function checkClaudeJson(obj, baseline, o = {}) {
   // allowNoCredential -- so callers can warn about a session that will fail on its first request
   // rather than implying it has working auth.
   const credential = oauth ? 'oauth' : storedCredential ? 'store' : envCredential ? 'env' : 'none';
-  return { ok: true, reason: null, credential, ...c };
+  return { ok: true, reason: null, credential, accountSwitched, ...c };
 }
 
 /** @param {number} timeoutMs */
@@ -125,7 +134,7 @@ async function newestBaseline(paths, op) {
     try {
       const obj = JSON.parse(text);
       const m = /** @type {RegExpExecArray} */ (BACKUP_RE.exec(names[i]));
-      return { file, ...countsOf(obj), sha256: sha256(text), atMs: stampToMs(m[1]) };
+      return { file, ...countsOf(obj), account: hashAccount(obj), sha256: sha256(text), atMs: stampToMs(m[1]) };
     } catch { /* unreadable backup: try the next older one */ }
   }
   return null;
@@ -333,6 +342,10 @@ async function runPreflight(ctx) {
     const guard = await claudeJsonGuard({ paths, op, sleep, allowNoCredential });
     if (!guard.ok) {
       return block('CONFIG_UNHEALTHY', { reason: guard.reason, keys: guard.keys, projects: guard.projects, baselineKeys: guard.baselineKeys, baselineProjects: guard.baselineProjects, newestBackup: guard.newestBackup, file: guard.file });
+    }
+    if (guard.accountSwitched) {
+      warnings.push(`CLAUDE_JSON_ACCOUNT_SWITCHED ~/.claude.json belongs to another account than ${guard.newestBackup}; accepted as the new baseline (${guard.keys} keys, ${guard.projects} projects)`);
+      if (log) log.warn('guard.account_switched', { keys: guard.keys, projects: guard.projects, baselineKeys: guard.baselineKeys, baselineProjects: guard.baselineProjects });
     }
     // 3. Backup (only a healthy file is ever backed up, so the newest backup is a healthy baseline).
     const backup = await backupClaudeJson({ paths, text: /** @type {string} */ (guard.text), op, nowMs: now(), batchId: ctx.batchId || null });

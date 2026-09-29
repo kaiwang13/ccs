@@ -46,12 +46,26 @@ function normalizeProxy(v) {
 }
 
 /**
- * Route this process's Feishu traffic through `proxy`: the SDK's REST client (axios, via proxy-from-env) and its
- * WebSocket (respectProxyEnv) both read these variables. Only ever applied to the add-on's own process.
+ * The proxy for the add-on's Feishu traffic: its own (`ccs feishu setup --proxy`) wins over ccs's config
+ * `proxy.feishu` (set with `ccs proxy feishu`). A URL, 'none' (connect directly), or null (the shell's proxy).
+ * @param {{proxy?: string}|null} cfg @param {{proxy?: {feishu?: string|null}}|null} ccsConfig @returns {string|null}
+ */
+function effectiveProxy(cfg, ccsConfig) {
+  if (cfg && cfg.proxy) return cfg.proxy;
+  const p = ccsConfig && ccsConfig.proxy ? ccsConfig.proxy.feishu : null;
+  return typeof p === 'string' ? p : null;
+}
+
+/**
+ * Route this process's Feishu traffic through `proxy` ('none': no proxy at all): the SDK's REST client (axios, via
+ * proxy-from-env) and its WebSocket (respectProxyEnv) both read these variables. Only ever applied to the add-on's
+ * own process.
  * @param {Record<string, string|undefined>} env @param {string} proxy
  */
 function applyProxy(env, proxy) {
-  for (const k of ['HTTPS_PROXY', 'https_proxy', 'HTTP_PROXY', 'http_proxy']) env[k] = proxy;
+  const names = ['HTTPS_PROXY', 'https_proxy', 'HTTP_PROXY', 'http_proxy'];
+  if (proxy === 'none') { for (const k of [...names, 'ALL_PROXY', 'all_proxy']) delete env[k]; return; }
+  for (const k of names) env[k] = proxy;
 }
 
 /** @param {any} paths @returns {FeishuConfig|null} */
@@ -87,4 +101,4 @@ function setEnabled(paths, on) {
   if (on) { ensureFeishuDir(paths); fs.writeFileSync(f, '', { mode: 0o600 }); } else fs.rmSync(f, { force: true });
 }
 
-module.exports = { feishuPaths, ensureFeishuDir, loadConfig, saveConfig, isEnabled, setEnabled, normalizeProxy, applyProxy, CONFIG_SCHEMA };
+module.exports = { feishuPaths, ensureFeishuDir, loadConfig, saveConfig, isEnabled, setEnabled, normalizeProxy, effectiveProxy, applyProxy, CONFIG_SCHEMA };

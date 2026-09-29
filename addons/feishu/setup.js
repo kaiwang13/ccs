@@ -7,7 +7,8 @@
  */
 const { resolvePaths } = require('../../src/common/paths.js');
 const { loadSdk, domainFor, quietLogger } = require('./lib/gateway.js');
-const { saveConfig, setEnabled, loadConfig, normalizeProxy, applyProxy } = require('./lib/config.js');
+const { loadConfig: loadCcsConfig } = require('../../src/common/config.js');
+const { saveConfig, setEnabled, loadConfig, normalizeProxy, effectiveProxy, applyProxy } = require('./lib/config.js');
 const { writeSecret } = require('./lib/secrets.js');
 
 /** Scopes beyond the Feishu app template that ccs needs: group messages without an @-mention, and creating groups. */
@@ -100,9 +101,10 @@ async function runSetup({ argv, env, io }) {
   let prev = null;
   try { prev = loadConfig(paths); } catch { /* a damaged config is simply replaced */ }
   const proxy = opts.proxy === undefined ? (prev && prev.proxy) || null : opts.proxy;
-  if (proxy) {
-    applyProxy(process.env, proxy); // the SDK reads process.env
-    io.out.write(`Feishu requests go through the proxy ${proxy}.\n`);
+  const effective = effectiveProxy(proxy ? { proxy } : null, loadCcsConfig(paths.configFile));
+  if (effective) {
+    applyProxy(process.env, effective); // the SDK reads process.env
+    io.out.write(effective === 'none' ? 'Feishu requests go directly, without a proxy.\n' : `Feishu requests go through the proxy ${effective}.\n`);
   }
   const sdk = loadSdk(env);
   let appId;
@@ -167,7 +169,7 @@ if (require.main === module) {
       const msg = String(e && e.message || e);
       process.stderr.write(`ccs: setup failed: ${msg}\n`);
       if (/TLS|socket|ECONN|ETIMEDOUT|EAI_AGAIN|ENOTFOUND|timeout/i.test(msg)) {
-        process.stderr.write('ccs: this host could not reach Feishu. If it needs a different proxy for Feishu: ccs feishu setup --proxy http://HOST:PORT\n');
+        process.stderr.write('ccs: this host could not reach Feishu. If it needs a different proxy for Feishu: ccs proxy feishu http://HOST:PORT\n');
       }
       process.exitCode = 1;
     });

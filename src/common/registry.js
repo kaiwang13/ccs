@@ -172,7 +172,8 @@ function createRegistry(paths, opts = {}) {
   /**
    * @param {{name?: string|null, cwd: string, claudeArgs?: string[], env?: Record<string,string>,
    *          trustExpected?: boolean, initialSessionId?: string, resumeRequested?: boolean,
-   *          desired?: 'running'|'stopped', agent?: string, termColors?: {fg: string|null, bg: string|null}}} draft
+   *          desired?: 'running'|'stopped', agent?: string, termColors?: {fg: string|null, bg: string|null},
+   *          proxy?: string|null}} draft   proxy: this session's own setting (src/common/proxy.js); null follows the default
    *   name null/undefined ⇒ opaque `ccs-<id6>` (spec §3.14); a given name is validated, lowercased, and
    *   suffixed -2, -3 … if taken. agent null/undefined ⇒ DEFAULT_AGENT; a given value must be in KNOWN_AGENTS.
    * @returns {Promise<SessionRecord>}
@@ -206,6 +207,7 @@ function createRegistry(paths, opts = {}) {
         agent: draft.agent == null ? DEFAULT_AGENT : draft.agent,
         claudeArgs: draft.claudeArgs || [], trustExpected: !!draft.trustExpected,
         lastReconcileBlock: null, env: draft.env || {},
+        ...(draft.proxy ? { proxy: draft.proxy } : {}),
       };
       await op('mkdirp', sessionDirOf(id), 0o700);
       await op('writeAtomic', paths.intentFile(id), intent, { mode: 0o600 });
