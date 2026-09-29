@@ -243,6 +243,20 @@ test('a pre-acquired lock is used instead of taking a second one', async (t) => 
   assert.ok(acquireLock(paths), 'stop() released the lock it was given');
 });
 
+test('a "(removed)" group left by an older version is deleted', async (t) => {
+  const paths = tmpPaths(t);
+  const gw = new FakeGateway();
+  const chatId = await gw.createGroup('ccs · old (removed)', 'ou_owner');
+  const st = loadState(paths);
+  st.groups.old = { chatId, removed: true, statusMessageId: null, name: 'old' };
+  saveState(paths, st);
+  const conn = mkConn({ gateway: gw, paths, registry: new FakeRegistry() });
+  t.after(() => conn.stop());
+  await conn.start();
+  await waitFor(() => !gw.chats.has(chatId), { timeoutMs: 3000, what: 'legacy group deleted' });
+  await waitFor(() => !loadState(paths).groups.old, { timeoutMs: 3000, what: 'forgotten' });
+});
+
 test('a group nothing tracks is deleted; foreign chats and tracked groups are left alone', async (t) => {
   const paths = tmpPaths(t);
   const registry = new FakeRegistry();

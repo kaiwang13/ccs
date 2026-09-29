@@ -401,7 +401,6 @@ class Connector {
     if (r) { this._stopRuntime(r); this.rt.delete(id); }
     if (g && !g.removed) {
       g.removed = true;
-      g.deletePending = true;
       if (r) g.name = r.info.name;
       this._save(true);
       await this._retryDelete(id, g);
@@ -409,7 +408,8 @@ class Connector {
     this._touchOverview();
   }
 
-  /** Disband a removed session's group and forget it; on failure leave `deletePending` for `_maintain` to retry.
+  /** Disband a removed session's group and forget it; on failure leave it `removed` for `_maintain` to retry
+   *  (which also clears the "(removed)" groups an older version left behind).
    *  Guarded by `this.renaming` (in-memory only) so an in-flight attempt for this id is never started twice.
    *  @param {string} id @param {any} g */
   async _retryDelete(id, g) {
@@ -542,7 +542,7 @@ class Connector {
     const now = Date.now();
     if (this.stopped || now < this.maintainAt) return;
     this.maintainAt = now + this.pollMs;
-    for (const [id, g] of Object.entries(this.state.groups)) if (g.removed && g.deletePending) this._track(this._retryDelete(id, g));
+    for (const [id, g] of Object.entries(this.state.groups)) if (g.removed) this._track(this._retryDelete(id, g));
     for (const job of this.retries.filter((j) => j.nextAt <= now)) this._track(this._retryFinal(job));
     if (this.state.pendingFinals.length) this._track(this._retryPendingFinals());
     if (now >= this.syncAt) { this.syncAt = now + this.syncMs; this._track(this._syncGroups()); }
