@@ -96,7 +96,7 @@ async function main({ env = process.env } = {}) {
     g.on('down', () => writeStatus({ connected: false }));
     g.on('up', () => writeStatus({ connected: true }));
 
-    const c = new Connector({ gateway: g, paths, registry: createRegistry(paths), env: sessionEnv, log: say, lock });
+    const c = new Connector({ gateway: g, paths, registry: createRegistry(paths), env: sessionEnv, log: say, lock, layout: cfg.layout === 'groups' ? 'groups' : 'topic' });
     conn = c;
     // M2: once the gateway is up, a transient failure in c.start() (ownerId()/dmChat() hitting a network blip or a
     // 5xx) used to be fatal — the daemon exited 1 and nothing restarted it. Retry with the same interruptible

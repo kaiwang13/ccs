@@ -146,7 +146,7 @@ test('a createGroup failure is retried without a connector restart, via the gate
   gw.emit('up');
   await waitFor(() => gw.chatByName('ccs · alpha') !== null, { timeoutMs: 3000, what: 'group created via the up event' });
   const chatId = /** @type {string} */ (gw.chatByName('ccs · alpha'));
-  assert.deepEqual(conn._sessionForChat(chatId), { id: 's1', removed: false }, 'the chat now routes to the session — no restart happened');
+  assert.deepEqual(conn._sessionForChat(chatId), { id: 's1', removed: false, chatId }, 'the chat now routes to the session — no restart happened');
 
   // A second session, healed by the throttled tick instead of an 'up' event (online stays true the whole time;
   // nothing but the tick loop below can be retrying it).

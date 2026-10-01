@@ -16,8 +16,8 @@ phone (RC) ─┘     (emulator,        (owns the pty)
 Unlike `tmux` or `screen`, `ccs` does not own your scrollback. Each client renders into its own terminal,
 so you scroll with your normal mouse wheel, trackpad, and scrollbar — no prefix key, no copy mode.
 
-**Status: v0.4.1.** Adds an optional **Feishu (Lark) add-on**: every session gets its own Feishu group
-where you read the conversation as cards, send prompts, answer Claude's permission prompts with a tap,
+**Status: v0.5.0.** Adds an optional **Feishu (Lark) add-on**: every session is a topic in one `ccs` Feishu
+group (or its own group, if you prefer), where you read the conversation as cards, send prompts, answer Claude's permission prompts with a tap,
 interrupt, and wake a stopped session — from the phone or desktop app, in sync with the terminal
 ([`docs/feishu.md`](docs/feishu.md)). It is off unless you run `ccs feishu setup`, and being off changes
 nothing. Runs on **Linux and macOS** from one codebase, with every OS difference behind one platform seam

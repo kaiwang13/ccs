@@ -14,7 +14,8 @@ function normalizeInbound(s) {
 }
 
 /** @typedef {{gateway: Gateway, ownerId: () => string|null, dmChat: () => string|null,
- *   sessionForChat: (chatId: string) => {id: string, removed: boolean}|null,
+ *   sessionForChat: (chatId: string, rootId?: string, hint?: string) => {id: string, removed: boolean, chatId?: string}|null,
+ *   hubChat?: () => string|null,
  *   sessionState: (id: string) => {live: boolean, waiting: boolean, lifecycle: string|null, name: string},
  *   resume: (id: string) => Promise<{ok: boolean, error?: string}>,
  *   deliver: (id: string, op: {text?: string, key?: string}) => Promise<{ok: boolean, error?: string}>,
@@ -49,23 +50,29 @@ class Router {
       await this._send(m.chatId, text === '/sessions' ? this.d.overview() : { kind: 'text', text: HELP });
       return;
     }
-    const target = this.d.sessionForChat(m.chatId);
-    if (!target) return;
-    if (target.removed) { await this._fail(m.chatId, [m.messageId], 'this session was removed; its history stays here'); return; }
-    if (m.unsupported) { await this._fail(m.chatId, [m.messageId], 'images and files are not supported yet — send text'); return; }
+    const target = this.d.sessionForChat(m.chatId, m.rootId);
+    if (!target) {
+      // A message in the ccs group's main area starts a stray topic that belongs to no session.
+      const hub = this.d.hubChat ? this.d.hubChat() : null;
+      if (hub && m.chatId === hub && text) await this.d.gateway.react(m.messageId, 'ERROR');
+      return;
+    }
+    const chat = target.chatId || m.chatId; // the topic (or group) that every reply goes back to
+    if (target.removed) { await this._fail(chat, [m.messageId], 'this session was removed; its history stays here'); return; }
+    if (m.unsupported) { await this._fail(chat, [m.messageId], 'images and files are not supported yet — send text'); return; }
     const id = target.id;
     const name = this.d.sessionState(id).name;
-    if (text === '/screen') { await this._send(m.chatId, screenMessage(await this.d.screen(id))); return; }
-    if (text === '/status') { await this._send(m.chatId, { kind: 'text', text: this.d.statusText(id) }); return; }
-    if (text === '/interrupt') { await this._run(m.chatId, id, [m.messageId], { key: 'esc' }); return; }
-    if (text === '/exit' || text === '/quit') { await this._fail(m.chatId, [m.messageId], `stopping a session stays in the CLI: ccs stop ${name}`); return; }
+    if (text === '/screen') { await this._send(chat, screenMessage(await this.d.screen(id))); return; }
+    if (text === '/status') { await this._send(chat, { kind: 'text', text: this.d.statusText(id) }); return; }
+    if (text === '/interrupt') { await this._run(chat, id, [m.messageId], { key: 'esc' }); return; }
+    if (text === '/exit' || text === '/quit') { await this._fail(chat, [m.messageId], `stopping a session stays in the CLI: ccs stop ${name}`); return; }
     if (!text) return;
-    const p = this.pending.get(m.chatId) || { id, texts: [], messageIds: [], timer: null };
+    const p = this.pending.get(chat) || { id, texts: [], messageIds: [], timer: null };
     p.texts.push(text);
     p.messageIds.push(m.messageId);
     if (p.timer) clearTimeout(p.timer);
-    p.timer = setTimeout(() => { p.timer = null; this._track(this._flush(m.chatId)); }, this.debounceMs);
-    this.pending.set(m.chatId, p);
+    p.timer = setTimeout(() => { p.timer = null; this._track(this._flush(chat)); }, this.debounceMs);
+    this.pending.set(chat, p);
   }
 
   /**
@@ -76,27 +83,28 @@ class Router {
   async onAction(a) {
     const owner = this.d.ownerId();
     if (!owner || a.operatorId !== owner) return;
-    const target = this.d.sessionForChat(a.chatId);
+    const target = this.d.sessionForChat(a.chatId, undefined, a.value.s);
     if (!target || target.id !== a.value.s) return;
-    if (target.removed) { await this._send(a.chatId, { kind: 'text', text: 'this session was removed; its history stays here' }); return; }
+    const chat = target.chatId || a.chatId;
+    if (target.removed) { await this._send(chat, { kind: 'text', text: 'this session was removed; its history stays here' }); return; }
     const id = target.id;
     switch (a.value.a) {
-      case 'screen': await this._send(a.chatId, screenMessage(await this.d.screen(id))); return;
+      case 'screen': await this._send(chat, screenMessage(await this.d.screen(id))); return;
       case 'interrupt': {
         const r = await this.d.deliver(id, { key: 'esc' });
-        await this._send(a.chatId, { kind: 'text', text: r.ok ? 'interrupt sent (Esc)' : `not sent: ${r.error || 'unknown error'}` });
+        await this._send(chat, { kind: 'text', text: r.ok ? 'interrupt sent (Esc)' : `not sent: ${r.error || 'unknown error'}` });
         return;
       }
       case 'history': {
         if (!/^\d{1,6}$/.test(String(a.value.b)) || !this.d.history) return;
-        await this._send(a.chatId, await this.d.history(id, Number(a.value.b)));
+        await this._send(chat, await this.d.history(id, Number(a.value.b)));
         return;
       }
       case 'answer': {
         const key = a.value.k || '';
         if (!this.d.answer || !/^[1-9]$/.test(key) || !a.value.p) return;
         const r = await this.d.answer(id, a.value.p, key);
-        if (!r.ok && r.error) await this._send(a.chatId, { kind: 'text', text: `not sent: ${r.error}` });
+        if (!r.ok && r.error) await this._send(chat, { kind: 'text', text: `not sent: ${r.error}` });
         return;
       }
       default:

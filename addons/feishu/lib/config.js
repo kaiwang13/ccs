@@ -34,7 +34,8 @@ function ensureFeishuDir(paths) {
 }
 
 /** @typedef {{schema: 'ccs.feishu-config/1', appId: string, tenant: 'feishu'|'lark', reactions?: {OK: string, ERROR: string},
- *   proxy?: string}} FeishuConfig
+ *   proxy?: string, layout?: 'topic'|'groups'}} FeishuConfig
+ *   `layout`: 'topic' (default) puts every session in one topic of a single `ccs` group; 'groups' gives each its own group.
  *   `proxy`: an http(s) proxy URL for every Feishu request of the add-on (setup and connector), whatever proxy the
  *   launching shell has — hosts often reach Feishu through a different proxy than the rest of the internet. */
 

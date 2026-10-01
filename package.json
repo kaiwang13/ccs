@@ -1,6 +1,6 @@
 {
   "name": "ccs",
-  "version": "0.4.1",
+  "version": "0.5.0",
   "private": true,
   "description": "ccs: multi-client host for long-lived Claude Code and Codex CLI sessions",
   "license": "UNLICENSED",

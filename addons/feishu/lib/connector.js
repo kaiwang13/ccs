@@ -46,6 +46,9 @@ function wrapGateway(gw) {
     createGroup: (name, ownerId) => gw.createGroup(maskEmails(name), ownerId),
     renameGroup: (chatId, name) => gw.renameGroup(chatId, maskEmails(name)),
     deleteGroup: (chatId) => gw.deleteGroup(chatId),
+    createHub: (name, ownerId) => gw.createHub(maskEmails(name), ownerId),
+    createTopic: (hubChat, msg) => gw.createTopic(hubChat, sanitizeMessage(msg)),
+    alive: (target) => gw.alive(target),
     listGroups: () => gw.listGroups(),
     send: (chatId, msg) => gw.send(chatId, sanitizeMessage(msg)),
     update: (messageId, msg) => gw.update(messageId, sanitizeMessage(msg)),
@@ -142,11 +145,11 @@ class Connector {
    * @param {{gateway: Gateway, paths: any, registry: any, env: Record<string, string|undefined>, tailMs?: number, pollMs?: number,
    *   updateMs?: number, statusMs?: number, linkWaitMs?: number, startWaitMs?: number, log?: (event: string, fields?: object) => void,
    *   lock?: {release(): void}|null, linkFactory?: (o: {sockPath: string, label: string}) => any, retryBaseMs?: number, ownerRefreshMs?: number, syncMs?: number,
-   *   keepTurns?: number}} o
+   *   keepTurns?: number, layout?: 'topic'|'groups'}} o
    */
   constructor({ gateway, paths, registry, env, tailMs = 500, pollMs = 5000, updateMs = 1000, statusMs = 5000, linkWaitMs = 10000, startWaitMs = 30000,
     log = () => {}, lock = null, linkFactory = (/** @type {any} */ o) => new ControlLink(o), retryBaseMs = 1000, ownerRefreshMs = 30 * 60 * 1000, syncMs = 5 * 60 * 1000,
-    keepTurns = 50 }) {
+    keepTurns = 50, layout = 'groups' }) {
     this.gw = wrapGateway(gateway);
     this.paths = paths;
     this.registry = registry;
@@ -165,6 +168,9 @@ class Connector {
     this.ownerRefreshMs = ownerRefreshMs;
     this.ownerAt = 0;
     this.syncMs = syncMs;
+    this.layout = layout;
+    /** @type {Promise<string>|null} */
+    this.hubPromise = null;
     this.syncAt = 0;
     this.syncing = false;
     this.maintainAt = 0;
@@ -200,7 +206,8 @@ class Connector {
     this.index = new SessionIndex({ registry, paths, pollMs: 2000 });
     this.router = new Router({
       gateway: this.gw, ownerId: () => this.owner, dmChat: () => this.state.dmChat,
-      sessionForChat: (chatId) => this._sessionForChat(chatId),
+      sessionForChat: (chatId, rootId, hint) => this._sessionForChat(chatId, rootId, hint),
+      hubChat: () => this.state.hubChat || null,
       sessionState: (id) => this._sessionState(id),
       resume: (id) => this._resume(id), deliver: (id, op) => this._deliver(id, op),
       screen: (id) => this._screen(id), statusText: (id) => (this.rt.get(id)?.statusText || 'unknown'),
@@ -321,6 +328,8 @@ class Connector {
       // Group creation (and the history it posts) is a gateway call and must not gate the two things below: a
       // failure here is retried later (item 5, _ensureGroup / the 'up' event / the tail-timer tick), never fatal.
       this._track(this._ensureGroup(r));
+    } else if (this.layout === 'topic' && !known.removed && !known.chatId.includes('#')) {
+      this._track(this._migrate(r));
     } else {
       const cur = this.state.cursors[info.id];
       if (cur) { r.tail = new TranscriptTail({ file: cur.file, offset: cur.offset }); this._catchUp(r, 'While the connector was stopped'); }
@@ -342,10 +351,18 @@ class Connector {
     if (this.stopped || this.state.groups[r.info.id] || r.creatingGroup) return;
     r.creatingGroup = true;
     try {
-      const chatId = await this.gw.createGroup(`ccs · ${r.info.name}`, /** @type {string} */ (this.owner));
+      /** @type {string|null} */
+      let rootId = null;
+      let chatId;
+      if (this.layout === 'topic') {
+        // The topic's root message is the session's status card, edited in place from here on.
+        chatId = await this.gw.createTopic(await this._hub(), this._statusCard(r));
+        rootId = chatId.slice(chatId.indexOf('#') + 1);
+        r.statusSentText = r.statusText;
+      } else chatId = await this.gw.createGroup(`ccs · ${r.info.name}`, /** @type {string} */ (this.owner));
       // Record the group even when stop() arrived meanwhile: it exists in Feishu now, and forgetting it would make
       // the next start create a duplicate. stop() drains this job before its final save.
-      this.state.groups[r.info.id] = { chatId, removed: false, statusMessageId: null, name: r.info.name, createdAt: Date.now() };
+      this.state.groups[r.info.id] = { chatId, removed: false, statusMessageId: rootId, name: r.info.name, createdAt: Date.now() };
       this._save(true);
       if (this.stopped) return;
       const file = this._transcriptFile(r);
@@ -385,12 +402,51 @@ class Connector {
     this._touchOverview();
   }
 
+  /** The one group that holds every session's topic, created on first use. Concurrent callers share one creation. */
+  _hub() {
+    if (this.state.hubChat) return Promise.resolve(this.state.hubChat);
+    if (!this.hubPromise) {
+      this.hubPromise = (async () => {
+        const id = await this.gw.createHub('ccs', /** @type {string} */ (this.owner));
+        this.state.hubChat = id;
+        this.state.hubCreatedAt = Date.now();
+        this._save(true);
+        return id;
+      })().finally(() => { this.hubPromise = null; });
+    }
+    return this.hubPromise;
+  }
+
+  /** A session that still has its own group from the one-group-per-session layout moves into a topic; the old group
+   *  is deleted once the topic exists (a failed move leaves the old group in place and is retried at the next start).
+   *  @param {Runtime} r */
+  async _migrate(r) {
+    const id = r.info.id;
+    const old = this.state.groups[id];
+    if (!old || old.chatId.includes('#')) return;
+    delete this.state.groups[id];
+    await this._ensureGroup(r);
+    if (this.state.groups[id]) this.state.groups[`legacy-${id}`] = { ...old, removed: true };
+    else this.state.groups[id] = old;
+    this._save(true);
+    this._syncLink(r);
+    this._touchOverview();
+  }
+
   /** After `ccs rename`: the group follows the session's name. A failure is only logged — item 5's retry tracks
    *  missing groups, not renames, and a rename mismatch is cosmetic, never a reachability problem.
    *  @param {Runtime} r @param {string} name */
   async _renameGroup(r, name) {
     const g = this.state.groups[r.info.id];
     if (!g || g.removed) return;
+    if (g.chatId.includes('#')) {
+      // The topic's name is its root card: rewrite it once `r.info` carries the new name.
+      g.name = name;
+      this._save();
+      r.statusSentText = null;
+      this._track(Promise.resolve().then(() => this._runStatusWrite(r)));
+      return;
+    }
     try { await this.gw.renameGroup(g.chatId, `ccs · ${name}`); g.name = name; this._save(); } catch (e) { this.log('rename.error', { id: r.info.id, error: String(e) }); }
   }
 
@@ -451,12 +507,20 @@ class Connector {
       try { list = await this.gw.listGroups(); } catch (e) { this.log('sync.error', { error: String(e) }); return; }
       if ([...this.rt.values()].some((r) => r.creatingGroup)) return;
       const listed = new Set(list.map((c) => c.chatId));
-      const tracked = new Set(Object.values(this.state.groups).map((g) => g.chatId));
+      const chatOf = (/** @type {string} */ t) => t.split('#')[0];
+      const tracked = new Set(Object.values(this.state.groups).map((g) => chatOf(g.chatId)));
+      if (this.state.hubChat) tracked.add(this.state.hubChat);
       const now = Date.now();
+      if (this.state.hubChat && !listed.has(this.state.hubChat) && now - (this.state.hubCreatedAt || 0) > 2 * 60 * 1000) {
+        this.log('sync.hub_missing', {});
+        this.state.hubChat = null; // the next topic creation makes a new one; topics inside the old one fail `alive` below
+      }
       for (const [id, g] of Object.entries(this.state.groups)) {
         const r = this.rt.get(id);
         if (g.removed || !r) continue;
-        if (!listed.has(g.chatId) && now - (g.createdAt || 0) > 2 * 60 * 1000) {
+        let alive;
+        try { alive = g.chatId.includes('#') ? await this.gw.alive(g.chatId) : listed.has(g.chatId); } catch (e) { this.log('sync.error', { error: String(e) }); continue; }
+        if (!alive && now - (g.createdAt || 0) > 2 * 60 * 1000) {
           this.log('sync.group_missing', { id });
           delete this.state.groups[id];
           this._save(true);
@@ -464,7 +528,7 @@ class Connector {
         } else if (g.name !== r.info.name) this._track(this._renameGroup(r, r.info.name));
       }
       for (const c of list) {
-        if (!c.ours || !c.name.startsWith('ccs · ') || tracked.has(c.chatId) || c.chatId === this.state.dmChat) continue;
+        if (!c.name.startsWith('ccs · ') || tracked.has(c.chatId) || c.chatId === this.state.dmChat) continue;
         this.log('sync.orphan', { chatId: c.chatId });
         try { await this.gw.deleteGroup(c.chatId); } catch (e) { this.log('sync.error', { error: String(e) }); }
       }
@@ -879,7 +943,7 @@ class Connector {
   _statusCard(r) {
     return {
       kind: 'card', title: `${r.info.name} · ${r.statusText}`,
-      sections: [{ body: `status: **${r.statusText}** (${r.info.agent})` }],
+      sections: [{ body: `**${r.info.agent}** · \`${r.info.cwd}\`\nstatus: **${r.statusText}**` }],
       buttons: [{ text: 'Screen', value: { a: 'screen', s: r.info.id } }, { text: 'Interrupt', style: 'danger', value: { a: 'interrupt', s: r.info.id } }],
       footer: 'send a message here to type it into the session',
     };
@@ -922,26 +986,45 @@ class Connector {
     this._save();
   }
 
-  /** Every session, its agent and status, and a button that opens its group (spec §6.1). @returns {OutMessage} */
+  /** Every session by what needs you first, with its agent, status and a button that opens its group (spec §6.1).
+   *  @returns {OutMessage} */
   _overview() {
-    const rows = [...this.rt.values()].map((r) => ({ heading: `${r.info.name} · ${r.info.agent}`, body: r.statusText }));
-    /** @type {import('./types').OutButton[]} */
-    const buttons = [];
+    const kinds = [
+      { key: 'waiting', label: 'Needs you', color: 'orange', dot: '🟠' },
+      { key: 'running', label: 'Running', color: 'blue', dot: '🔵' },
+      { key: 'idle', label: 'Idle', color: 'green', dot: '🟢' },
+      { key: 'stopped', label: 'Stopped', color: 'grey', dot: '⚪' },
+    ];
+    const kindOf = (/** @type {string} */ text) => { const w = text.split(' ')[0]; return kinds.find((k) => k.key === w) || kinds[1]; };
+    const home = process.env.HOME || '';
+    const groups = kinds.map((k) => ({ label: k.label, color: k.color, rows: /** @type {import('./types').OutRow[]} */ ([]) }));
     for (const r of this.rt.values()) {
+      const k = kindOf(r.statusText);
       const g = this.state.groups[r.info.id];
-      if (g && !g.removed) buttons.push({ text: r.info.name, url: this.gw.chatLink(g.chatId) });
+      const cwd = home && r.info.cwd.startsWith(home) ? `~${r.info.cwd.slice(home.length)}` : r.info.cwd;
+      groups[kinds.indexOf(k)].rows.push({
+        dot: k.dot, name: r.info.name, agent: r.info.agent, detail: `${r.statusText} · ${cwd}`,
+        ...(g && !g.removed ? { url: this.gw.chatLink(g.chatId) } : {}), primary: k.key === 'waiting',
+      });
     }
-    /** @type {OutMessage} */
-    const msg = { kind: 'card', title: 'ccs sessions', sections: rows.length ? rows : [{ body: 'no sessions' }] };
-    if (buttons.length) msg.buttons = buttons;
-    return sanitizeMessage(msg);
+    for (const g of groups) g.rows.sort((a, b) => a.name.localeCompare(b.name));
+    const total = this.rt.size;
+    const subtitle = groups.filter((g) => g.rows.length).map((g) => `${g.rows.length} ${g.label.toLowerCase()}`).join(' · ') || 'no sessions';
+    return sanitizeMessage({ kind: 'overview', title: `ccs · ${total} session${total === 1 ? '' : 's'}`, subtitle, groups, footer: 'send /sessions to refresh' });
   }
 
   // ---- inbound helpers (for the router) -----------------------------------------------------------------------------
 
-  /** @param {string} chatId */
-  _sessionForChat(chatId) {
-    for (const [id, g] of Object.entries(this.state.groups)) if (g.chatId === chatId) return { id, removed: !!g.removed };
+  /** The session a message or a button click belongs to. A topic is `<hub>#<root>`: a reply carries its root's id; a
+   *  card button carries none, so `hint` (the session id baked into the button) picks the topic inside the group.
+   *  @param {string} chatId @param {string} [rootId] @param {string} [hint] */
+  _sessionForChat(chatId, rootId, hint) {
+    const full = rootId ? `${chatId}#${rootId}` : null;
+    for (const [id, g] of Object.entries(this.state.groups)) {
+      if (g.chatId === full || g.chatId === chatId) return { id, removed: !!g.removed, chatId: g.chatId };
+    }
+    const g = hint ? this.state.groups[hint] : null;
+    if (hint && g && g.chatId.startsWith(`${chatId}#`)) return { id: hint, removed: !!g.removed, chatId: g.chatId };
     return null;
   }
 

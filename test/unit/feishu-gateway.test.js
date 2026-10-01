@@ -232,3 +232,68 @@ test('close disconnects; loadSdk honours CCS_FEISHU_SDK', async () => {
   const fake = require.resolve('../helpers/fakelarksdk.js');
   assert.equal(loadSdk({ CCS_FEISHU_SDK: fake }), require(fake));
 });
+
+test('topics: a hub is a thread-mode group; a topic is <hub>#<root>; replies, recall and liveness use that root', async () => {
+  const { gw, ch } = mk();
+  await gw.connect();
+  const hub = await gw.createHub('ccs', 'ou_owner');
+  assert.deepEqual(ch().last('chat.create').a[0], { params: { user_id_type: 'open_id' }, data: { name: 'ccs', group_message_type: 'thread', user_id_list: ['ou_owner'] } });
+  const topic = await gw.createTopic(hub, { kind: 'text', text: 'root' });
+  const root = topic.slice(topic.indexOf('#') + 1);
+  assert.equal(topic, `${hub}#${root}`);
+  assert.equal(ch().last('message.create').a[0].data.receive_id, hub);
+
+  const id = await gw.send(topic, { kind: 'text', text: 'hi' });
+  const reply = ch().last('message.reply').a[0];
+  assert.deepEqual(reply.path, { message_id: root });
+  assert.equal(reply.data.reply_in_thread, true);
+  assert.equal(reply.data.msg_type, 'interactive');
+  assert.ok(id.startsWith('om_'));
+  assert.equal(ch().count('send'), 0, 'a topic is never sent to as a plain chat');
+
+  await gw.renameGroup(topic, 'ignored');
+  assert.equal(ch().count('chat.update'), 0, 'a topic has no name of its own');
+  assert.equal(gw.chatLink(topic), `https://applink.feishu.cn/client/chat/open?openChatId=${hub}`);
+
+  assert.equal(await gw.alive(topic), true);
+  ch().rawClient.im.v1.message.get = async () => ({ data: { items: [{ deleted: true }] } });
+  assert.equal(await gw.alive(topic), false);
+  ch().rawClient.im.v1.message.get = async () => { throw Object.assign(new Error('gone'), { response: { status: 400 } }); };
+  assert.equal(await gw.alive(topic), false);
+  ch().rawClient.im.v1.message.get = async () => { throw Object.assign(new Error('boom'), { response: { status: 500 } }); };
+  await assert.rejects(gw.alive(topic));
+
+  await gw.deleteGroup(topic);
+  assert.deepEqual(ch().last('message.delete').a[0], { path: { message_id: root } });
+  assert.equal(ch().count('chat.delete'), 0);
+  await gw.deleteGroup(hub);
+  assert.deepEqual(ch().last('chat.delete').a[0], { path: { chat_id: hub } });
+});
+
+test('topics: a refused card (HTTP 400) is retried as plain markdown; a reply carries its topic root to the router', async () => {
+  const { gw, ch } = mk();
+  await gw.connect();
+  let n = 0;
+  ch().rawClient.im.v1.message.reply = async (/** @type {any} */ a) => {
+    ch().calls.push({ m: 'message.reply', a: [a] });
+    if (++n === 1) throw Object.assign(new Error('bad card'), { response: { status: 400 } });
+    return { data: { message_id: 'om_ok' } };
+  };
+  assert.equal(await gw.send('oc_h#om_r', { kind: 'text', text: 'x' }), 'om_ok');
+  assert.equal(n, 2);
+
+  const seen = /** @type {any[]} */ ([]);
+  gw.on('message', (m) => seen.push(m));
+  ch().fire('message', { chatId: 'oc_h', messageId: 'om_1', senderId: 'ou_owner', rawContentType: 'text', content: 'yo', rootId: 'om_r' });
+  ch().fire('message', { chatId: 'oc_h', messageId: 'om_2', senderId: 'ou_owner', rawContentType: 'text', content: 'main' });
+  assert.equal(seen[0].rootId, 'om_r');
+  assert.equal('rootId' in seen[1], false);
+});
+
+test('listGroups pages through every group the bot is in', async () => {
+  const { gw, ch } = mk();
+  await gw.connect();
+  const pages = [{ items: [{ chat_id: 'a', name: 'ccs' }], has_more: true, page_token: 'p2' }, { items: [{ chat_id: 'b', name: 'x' }], has_more: false }];
+  ch().rawClient.im.v1.chat.list = async () => ({ data: pages.shift() });
+  assert.deepEqual(await gw.listGroups(), [{ chatId: 'a', name: 'ccs' }, { chatId: 'b', name: 'x' }]);
+});

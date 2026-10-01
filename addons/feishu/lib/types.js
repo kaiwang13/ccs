@@ -19,13 +19,16 @@
  * @typedef {{text: string, style?: 'default'|'primary'|'danger', value?: Record<string, string>, url?: string}} OutButton
  *   A card button: `value` makes it a callback (delivered as a gateway 'action' event), `url` makes it a link.
  * @typedef {{kind: 'text', text: string}
- *   | {kind: 'card', title: string, sections: OutSection[], footer?: string, buttons?: OutButton[]}} OutMessage
+ *   | {kind: 'card', title: string, sections: OutSection[], footer?: string, buttons?: OutButton[]}
+ *   | {kind: 'overview', title: string, subtitle: string, groups: OutGroup[], footer?: string}} OutMessage
+ * @typedef {{label: string, color: string, rows: OutRow[]}} OutGroup
+ * @typedef {{dot: string, name: string, agent: string, detail: string, url?: string, primary?: boolean}} OutRow
  *   A platform-neutral message; `render/card.js` turns it into Feishu card JSON.
  *
  * @typedef {{id: string, name: string, agent: string, cwd: string, live: boolean, lifecycle: string|null, sessionId: string|null}} SessionInfo
  *
- * @typedef {{chatId: string, messageId: string, senderId: string, text: string, unsupported?: boolean}} InMessage
- *   `unsupported` is set for images, files, audio, video and stickers (spec §2: answered "not supported yet").
+ * @typedef {{chatId: string, messageId: string, senderId: string, text: string, unsupported?: boolean, rootId?: string}} InMessage
+ *   `rootId` is the topic's root message when the message is a reply inside a topic. `unsupported` is set for images, files, audio, video and stickers (spec §2: answered "not supported yet").
  * @typedef {{chatId: string, messageId: string, operatorId: string, value: Record<string, string>}} InAction
  *   A card-button click. `value` is the button's `OutButton.value`, as Feishu echoes it back.
  *
@@ -33,9 +36,12 @@
  *   ownerId(): Promise<string>,
  *   dmChat(ownerId: string): Promise<string>,
  *   createGroup(name: string, ownerId: string): Promise<string>,
+ *   createHub(name: string, ownerId: string): Promise<string>,
+ *   createTopic(hubChat: string, msg: OutMessage): Promise<string>,
+ *   alive(target: string): Promise<boolean>,
  *   renameGroup(chatId: string, name: string): Promise<void>,
  *   deleteGroup(chatId: string): Promise<void>,
- *   listGroups(): Promise<{chatId: string, name: string, ours: boolean}[]>,
+ *   listGroups(): Promise<{chatId: string, name: string}[]>,
  *   send(chatId: string, msg: OutMessage): Promise<string>,
  *   update(messageId: string, msg: OutMessage): Promise<void>,
  *   react(messageId: string, emoji: 'OK'|'ERROR'): Promise<void>,

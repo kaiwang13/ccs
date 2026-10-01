@@ -23,9 +23,11 @@ class FakeGateway extends EventEmitter {
     this.failCounts = new Map();
     /** @type {string[]} */
     this.pins = [];
+    /** @type {Set<string>} topic targets whose root was recalled */
+    this.deletedTopics = new Set();
   }
 
-  /** Make the next `n` call(s) to `method` (one of 'createGroup'|'renameGroup'|'deleteGroup'|'listGroups'|'send'|'update'|'pin'|'unpin') throw. Each call
+  /** Make the next `n` call(s) to `method` (one of 'createGroup'|'renameGroup'|'deleteGroup'|'createHub'|'createTopic'|'listGroups'|'send'|'update'|'pin'|'unpin') throw. Each call
    *  consumes one; once the count reaches 0 the method behaves normally again. @param {string} method @param {number} [n] */
   failNext(method, n = 1) { this.failCounts.set(method, (this.failCounts.get(method) || 0) + n); }
 
@@ -42,15 +44,37 @@ class FakeGateway extends EventEmitter {
   async createGroup(name, _ownerId) { this._maybeFail('createGroup'); const id = `oc_${++this.seq}`; this.chats.set(id, { name, order: [] }); return id; }
   /** @param {string} chatId @param {string} name */
   async renameGroup(chatId, name) { this._maybeFail('renameGroup'); const c = this.chats.get(chatId); if (c) c.name = name; }
-  /** @param {string} chatId */
-  async deleteGroup(chatId) { this._maybeFail('deleteGroup'); this.chats.delete(chatId); }
-  async listGroups() { this._maybeFail('listGroups'); return [...this.chats].filter(([id]) => id !== this.dm).map(([chatId, c]) => ({ chatId, name: c.name, ours: !c.foreign })); }
+  /** @param {string} target */
+  async deleteGroup(target) {
+    this._maybeFail('deleteGroup');
+    const i = target.indexOf('#');
+    if (i < 0) { this.chats.delete(target); return; }
+    for (const m of this.msgs.values()) if (m.chatId === target) m.deleted = true;
+    this.deletedTopics.add(target);
+  }
+  /** @param {string} name @param {string} _ownerId */
+  async createHub(name, _ownerId) { this._maybeFail('createHub'); const id = `oc_${++this.seq}`; this.chats.set(id, { name, order: [] }); return id; }
+  /** @param {string} hubChat @param {any} msg */
+  async createTopic(hubChat, msg) {
+    this._maybeFail('createTopic');
+    const c = this.chats.get(hubChat);
+    if (!c) throw new Error(`no chat ${hubChat}`);
+    const id = `om_${++this.seq}`;
+    const target = `${hubChat}#${id}`;
+    this.msgs.set(id, { chatId: target, msg });
+    c.order.push(id);
+    return target;
+  }
+  /** @param {string} target */
+  async alive(target) { return !this.deletedTopics.has(target) && this.chats.has(target.split('#')[0]); }
+  async listGroups() { this._maybeFail('listGroups'); return [...this.chats].filter(([id]) => id !== this.dm).map(([chatId, c]) => ({ chatId, name: c.name, })); }
   /** @param {string} chatId @param {any} msg */
   async send(chatId, msg) {
     this._maybeFail('send');
     if (this.fail) throw this.fail;
-    const c = this.chats.get(chatId);
+    const c = this.chats.get(chatId.split('#')[0]);
     if (!c) throw new Error(`no chat ${chatId}`);
+    if (this.deletedTopics.has(chatId)) throw new Error(`topic ${chatId} was recalled`);
     const id = `om_${++this.seq}`;
     this.msgs.set(id, { chatId, msg });
     c.order.push(id);
@@ -73,10 +97,10 @@ class FakeGateway extends EventEmitter {
   /** @param {string} messageId */
   async unpin(messageId) { this._maybeFail('unpin'); this.pins = this.pins.filter((p) => p !== messageId); }
   /** @param {string} chatId */
-  chatLink(chatId) { return `https://fake.feishu/chat/${chatId}`; }
+  chatLink(chatId) { return `https://fake.feishu/chat/${chatId.split('#')[0]}`; }
   /** Drive: the user taps a card button. @param {string} chatId @param {string} messageId @param {Record<string, string>} value @param {string} [operatorId] */
   userClicks(chatId, messageId, value, operatorId = this.owner) {
-    this.emit('action', { chatId, messageId, operatorId, value });
+    this.emit('action', { chatId: chatId.split('#')[0], messageId, operatorId, value });
   }
   /** Drive: the user sends an image. @param {string} chatId @param {string} [senderId] */
   userSendsImage(chatId, senderId = this.owner) {
@@ -85,16 +109,23 @@ class FakeGateway extends EventEmitter {
     return messageId;
   }
 
-  /** Drive: the user sends `text` in `chatId`. @param {string} chatId @param {string} text @param {string} [senderId] */
+  /** Drive: the user sends `text` in `chatId`; a topic target `<hub>#<root>` is sent as a reply under that root.
+   *  @param {string} chatId @param {string} text @param {string} [senderId] */
   userSays(chatId, text, senderId = this.owner) {
     const messageId = `om_in_${++this.seq}`;
-    this.emit('message', { chatId, messageId, senderId, text });
+    const i = chatId.indexOf('#');
+    this.emit('message', { chatId: i < 0 ? chatId : chatId.slice(0, i), messageId, senderId, text, ...(i < 0 ? {} : { rootId: chatId.slice(i + 1) }) });
     return messageId;
   }
   /** @param {string} messageId */
   reactionsOn(messageId) { return this.reactions.get(messageId) || []; }
   /** Messages currently in a chat, oldest first. @param {string} chatId */
-  messages(chatId) { const c = this.chats.get(chatId); return c ? c.order.map((id) => /** @type {any} */ (this.msgs.get(id)).msg) : []; }
+  messages(chatId) {
+    const c = this.chats.get(chatId.split('#')[0]);
+    if (!c) return [];
+    const all = c.order.map((id) => /** @type {any} */ (this.msgs.get(id)));
+    return (chatId.includes('#') ? all.filter((m) => m.chatId === chatId) : all).map((m) => m.msg);
+  }
   /** @param {string} name */
   chatByName(name) { for (const [id, c] of this.chats) if (c.name === name) return id; return null; }
 }

@@ -119,12 +119,13 @@ test('the overview lists every session with a button that opens its group', asyn
   await conn.start();
   await waitFor(() => gw.chatByName('ccs · alpha') !== null && gw.chatByName('ccs · beta') !== null, { timeoutMs: 3000, what: 'groups' });
   const ov = /** @type {any} */ (conn._overview());
-  assert.equal(ov.kind, 'card');
-  assert.deepEqual(ov.buttons.map((/** @type {any} */ b) => [b.text, b.url]).sort(), [
-    ['alpha', `https://fake.feishu/chat/${gw.chatByName('ccs · alpha')}`],
-    ['beta', `https://fake.feishu/chat/${gw.chatByName('ccs · beta')}`],
+  assert.equal(ov.kind, 'overview');
+  assert.equal(ov.title, 'ccs · 2 sessions');
+  const rows = ov.groups.flatMap((/** @type {any} */ g) => g.rows);
+  assert.deepEqual(rows.map((/** @type {any} */ r) => [r.name, r.agent, r.url]).sort(), [
+    ['alpha', 'claude', `https://fake.feishu/chat/${gw.chatByName('ccs · alpha')}`],
+    ['beta', 'codex', `https://fake.feishu/chat/${gw.chatByName('ccs · beta')}`],
   ]);
-  assert.match(JSON.stringify(ov.sections), /beta · codex/);
 });
 
 test('a new group\'s history card offers Load earlier when there are more than five turns, and the button pages back', async (t) => {

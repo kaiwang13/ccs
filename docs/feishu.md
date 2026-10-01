@@ -6,15 +6,25 @@ conversation seen from two places. Turning the add-on off, or never setting it u
 
 ## What it does
 
-- **One group per session**, named `ccs · <name>`. The first card is the recent history; a pinned status card shows
-  idle / working / waiting / stopped with **Screen** and **Interrupt** buttons.
-- **Kept in sync:** every few minutes the add-on compares Feishu's groups with your sessions. A live session whose group
-  was disbanded gets a new one, a stale group name is fixed, and a bot-owned `ccs · …` group no session owns is deleted.
-- **Your direct chat with the bot** has the overview card: every session, its agent and status, and a button that
-  opens its group. Send `/sessions` there to refresh it.
-- **A message in a group** is typed into that session (bursts within 600 ms are merged). A stopped session is
+- **One `ccs` group, one topic per session.** Open the group and you see a topic for each session. A topic's first
+  card is its status card (idle / working / waiting / stopped, with **Screen** and **Interrupt** buttons), edited in
+  place; everything else for that session — the recent history, answers, permission prompts — is a reply inside the
+  topic. The group is a Feishu *topic group* (话题群) that ccs creates on first use. Prefer one group per session?
+  Put `"layout": "groups"` in `~/.local/state/ccs/feishu/config.json` and restart the connector; groups are named
+  `ccs · <name>` and have a pinned status card instead of a topic.
+- **Removing a session** (`ccs rm`) recalls its topic's root card — Feishu leaves a "recalled" stub in the group's
+  topic list — and forgets it. In the one-group-per-session layout the whole group is disbanded.
+- **Kept in sync:** every few minutes the add-on compares Feishu with your sessions. A live session whose topic (or
+  group) is gone gets a new one, a stale name is fixed, and a `ccs · …` group no session owns is deleted. Sessions
+  that still have their own group from an older version move into topics on the first start, and the old group is
+  deleted once the topic exists.
+- **Your direct chat with the bot** has the overview card: sessions grouped by what needs you first (needs you,
+  running, idle, stopped), each with its agent, status, folder and an **Open** button. Send `/sessions` there to
+  refresh it.
+- **A message in a topic** is typed into that session (type it as a reply under the topic's first card; a message
+  typed in the group's main area starts a stray topic that belongs to no session and gets a ✗) (bursts within 600 ms are merged). A stopped session is
   started first. A ✓ reaction means it was typed; ✗ comes with the reason.
-- **In a group**, `/screen` shows the current screen, `/interrupt` sends Esc, `/status` shows the state. Any other
+- **In a topic or group**, `/screen` shows the current screen, `/interrupt` sends Esc, `/status` shows the state. Any other
   `/…` goes to the agent, so `/model`, `/cost` etc. work.
 - **Permission prompts** (Claude): a card with one button per option; a tap presses that digit. Answered at a
   terminal instead, the card says so. Options scrolled off-screen are never offered. **Codex** prompts are shown
@@ -77,8 +87,8 @@ was running. Its log: `ccs feishu status` prints the path.
 Run against a real Feishu app before a release that changes the add-on (the real API cannot run in CI):
 
 1. `ccs feishu setup` by QR binds the app; `ccs feishu start`; `status` shows connected.
-2. Every running session has a group with a history card and a pinned status card; the DM has the overview, and
-   its buttons open the groups.
+2. Every running session has a topic in the `ccs` group with a status card as its first message and a history card
+   as the first reply; the DM has the overview, and its Open buttons open the group.
 3. Send a prompt from the phone: ✓ appears, the terminal shows it typed, the turn card streams and finalises,
    labelled 📱.
 4. Type a prompt at a terminal: its turn card appears labelled ⌨.
@@ -86,7 +96,11 @@ Run against a real Feishu app before a release that changes the add-on (the real
    answer one at the terminal and see "answered at the terminal".
 6. `/screen`, the Screen and Interrupt buttons, and Load earlier work.
 7. Message a stopped session: it starts and receives the prompt.
-8. `ccs rename` a session: the group follows. `ccs rm` one: its group is deleted (disbanded, history included).
+8. `ccs rename` a session: its status card follows. `ccs rm` one: its topic's first card is recalled and the topic
+   is forgotten.
+   Message a topic from the phone as a reply under the status card; check a message in the group's main area gets ✗.
+   With an older install's per-session groups present, start the new connector: each moves into a topic and the old
+   group disappears.
 9. Turn Wi-Fi off for a minute mid-turn, then on: one catch-up card, and the open card is finalised.
 10. `ccs feishu stop` during a turn, then `start`: the open card points at the catch-up.
 11. Check reactions render; set `reactions` in config.json if not.

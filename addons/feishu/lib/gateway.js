@@ -49,6 +49,11 @@ function quietLogger(forward) {
   return { fatal: only('fatal'), error: only('error'), warn: only('warn'), info: only('info'), debug: only('debug'), trace: only('trace') };
 }
 
+/** A topic is addressed as `<group chat id>#<root message id>`; anything else is a plain chat. @param {string} t */
+const isTopic = (t) => t.includes('#');
+/** @param {string} t @returns {{chat: string, root: string}} */
+const splitTarget = (t) => { const i = t.indexOf('#'); return i < 0 ? { chat: t, root: '' } : { chat: t.slice(0, i), root: t.slice(i + 1) }; };
+
 class FeishuGateway extends EventEmitter {
   /**
    * @param {{appId: string, appSecret: string, tenant?: 'feishu'|'lark', reactions?: {OK: string, ERROR: string},
@@ -89,7 +94,7 @@ class FeishuGateway extends EventEmitter {
     });
     ch.on('message', (/** @type {any} */ m) => {
       const unsupported = m.rawContentType !== 'text' && m.rawContentType !== 'post';
-      this.emit('message', { chatId: m.chatId, messageId: m.messageId, senderId: m.senderId, text: unsupported ? '' : String(m.content || ''), unsupported });
+      this.emit('message', { chatId: m.chatId, messageId: m.messageId, senderId: m.senderId, text: unsupported ? '' : String(m.content || ''), unsupported, ...(m.rootId ? { rootId: String(m.rootId) } : {}) });
     });
     ch.on('cardAction', (/** @type {any} */ e) => {
       const value = e && e.action ? e.action.value : null;
@@ -161,7 +166,7 @@ class FeishuGateway extends EventEmitter {
 
   /** The owner's direct chat with the bot: sending to the owner's open_id returns that chat's id. @param {string} ownerId */
   async dmChat(ownerId) {
-    const card = toFeishuCard({ kind: 'text', text: 'ccs is connected. Each session has its own group; send /sessions here for the list.' });
+    const card = toFeishuCard({ kind: 'text', text: 'ccs is connected. Send /sessions here for the list of sessions.' });
     const r = await this._call(() => this.ch.rawClient.im.v1.message.create({
       params: { receive_id_type: 'open_id' }, data: { receive_id: ownerId, msg_type: 'interactive', content: JSON.stringify(card) },
     }));
@@ -177,35 +182,97 @@ class FeishuGateway extends EventEmitter {
 
   /** @param {string} chatId @param {string} name */
   async renameGroup(chatId, name) {
+    if (isTopic(chatId)) return; // a topic's name is its root card, which the connector rewrites
     await this._call(() => this.ch.rawClient.im.v1.chat.update({ path: { chat_id: chatId }, data: { name } }));
   }
 
-  /** Disband a session's group. A group that is already gone counts as deleted. @param {string} chatId */
-  async deleteGroup(chatId) {
+  /** Disband a session's group, or recall a topic's root message. Already gone counts as deleted. @param {string} target */
+  async deleteGroup(target) {
     try {
-      await this._call(() => this.ch.rawClient.im.v1.chat.delete({ path: { chat_id: chatId } }));
+      if (isTopic(target)) await this._raw(() => this.ch.rawClient.im.v1.message.delete({ path: { message_id: splitTarget(target).root } }));
+      else await this._call(() => this.ch.rawClient.im.v1.chat.delete({ path: { chat_id: target } }));
     } catch (e) {
-      if (!/not exist|not found|dissolved|disbanded/i.test(String(/** @type {any} */ (e).message || e))) throw e;
+      if (!/not exist|not found|dissolved|disbanded|recalled|deleted/i.test(String(/** @type {any} */ (e).message || e))) throw e;
     }
   }
 
-  /** Every group the bot is in. `ours` is true for groups the app itself owns, which is what ccs creates.
-   *  @returns {Promise<{chatId: string, name: string, ours: boolean}[]>} */
+  /** The single group that holds a topic per session. @param {string} name @param {string} ownerId */
+  async createHub(name, ownerId) {
+    const r = await this._raw(() => this.ch.rawClient.im.v1.chat.create({
+      params: { user_id_type: 'open_id' }, data: { name, group_message_type: 'thread', user_id_list: [ownerId] },
+    }));
+    const id = r && r.data && r.data.chat_id;
+    if (!id) throw new Error('Feishu returned no chat id for the ccs group');
+    return String(id);
+  }
+
+  /** A new topic: its root message is `msg`. Returns the target `<hub>#<root message id>`. @param {string} hubChat @param {OutMessage} msg */
+  async createTopic(hubChat, msg) {
+    const r = await this._raw(() => this.ch.rawClient.im.v1.message.create({
+      params: { receive_id_type: 'chat_id' }, data: { receive_id: hubChat, msg_type: 'interactive', content: JSON.stringify(toFeishuCard(msg)) },
+    }));
+    const id = r && r.data && r.data.message_id;
+    if (!id) throw new Error('Feishu returned no message id for the topic');
+    return `${hubChat}#${id}`;
+  }
+
+  /** Is this topic's root message still there? Throws when Feishu's answer is not definite. @param {string} target */
+  async alive(target) {
+    try {
+      const r = await this._raw(() => this.ch.rawClient.im.v1.message.get({ path: { message_id: splitTarget(target).root } }));
+      const item = r && r.data && r.data.items && r.data.items[0];
+      return !!item && !item.deleted;
+    } catch (e) {
+      const st = /** @type {any} */ (e).response && /** @type {any} */ (e).response.status;
+      if (st >= 400 && st < 500 && st !== 429) return false;
+      throw e;
+    }
+  }
+
+  /** Every group the bot is in. @returns {Promise<{chatId: string, name: string}[]>} */
   async listGroups() {
-    /** @type {{chatId: string, name: string, ours: boolean}[]} */
+    /** @type {{chatId: string, name: string}[]} */
     const out = [];
     let pageToken;
     do {
       const r = await this._call(() => this.ch.rawClient.im.v1.chat.list({ params: { page_size: 100, page_token: pageToken } }));
       const data = (r && r.data) || {};
-      for (const c of data.items || []) out.push({ chatId: String(c.chat_id), name: String(c.name || ''), ours: c.owner_id_type === 'app_id' });
+      for (const c of data.items || []) out.push({ chatId: String(c.chat_id), name: String(c.name || '') });
       pageToken = data.has_more ? data.page_token : undefined;
     } while (pageToken);
     return out;
   }
 
-  /** @param {string} chatId @param {OutMessage} msg */
+  /** A raw-client call under the rate limit; an HTTP 429 is retried like the SDK's own 'rate_limited'. @template T @param {() => Promise<T>} fn @returns {Promise<T>} */
+  _raw(fn) {
+    return this._call(async () => {
+      try { return await fn(); } catch (e) {
+        const x = /** @type {any} */ (e);
+        if (x && x.response && x.response.status === 429) { const err = /** @type {any} */ (new Error('rate limited')); err.code = 'rate_limited'; throw err; }
+        throw e;
+      }
+    });
+  }
+
+  /** @param {string} target @param {OutMessage} msg */
+  async _replyInTopic(target, msg) {
+    const root = splitTarget(target).root;
+    const post = (/** @type {object} */ card) => this._raw(() => this.ch.rawClient.im.v1.message.reply({
+      path: { message_id: root }, data: { msg_type: 'interactive', content: JSON.stringify(card), reply_in_thread: true },
+    }));
+    let r;
+    try { r = await post(toFeishuCard(msg)); } catch (e) {
+      const st = /** @type {any} */ (e).response && /** @type {any} */ (e).response.status;
+      if (st !== 400) throw e;
+      this.log('gateway.card_refused', { chatId: target });
+      r = await post({ schema: '2.0', body: { elements: [{ tag: 'markdown', content: plainText(msg) || '…' }] } });
+    }
+    return String(r.data.message_id);
+  }
+
+  /** @param {string} chatId a group, or a topic target `<hub>#<root>` @param {OutMessage} msg */
   async send(chatId, msg) {
+    if (isTopic(chatId)) return this._replyInTopic(chatId, msg);
     try {
       return String((await this._call(() => this.ch.send(chatId, { card: toFeishuCard(msg) }))).messageId);
     } catch (e) {
@@ -237,8 +304,9 @@ class FeishuGateway extends EventEmitter {
     await this._call(() => this.ch.rawClient.im.v1.pin.delete({ path: { message_id: messageId } }));
   }
 
-  /** A link that opens a group in the Feishu/Lark app. @param {string} chatId */
-  chatLink(chatId) {
+  /** A link that opens a group (a topic's group) in the Feishu/Lark app. @param {string} target */
+  chatLink(target) {
+    const chatId = splitTarget(target).chat;
     const host = this.tenant === 'lark' ? 'applink.larksuite.com' : 'applink.feishu.cn';
     return `https://${host}/client/chat/open?openChatId=${encodeURIComponent(chatId)}`;
   }

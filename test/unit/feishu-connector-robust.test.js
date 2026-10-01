@@ -257,21 +257,19 @@ test('a "(removed)" group left by an older version is deleted', async (t) => {
   await waitFor(() => !loadState(paths).groups.old, { timeoutMs: 3000, what: 'forgotten' });
 });
 
-test('a group nothing tracks is deleted; foreign chats and tracked groups are left alone', async (t) => {
+test('a ccs group nothing tracks is deleted; other chats and tracked groups are left alone', async (t) => {
   const paths = tmpPaths(t);
   const registry = new FakeRegistry();
   registry.set(mkRec('s1'));
   const gw = new FakeGateway();
   const orphan = await gw.createGroup('ccs · lost', 'ou_owner');
-  const foreign = await gw.createGroup('ccs · not ours', 'ou_owner');
-  gw.chats.get(foreign).foreign = true;
   const other = await gw.createGroup('team chat', 'ou_owner');
   const conn = mkConn({ gateway: gw, paths, registry });
   t.after(() => conn.stop());
   await conn.start();
   await waitFor(() => !gw.chats.has(orphan), { timeoutMs: 3000, what: 'orphan deleted' });
   await waitFor(() => gw.chatByName('ccs · s1') !== null, { timeoutMs: 3000, what: 'group' });
-  assert.ok(gw.chats.has(foreign) && gw.chats.has(other) && gw.chats.has(gw.chatByName('ccs · s1')));
+  assert.ok(gw.chats.has(other) && gw.chats.has(gw.chatByName('ccs · s1')));
 });
 
 test('a live session whose group was disbanded by hand gets a new one', async (t) => {

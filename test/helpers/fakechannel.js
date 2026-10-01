@@ -25,8 +25,18 @@ class FakeChannel {
     };
     this.rawClient = {
       im: { v1: {
-        message: { create: rec('message.create', () => ({ data: { chat_id: 'oc_dm', message_id: `om_${++this.seq}` } })) },
-        chat: { update: rec('chat.update', () => ({ code: 0 })) },
+        message: {
+          create: rec('message.create', () => ({ data: { chat_id: 'oc_dm', message_id: `om_${++this.seq}` } })),
+          reply: rec('message.reply', () => ({ data: { message_id: `om_${++this.seq}` } })),
+          delete: rec('message.delete', () => ({ code: 0 })),
+          get: rec('message.get', () => ({ data: { items: [{ deleted: false }] } })),
+        },
+        chat: {
+          update: rec('chat.update', () => ({ code: 0 })),
+          create: rec('chat.create', () => ({ data: { chat_id: `oc_${++this.seq}` } })),
+          delete: rec('chat.delete', () => ({ code: 0 })),
+          list: rec('chat.list', () => ({ data: { items: [], has_more: false } })),
+        },
         pin: { create: rec('pin.create', () => ({ code: 0 })), delete: rec('pin.delete', () => ({ code: 0 })) },
       } },
       application: { v6: { application: { get: rec('application.get', () => ({ data: { app: { scopes: [] } } })) } } },
