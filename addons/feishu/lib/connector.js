@@ -127,7 +127,7 @@ function nextLineStart(file, start) {
 
 /**
  * @typedef {{pid: string, kind: 'claude'|'codex', messageId: string|null, answered: boolean, outcome: string|null,
- *   question: string, options: {key: string, label: string}[], more: boolean, multi: boolean, ask: boolean, snapshot: string}} Prompt
+ *   question: string, options: {key: string, label: string}[], more: boolean, multi: boolean, ask: boolean, heads: Record<string, string>, snapshot: string}} Prompt
  */
 
 /**
@@ -1129,12 +1129,12 @@ class Connector {
     const g = this.state.groups[r.info.id];
     if (!g || g.removed) return;
     /** @type {Prompt} */
-    const p = { pid: crypto.randomBytes(4).toString('hex'), kind, messageId: null, answered: false, outcome: null, question: '', options: [], more: false, multi: false, ask: !!(r.state && r.state.claude && r.state.claude.waitingFor === 'input needed'), snapshot: '' };
+    const p = { pid: crypto.randomBytes(4).toString('hex'), kind, messageId: null, answered: false, outcome: null, question: '', options: [], more: false, multi: false, heads: {}, ask: !!(r.state && r.state.claude && r.state.claude.waitingFor === 'input needed'), snapshot: '' };
     r.prompt = p; // set before any await: one card per prompt
     const shown = lines || (await this._peek(r)) || [];
     if (kind === 'claude') {
       const parsed = parseClaudePrompt(shown);
-      if (parsed) { p.question = parsed.question; p.options = parsed.options; p.more = parsed.more; p.multi = parsed.multi; }
+      if (parsed) { p.question = parsed.question; p.options = parsed.options; p.more = parsed.more; p.multi = parsed.multi; p.heads = parsed.heads; }
     } else {
       const found = detectCodexPrompt(shown);
       if (found) p.question = found.question;
@@ -1169,8 +1169,18 @@ class Connector {
   _promptCard(r, p) {
     const name = r.info.name;
     const what = p.ask ? 'question' : 'permission';
+    const cut = (/** @type {string} */ s, /** @type {number} */ n) => (s.length > n ? `${s.slice(0, n - 1).trimEnd()}…` : s);
     /** @type {import('./types').OutSection[]} */
     const sections = [{ body: p.question || 'The agent is waiting for an answer.' }];
+    if (p.ask && p.options.length) {
+      // A question's choices come with descriptions: list them in full, so no choice is cut off like a button label.
+      const list = p.options.map((o) => {
+        const head = p.heads[o.key] || o.label;
+        const detail = o.label.slice(head.length).trim();
+        return `**${o.key}. ${head}**${detail ? `\n${detail}` : ''}`;
+      });
+      sections.push({ body: list.join('\n\n') });
+    }
     if (p.snapshot) sections.push({ heading: 'Screen', body: `\`\`\`\n${p.snapshot}\n\`\`\``, collapsed: true });
     if (p.outcome) return { kind: 'card', title: `${p.ask ? '❓' : '🔐'} ${name}: ${what}`, sections, footer: p.outcome };
     // "Type something." and "Chat about this" need typing, and a multi-select takes Space, not a digit, so those
@@ -1178,13 +1188,13 @@ class Connector {
     const choices = p.kind === 'claude' && !p.multi ? p.options.filter((o) => !TYPED_OPTION_RE.test(o.label)) : [];
     const actionable = choices.length > 0;
     /** @type {import('./types').OutButton[]} */
-    const buttons = choices.map((o) => ({ text: `${o.key}. ${truncate(o.label, 40)}`, style: /** @type {'primary'|'default'} */ (o.key === '1' ? 'primary' : 'default'), value: { a: 'answer', s: r.info.id, p: p.pid, k: o.key } }));
+    const buttons = choices.map((o) => ({ text: `${o.key}. ${cut(p.ask ? (p.heads[o.key] || o.label) : o.label, 60)}`, style: /** @type {'primary'|'default'} */ (o.key === '1' ? 'primary' : 'default'), value: { a: 'answer', s: r.info.id, p: p.pid, k: o.key } }));
     buttons.push({ text: 'Interrupt', style: 'danger', value: { a: 'interrupt', s: r.info.id } });
     const hidden = p.kind === 'claude' && p.options.length > choices.length;
     const footer = !actionable ? `answer it at a terminal: ccs a ${name}`
       : p.more ? `more options at the terminal: ccs a ${name}`
-        : hidden ? `other answers at the terminal: ccs a ${name}` : 'tap an option, or answer at the terminal';
-    return { kind: 'card', title: p.ask ? `❓ ${name} asks` : `🔐 ${name} needs permission`, sections, buttons, footer };
+        : hidden ? `to type your own answer: ccs a ${name}` : 'tap an option, or answer at the terminal';
+    return { kind: 'card', title: p.ask ? `❓ ${name} asks` : `🔐 ${name} needs permission`, sections, buttons, stack: true, footer };
   }
 
   /**

@@ -8,6 +8,8 @@
  */
 
 const OPTION_RE = /^\s*(?:[❯›>↓↑]\s*)?([1-9])\.\s+(.+?)\s*$/;
+/** The tab strip and header chip of Claude's question dialog (`← ☐ Layout ✔ Submit →`): chrome, not the question. */
+const CHROME_RE = /^[←→☐☒✔✓]/;
 const RULE_RE = /^[\s─━╌┄┈═_-]*$/;
 const MORE_RE = /^\s*↓/;
 /** Claude's question dialog also offers "Type something." and "Chat about this": answers that need typing at the terminal. */
@@ -18,21 +20,26 @@ const CODEX_QUESTION_RE = /^\s*(Would you like to .+\?)\s*$/;
 /**
  * The last numbered option block on screen, with the question lines right above it.
  * @param {string[]} lines
- * @returns {{question: string, options: {key: string, label: string}[], more: boolean, multi: boolean}|null}
+ * @returns {{question: string, options: {key: string, label: string}[], more: boolean, multi: boolean, heads: Record<string, string>}|null}
+ * `heads` maps each option to its first line alone: a question dialog puts a description on the lines below it, which
+ * `label` joins on.
  */
 function parseClaudePrompt(lines) {
-  /** @type {{question: string, options: {key: string, label: string}[], more: boolean, multi: boolean}|null} */
+  /** @type {{question: string, options: {key: string, label: string}[], more: boolean, multi: boolean, heads: Record<string, string>}|null} */
   let best = null;
   for (let i = 0; i < lines.length; i++) {
     const m = OPTION_RE.exec(lines[i]);
     if (!m || m[1] !== '1') continue;
     const options = [{ key: '1', label: m[2] }];
+    /** @type {Record<string, string>} */
+    const heads = { 1: m[2] };
     let more = MORE_RE.test(lines[i]);
     let j = i + 1;
     for (; j < lines.length; j++) {
       const o = OPTION_RE.exec(lines[j]);
       if (o && Number(o[1]) === options.length + 1) {
         options.push({ key: o[1], label: o[2] });
+        heads[o[1]] = o[2];
         if (MORE_RE.test(lines[j])) more = true;
         continue;
       }
@@ -44,9 +51,10 @@ function parseClaudePrompt(lines) {
     for (let k = i - 1; k >= 0 && question.length < 3; k--) {
       const s = String(lines[k] ?? '').trim();
       if (RULE_RE.test(s)) break;
+      if (CHROME_RE.test(s)) continue;
       question.unshift(s);
     }
-    best = { question: question.join('\n'), options, more, multi: lines.some((l) => MULTI_SELECT_RE.test(String(l ?? ''))) };
+    best = { question: question.join('\n'), options, more, multi: lines.some((l) => MULTI_SELECT_RE.test(String(l ?? ''))), heads };
     i = j - 1;
   }
   return best;

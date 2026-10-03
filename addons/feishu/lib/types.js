@@ -19,7 +19,7 @@
  * @typedef {{text: string, style?: 'default'|'primary'|'danger', value?: Record<string, string>, url?: string}} OutButton
  *   A card button: `value` makes it a callback (delivered as a gateway 'action' event), `url` makes it a link.
  * @typedef {{kind: 'text', text: string}
- *   | {kind: 'card', title: string, sections: OutSection[], footer?: string, buttons?: OutButton[]}
+ *   | {kind: 'card', title: string, sections: OutSection[], footer?: string, buttons?: OutButton[], stack?: boolean}
  *   | {kind: 'overview', title: string, subtitle: string, groups: OutGroup[], footer?: string}} OutMessage
  * @typedef {{label: string, color: string, rows: OutRow[]}} OutGroup
  * @typedef {{dot: string, name: string, agent: string, detail: string, url?: string, primary?: boolean}} OutRow

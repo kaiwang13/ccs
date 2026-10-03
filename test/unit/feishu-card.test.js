@@ -53,3 +53,12 @@ test('plainText flattens any message for the markdown fallback', () => {
   assert.equal(plainText({ kind: 'text', text: 'hi' }), 'hi');
   assert.equal(plainText({ kind: 'card', title: 'T', sections: [{ body: 'a' }, { heading: 'H', body: 'b', collapsed: true }], footer: 'f' }), '**T**\n\na\n\n**H**\nb\n\nf');
 });
+
+test('a stacked card puts each button in its own full-width row', () => {
+  const card = /** @type {any} */ (toFeishuCard({ kind: 'card', title: 't', sections: [{ body: 'b' }], stack: true,
+    buttons: [{ text: '1. a', value: { a: 'x' } }, { text: 'Interrupt', style: 'danger', value: { a: 'y' } }] }));
+  const buttons = card.body.elements.filter((/** @type {any} */ e) => e.tag === 'button');
+  assert.equal(buttons.length, 2);
+  assert.ok(buttons.every((/** @type {any} */ b) => b.width === 'fill'));
+  assert.equal(card.body.elements.some((/** @type {any} */ e) => e.tag === 'column_set'), false);
+});

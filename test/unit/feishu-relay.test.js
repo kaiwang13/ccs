@@ -184,7 +184,12 @@ test('Claude: a question (waitingFor "input needed") gets a card whose numbered 
   assert.match(m.title, /asks/);
   assert.match(m.sections[0].body, /Which layout do you want\?/);
   assert.deepEqual(m.buttons.map((/** @type {any} */ b) => b.value.a), ['answer', 'answer', 'interrupt'], '"Type something." is not a button');
-  assert.match(m.footer, /other answers at the terminal/);
+  assert.match(m.footer, /to type your own answer/);
+  assert.equal(m.stack, true, 'one full-width button per row, so no label is cut off');
+  assert.doesNotMatch(m.sections[0].body, /☐|Layout/, 'the dialog\'s tab strip is not part of the question');
+  assert.match(m.sections[1].body, /\*\*1\. One group per session\*\*\nEvery session gets its own Feishu group/, 'each choice is listed with its description');
+  assert.match(m.sections[1].body, /\*\*2\. One topic group\*\*\nOne ccs group with a topic per session/);
+  assert.equal(m.buttons[0].text, '1. One group per session', 'a button carries the choice, not its description');
   gw.userClicks(chatId, id, m.buttons[1].value);
   await waitFor(() => link.inputs.length === 1, { timeoutMs: 3000, what: 'digit sent' });
   assert.deepEqual(link.inputs, [{ key: '2' }]);

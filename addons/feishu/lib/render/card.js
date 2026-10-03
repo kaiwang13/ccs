@@ -108,7 +108,11 @@ function toFeishuCard(msg) {
   }
   /** @type {object[]} */
   const elements = msg.sections.map(section);
-  if (msg.buttons && msg.buttons.length) elements.push(buttonRow(msg.buttons));
+  // `stack`: one full-width button per row, for choices whose labels would be cut off side by side.
+  if (msg.buttons && msg.buttons.length) {
+    if (msg.stack) for (const b of msg.buttons) elements.push({ ...button(b), width: 'fill' });
+    else elements.push(buttonRow(msg.buttons));
+  }
   if (msg.footer) elements.push(note(msg.footer));
   return {
     schema: '2.0',

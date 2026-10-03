@@ -65,6 +65,10 @@ test('Claude question dialog (AskUserQuestion): numbered choices with their desc
   assert.match(p.question, /Which layout do you want\?/);
   assert.deepEqual(p.options.map((o) => o.key), ['1', '2', '3']);
   assert.equal(p.options[0].label, 'One group per session Every session gets its own Feishu group');
+  assert.deepEqual(p.heads, { 1: 'One group per session', 2: 'One topic group', 3: 'Type something.' });
+  assert.doesNotMatch(p.question, /☐|Layout/, 'the header chip is chrome');
+  const multi = parseClaudePrompt([' ← ☐ Mock test  ☐ Second one  ✔ Submit →', ' Which one?', ' ❯ 1. a', '   2. b']);
+  assert.equal(multi.question, 'Which one?', 'the tab strip is not part of the question');
   assert.equal(p.options[2].label, 'Type something.');
   assert.equal(p.multi, false);
   assert.equal(parseClaudePrompt([...peek('claude-ask-question.txt'), 'Space to select · Enter to confirm']).multi, true);
