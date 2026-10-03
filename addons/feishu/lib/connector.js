@@ -14,7 +14,7 @@ const { parseClaudeRecord, findClaudeTranscript } = require('./transcript/claude
 const { parseCodexRecord, findCodexRollout } = require('./transcript/codex.js');
 const { TurnAssembler, renderTurn, renderHistory, turnText } = require('./turns.js');
 const { Router } = require('./router.js');
-const { parseClaudePrompt, detectCodexPrompt } = require('./prompts.js');
+const { parseClaudePrompt, detectCodexPrompt, TYPED_OPTION_RE } = require('./prompts.js');
 const { sanitizeMessage, maskEmails, truncate } = require('./text.js');
 const { loadState, saveState, acquireLock } = require('./state.js');
 const { ensureRunning } = require('../../../src/cli/commands/attach.js');
@@ -127,7 +127,7 @@ function nextLineStart(file, start) {
 
 /**
  * @typedef {{pid: string, kind: 'claude'|'codex', messageId: string|null, answered: boolean, outcome: string|null,
- *   question: string, options: {key: string, label: string}[], more: boolean, snapshot: string}} Prompt
+ *   question: string, options: {key: string, label: string}[], more: boolean, multi: boolean, ask: boolean, snapshot: string}} Prompt
  */
 
 /**
@@ -1100,7 +1100,8 @@ class Connector {
       return;
     }
     const c = (r.state && r.state.claude) || {};
-    const permission = c.status === 'waiting' && c.waitingFor === 'permission prompt';
+    // A permission dialog and a question (AskUserQuestion, waitingFor 'input needed') are both numbered option lists.
+    const permission = c.status === 'waiting' && (c.waitingFor === 'permission prompt' || c.waitingFor === 'input needed');
     if (permission && !r.prompt && now >= r.promptQuietUntil) this._track(this._openPrompt(r, 'claude', null));
     else if (!permission && r.prompt && r.prompt.kind === 'claude' && !r.prompt.answered) this._track(this._closePrompt(r, 'answered at the terminal'));
   }
@@ -1128,12 +1129,12 @@ class Connector {
     const g = this.state.groups[r.info.id];
     if (!g || g.removed) return;
     /** @type {Prompt} */
-    const p = { pid: crypto.randomBytes(4).toString('hex'), kind, messageId: null, answered: false, outcome: null, question: '', options: [], more: false, snapshot: '' };
+    const p = { pid: crypto.randomBytes(4).toString('hex'), kind, messageId: null, answered: false, outcome: null, question: '', options: [], more: false, multi: false, ask: !!(r.state && r.state.claude && r.state.claude.waitingFor === 'input needed'), snapshot: '' };
     r.prompt = p; // set before any await: one card per prompt
     const shown = lines || (await this._peek(r)) || [];
     if (kind === 'claude') {
       const parsed = parseClaudePrompt(shown);
-      if (parsed) { p.question = parsed.question; p.options = parsed.options; p.more = parsed.more; }
+      if (parsed) { p.question = parsed.question; p.options = parsed.options; p.more = parsed.more; p.multi = parsed.multi; }
     } else {
       const found = detectCodexPrompt(shown);
       if (found) p.question = found.question;
@@ -1167,19 +1168,23 @@ class Connector {
   /** @param {Runtime} r @param {Prompt} p @returns {OutMessage} */
   _promptCard(r, p) {
     const name = r.info.name;
+    const what = p.ask ? 'question' : 'permission';
     /** @type {import('./types').OutSection[]} */
     const sections = [{ body: p.question || 'The agent is waiting for an answer.' }];
     if (p.snapshot) sections.push({ heading: 'Screen', body: `\`\`\`\n${p.snapshot}\n\`\`\``, collapsed: true });
-    if (p.outcome) return { kind: 'card', title: `🔐 ${name}: permission`, sections, footer: p.outcome };
-    const actionable = p.kind === 'claude' && p.options.length > 0;
+    if (p.outcome) return { kind: 'card', title: `${p.ask ? '❓' : '🔐'} ${name}: ${what}`, sections, footer: p.outcome };
+    // "Type something." and "Chat about this" need typing, and a multi-select takes Space, not a digit, so those
+    // stay at the terminal; the numbered choices are buttons.
+    const choices = p.kind === 'claude' && !p.multi ? p.options.filter((o) => !TYPED_OPTION_RE.test(o.label)) : [];
+    const actionable = choices.length > 0;
     /** @type {import('./types').OutButton[]} */
-    const buttons = actionable
-      ? p.options.map((o) => ({ text: `${o.key}. ${truncate(o.label, 40)}`, style: /** @type {'primary'|'default'} */ (o.key === '1' ? 'primary' : 'default'), value: { a: 'answer', s: r.info.id, p: p.pid, k: o.key } }))
-      : [];
+    const buttons = choices.map((o) => ({ text: `${o.key}. ${truncate(o.label, 40)}`, style: /** @type {'primary'|'default'} */ (o.key === '1' ? 'primary' : 'default'), value: { a: 'answer', s: r.info.id, p: p.pid, k: o.key } }));
     buttons.push({ text: 'Interrupt', style: 'danger', value: { a: 'interrupt', s: r.info.id } });
+    const hidden = p.kind === 'claude' && p.options.length > choices.length;
     const footer = !actionable ? `answer it at a terminal: ccs a ${name}`
-      : p.more ? `more options at the terminal: ccs a ${name}` : 'tap an option, or answer at the terminal';
-    return { kind: 'card', title: `🔐 ${name} needs permission`, sections, buttons, footer };
+      : p.more ? `more options at the terminal: ccs a ${name}`
+        : hidden ? `other answers at the terminal: ccs a ${name}` : 'tap an option, or answer at the terminal';
+    return { kind: 'card', title: p.ask ? `❓ ${name} asks` : `🔐 ${name} needs permission`, sections, buttons, footer };
   }
 
   /**

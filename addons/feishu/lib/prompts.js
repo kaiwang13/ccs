@@ -10,15 +10,18 @@
 const OPTION_RE = /^\s*(?:[❯›>↓↑]\s*)?([1-9])\.\s+(.+?)\s*$/;
 const RULE_RE = /^[\s─━╌┄┈═_-]*$/;
 const MORE_RE = /^\s*↓/;
+/** Claude's question dialog also offers "Type something." and "Chat about this": answers that need typing at the terminal. */
+const TYPED_OPTION_RE = /^(type something|chat about this)\b/i;
+const MULTI_SELECT_RE = /space to (select|toggle)/i;
 const CODEX_QUESTION_RE = /^\s*(Would you like to .+\?)\s*$/;
 
 /**
  * The last numbered option block on screen, with the question lines right above it.
  * @param {string[]} lines
- * @returns {{question: string, options: {key: string, label: string}[], more: boolean}|null}
+ * @returns {{question: string, options: {key: string, label: string}[], more: boolean, multi: boolean}|null}
  */
 function parseClaudePrompt(lines) {
-  /** @type {{question: string, options: {key: string, label: string}[], more: boolean}|null} */
+  /** @type {{question: string, options: {key: string, label: string}[], more: boolean, multi: boolean}|null} */
   let best = null;
   for (let i = 0; i < lines.length; i++) {
     const m = OPTION_RE.exec(lines[i]);
@@ -43,7 +46,7 @@ function parseClaudePrompt(lines) {
       if (RULE_RE.test(s)) break;
       question.unshift(s);
     }
-    best = { question: question.join('\n'), options, more };
+    best = { question: question.join('\n'), options, more, multi: lines.some((l) => MULTI_SELECT_RE.test(String(l ?? ''))) };
     i = j - 1;
   }
   return best;
@@ -58,4 +61,4 @@ function detectCodexPrompt(lines) {
   return null;
 }
 
-module.exports = { parseClaudePrompt, detectCodexPrompt };
+module.exports = { parseClaudePrompt, detectCodexPrompt, TYPED_OPTION_RE };

@@ -138,7 +138,10 @@ class TurnAssembler extends EventEmitter {
 function icon(t) { return t.origin === 'feishu' ? '📱' : '⌨'; }
 
 /** @param {string|null} s @param {number} n */
-function firstLine(s, n) { return truncate(String(s || '').split('\n')[0], n); }
+function firstLine(s, n) {
+  const line = String(s || '').split('\n')[0];
+  return line.length > n ? `${line.slice(0, n).trimEnd()}…` : line; // a title is one line: no "(N more characters)" tail
+}
 
 /** @param {Turn} t */
 function footer(t) {

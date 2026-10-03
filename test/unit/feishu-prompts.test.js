@@ -58,3 +58,14 @@ test('Codex: the approval question is detected; its options are never parsed as 
   assert.equal(parseClaudePrompt(lines), null);
   assert.equal(detectCodexPrompt(['› hello', '• working']), null);
 });
+
+test('Claude question dialog (AskUserQuestion): numbered choices with their descriptions; the typed answers are still parsed', () => {
+  const p = parseClaudePrompt(peek('claude-ask-question.txt'));
+  assert.ok(p);
+  assert.match(p.question, /Which layout do you want\?/);
+  assert.deepEqual(p.options.map((o) => o.key), ['1', '2', '3']);
+  assert.equal(p.options[0].label, 'One group per session Every session gets its own Feishu group');
+  assert.equal(p.options[2].label, 'Type something.');
+  assert.equal(p.multi, false);
+  assert.equal(parseClaudePrompt([...peek('claude-ask-question.txt'), 'Space to select · Enter to confirm']).multi, true);
+});

@@ -1,0 +1,20 @@
+ ▐▛███▛█   Claude Code v2.1.281
+▝▜██████▀  Sonnet 4.5 · Claude Max
+  ▝▝ ▝▝    /work/repo
+
+❯ Set up the Feishu layout
+
+────────────────────────────────────────────────────────────────────────────────
+ ☐ Layout
+
+Which layout do you want?
+
+ ❯ 1. One group per session
+      Every session gets its own Feishu group
+   2. One topic group
+      One ccs group with a topic per session
+   3. Type something.
+────────────────────────────────────────────────────────────────────────────────
+   4. Chat about this
+
+Enter to select · ↑/↓ to navigate · Esc to cancel

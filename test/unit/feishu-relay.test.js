@@ -166,3 +166,26 @@ test('Codex: a read-only card with only Interrupt while the dialog shows; text i
   await waitFor(() => /answered at the terminal/.test(JSON.stringify(/** @type {any} */ (gw.msgs.get(id)).msg)), { timeoutMs: 5000, what: 'closed' });
   assert.deepEqual(link.inputs, []);
 });
+
+test('Claude: a question (waitingFor "input needed") gets a card whose numbered choices are buttons; typed answers stay at the terminal', async (t) => {
+  const { gw, link, chatId } = await liveSession(t);
+  link.lines = screen('claude-ask-question.txt');
+  link.state('waiting', 'input needed');
+  /** @type {any} */
+  let found = null;
+  await waitFor(() => {
+    for (const id of /** @type {any} */ (gw.chats.get(chatId)).order) {
+      const m = /** @type {any} */ (gw.msgs.get(id)).msg;
+      if (m.kind === 'card' && m.title.startsWith('❓')) { found = { id, m }; return true; }
+    }
+    return false;
+  }, { timeoutMs: 3000, what: 'question card' });
+  const { id, m } = found;
+  assert.match(m.title, /asks/);
+  assert.match(m.sections[0].body, /Which layout do you want\?/);
+  assert.deepEqual(m.buttons.map((/** @type {any} */ b) => b.value.a), ['answer', 'answer', 'interrupt'], '"Type something." is not a button');
+  assert.match(m.footer, /other answers at the terminal/);
+  gw.userClicks(chatId, id, m.buttons[1].value);
+  await waitFor(() => link.inputs.length === 1, { timeoutMs: 3000, what: 'digit sent' });
+  assert.deepEqual(link.inputs, [{ key: '2' }]);
+});
