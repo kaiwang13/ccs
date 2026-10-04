@@ -107,3 +107,22 @@ test('writeSettingsFile writes {"tui":"default","theme":T} with mode 0600', (t) 
   assert.equal(fs.readFileSync(f, 'utf8'), '{"tui":"default","theme":"light"}');
   assert.equal(fs.statSync(f).mode & 0o777, 0o600);
 });
+
+
+test('configured npm binary reports package metadata rather than the newest tested version', (t) => {
+  const s = setup(t);
+  const pkg = path.join(s.root, 'npm', '@anthropic-ai', 'claude-code');
+  const bin = path.join(pkg, 'bin', 'claude.exe');
+  exe(bin);
+  fs.writeFileSync(path.join(pkg, 'package.json'), JSON.stringify({ name: '@anthropic-ai/claude-code', version: '2.1.289' }));
+  const cfg = { ...DEFAULTS, claude: { ...DEFAULTS.claude, binary: bin } };
+  assert.deepEqual(L.resolveClaudeBin(s.paths, cfg), { path: bin, version: '2.1.289', tested: false, source: 'config' });
+});
+
+test('configured binary without version metadata remains unknown', (t) => {
+  const s = setup(t);
+  const bin = path.join(s.root, 'claude.exe');
+  exe(bin);
+  const cfg = { ...DEFAULTS, claude: { ...DEFAULTS.claude, binary: bin } };
+  assert.equal(L.resolveClaudeBin(s.paths, cfg).version, '0.0.0');
+});

@@ -45,6 +45,9 @@ not built yet.
   (a warning, never a block). Setting `claude.allowNoCredential` hosts a Claude with no credential
   at all — it starts and renders, but its first request fails, so that is for exercising the binary
   (CI) rather than for use.
+  `ccs doctor --lite` also verifies control routing for unrecorded decoder builds, rather than
+  requiring a downgrade solely because a version or build hash changed
+  ([compatibility details](docs/claude-compatibility.md)).
 - **Codex CLI** — optional. Tested against **0.155.0**/**0.155.1**; other versions run but report
   `UNTESTED_CODEX_VERSION`. Codex not being installed is never a doctor failure — it's simply unavailable
   until you install it

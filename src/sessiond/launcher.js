@@ -23,6 +23,8 @@ const { buildEnv, loadXwe } = require('./env.js');
 const { resolveSessionProxy } = require('../common/proxy.js');
 const { TESTED_VERSIONS } = require('../claude/tested.js');
 
+const { versionFromPath } = require('../claude/version.js');
+
 const SEMVER_RE = /^\d+\.\d+\.\d+$/;
 
 class LaunchError extends Error {
@@ -52,7 +54,7 @@ function isExecutableFile(p) {
  *  4. realpath(~/.local/bin/claude), tested=false (→ UNTESTED_CLAUDE_VERSION warning, never a block).
  *     ~/.local/bin is derived from claudeVersionsDir (~/.local/share/claude/versions → ~/.local/bin) so
  *     tests can relocate both with one override.
- * Nothing is executed to learn a version.
+ * Native filenames and official npm package metadata identify the version; no binary is executed.
  * @param {any} paths @param {any} config
  * @returns {{path: string, version: string, tested: boolean, source: 'env'|'config'|'versions'|'local-bin'}|null}
  */
@@ -68,8 +70,8 @@ function resolveClaudeBin(paths, config) {
   if (typeof configured === 'string' && configured !== 'auto') {
     let real;
     try { real = fs.realpathSync(configured); } catch { return null; }
-    const base = path.basename(real);
-    return { path: real, version: SEMVER_RE.test(base) ? base : newestTested, tested: tested.includes(base), source: 'config' };
+    const version = versionFromPath(real);
+    return { path: real, version, tested: tested.includes(version), source: 'config' };
   }
   /** @type {string[]} */
   let entries = [];
@@ -83,8 +85,8 @@ function resolveClaudeBin(paths, config) {
   let real;
   try { real = fs.realpathSync(localBin); } catch { return null; }
   if (!isExecutableFile(real)) return null;
-  const base = path.basename(real);
-  return { path: real, version: SEMVER_RE.test(base) ? base : '0.0.0', tested: tested.includes(base), source: 'local-bin' };
+  const version = versionFromPath(real);
+  return { path: real, version, tested: tested.includes(version), source: 'local-bin' };
 }
 
 /**

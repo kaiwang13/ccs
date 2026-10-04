@@ -9,7 +9,7 @@
  * release): the chunk starts at the win32-input-mode regex `/^\x1b\[(\d*(?:;\d*){0,5})_$/`
  * and ends before `var X=50,Y=2000,Z=2000;` (Claude's incomplete-escape and paste timeouts).
  * Inside it the win32 decoder is the function that execs that regex first, and the keypress
- * parser is the function whose body starts `let s,x={kind:"key",name:"",fn:!1`.
+ * parser is identified by its default input argument and initial key-event object.
  * A candidate that fails the minimum-content check is ignored, so a short or broken
  * extraction ends in `decoder not found` - a hard failure, never a silent pass.
  *
@@ -19,6 +19,7 @@ const crypto = require('node:crypto');
 const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
+const { parseModule, dependencySource } = require('./decoder-source.js');
 
 const BASELINE_FILE = path.resolve(__dirname, '..', 'src', 'claude', 'decoder-baseline.json');
 const MIN_FUNCTIONS = 20;
@@ -30,13 +31,13 @@ const REQUIRED_LITERALS = [
 
 /**
  * @param {string} binPath
- * @returns {{text: string, names: {win32: string, keypress: string}, sha256: string}}
+ * @returns {{text: string, names: {win32: string, keypress: string}, sha256: string, dependencies?: string}}
  */
 function extract(binPath) {
   const src = fs.readFileSync(binPath).toString('latin1');
   const startRe = /(?:var |,)(\w+)=\/\^\\x1b\\\[\(\\d\*\(\?:;\\d\*\)\{0,5\}\)_\$\/[;,]/g;
   const endRe = /var (\w+)=50,(\w+)=2000,(\w+)=2000;/g;
-  /** @type {Array<{text: string, names: {win32: string, keypress: string}, sha256: string}>} */
+  /** @type {Array<{text: string, names: {win32: string, keypress: string}, sha256: string, dependencies?: string}>} */
   const found = [];
   let m;
   while ((m = startRe.exec(src))) {
@@ -44,12 +45,28 @@ function extract(binPath) {
     const e = endRe.exec(src);
     if (!e || e.index - m.index > 60000) continue;
     const text = Buffer.from(src.slice(m.index, e.index), 'latin1').toString('utf8');
-    const vp = new RegExp(`function (\\w+)\\(n,s\\)\\{let \\w+=${m[1]}\\.exec\\(n\\)`).exec(text);
-    const cr = /function (\w+)\(n=""\)\{let s,\w+=\{kind:"key",name:"",fn:!1/.exec(text);
+    let ast;
+    try { ast = parseModule(text); } catch { continue; }
+    const functions = ast.ast.body.filter((n) => n.type === 'FunctionDeclaration');
+    const vp = functions.find((n) => {
+      const call = n.body.body[0]?.declarations?.[0]?.init;
+      return n.params.length === 2 && call?.type === 'CallExpression'
+        && call.callee.type === 'MemberExpression' && call.callee.object.name === m[1]
+        && call.callee.property.name === 'exec' && call.arguments[0]?.name === n.params[0]?.name;
+    });
+    const cr = functions.find((n) => {
+      const event = n.body.body[0]?.declarations?.[1]?.init;
+      const props = new Map((event?.properties || []).map((p) => [p.key?.name, p.value]));
+      return n.params.length === 1 && n.params[0].type === 'AssignmentPattern'
+        && n.params[0].right.value === '' && event?.type === 'ObjectExpression'
+        && props.get('kind')?.value === 'key' && props.get('name')?.value === ''
+        && props.get('fn')?.type === 'UnaryExpression' && props.get('fn').operator === '!'
+        && props.get('fn').argument.value === 1;
+    });
     if (!vp || !cr) continue;
-    const functions = (text.match(/function [\w$]+\(/g) || []).length;
-    if (functions < MIN_FUNCTIONS || !REQUIRED_LITERALS.every((lit) => text.includes(lit))) continue;
-    found.push({ text, names: { win32: vp[1], keypress: cr[1] }, sha256: crypto.createHash('sha256').update(text).digest('hex') });
+    if ((text.match(/function [\w$]+\(/g) || []).length < MIN_FUNCTIONS || !REQUIRED_LITERALS.every((lit) => text.includes(lit))) continue;
+    const dependencies = dependencySource(src, m.index, e.index, [vp.id.name, cr.id.name]);
+    found.push({ text, names: { win32: vp.id.name, keypress: cr.id.name }, dependencies, sha256: crypto.createHash('sha256').update(text).digest('hex') });
   }
   if (!found.length) throw new Error('decoder not found');
   const uniq = [...new Map(found.map((o) => [o.sha256, o])).values()];
@@ -58,12 +75,12 @@ function extract(binPath) {
 }
 
 /**
- * Evaluate an extraction in a fresh vm context. The stubs stand in for identifiers the
- * chunk references but the bundle defines elsewhere (names as in 2.1.267): He/no parse
+ * Evaluate resolved bundle dependencies in a fresh vm context. Historical recorded chunks
+ * without dependencies use the original 2.1.267 stubs: He/no parse
  * truthy/falsy env strings, bl() returns terminal info (none), sbe/sce are the focus-in/out
  * sequences, Sj is Claude's tokenizer (not extracted, must never be called here).
  * process.env is empty and the platform is linux: the Linux defaults the port assumes.
- * @param {{text: string, names: {win32: string, keypress: string}}} ex
+ * @param {{text: string, names: {win32: string, keypress: string}, dependencies?: string}} ex
  * @returns {{win32: Function, keypress: Function}}
  */
 function load(ex) {
@@ -76,7 +93,7 @@ function load(ex) {
     Sj: () => { throw new Error('tokenizer not extracted'); },
   });
   vm.createContext(ctx);
-  vm.runInContext(ex.text.replace(/^import\{Buffer as (\w+)\}from"buffer";/, 'var $1=Buffer;'), ctx, { filename: 'claude-decoder.js' });
+  vm.runInContext((ex.dependencies || ex.text).replace(/^import\{Buffer as (\w+)\}from"buffer";/, 'var $1=Buffer;'), ctx, { filename: 'claude-decoder.js', timeout: 5000 });
   const win32 = ctx[ex.names.win32];
   const keypress = ctx[ex.names.keypress];
   if (typeof win32 !== 'function' || typeof keypress !== 'function') throw new Error('decoder functions missing after load');
@@ -115,7 +132,8 @@ if (require.main === module) {
       /** @type {Record<string, unknown>} */
       const baseline = fs.existsSync(BASELINE_FILE) ? JSON.parse(fs.readFileSync(BASELINE_FILE, 'utf8')) : {};
       baseline.schema = 'ccs.decoderbaseline/1';
-      baseline[version] = { sha256: ex.sha256, names: ex.names, text: ex.text };
+      require('./decoder-compatibility.js').verifyRouting(load(ex));
+      baseline[version] = { sha256: ex.sha256, names: ex.names, text: ex.text, ...(ex.dependencies ? { dependencies: ex.dependencies } : {}) };
       const ordered = Object.fromEntries(Object.keys(baseline).sort((a, b) => (a === 'schema' ? -1 : b === 'schema' ? 1 : a.localeCompare(b, 'en', { numeric: true }))).map((k) => [k, baseline[k]]));
       fs.writeFileSync(BASELINE_FILE, JSON.stringify(ordered, null, 2) + '\n');
       console.log(`wrote ${version} to ${BASELINE_FILE}`);

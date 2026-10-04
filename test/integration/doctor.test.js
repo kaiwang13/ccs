@@ -57,7 +57,7 @@ test('decoder check (R12): an extraction failure on a real versions binary is FA
   fs.writeFileSync(bin, '#!/bin/sh\necho not a claude bundle\n', { mode: 0o755 });
   const c = checkDecoder({ path: bin, version: '9.9.9', source: 'versions' }, 30000);
   assert.equal(c.level, 'fail');
-  assert.match(c.detail, /^9\.9\.9: the key decoder could not be extracted\/loaded .* this version is untested/);
+  assert.match(c.detail, /^9\.9\.9: the key decoder could not be extracted\/loaded or verified .* this version is untested/);
   // Regression (round 1): the reason must name the real fault, never Node's runtime-version banner
   // that trails an uncaught-exception stack trace.
   assert.doesNotMatch(c.detail, /Node\.js v/);
@@ -219,4 +219,41 @@ test('doctor reports codex when it is installed, and stays silent-but-ok when it
   const r = await runCcs(ctx, ['doctor', '--lite']);
   assert.equal(r.code, 0, r.stdout + r.stderr);
   assert.doesNotMatch(r.stdout, /^ {2}FAIL {2}codex/m, 'a machine without codex must not fail doctor');
+});
+
+
+test('unrecorded decoder build passes only after control-routing verification', (t) => {
+  const root = fs.mkdtempSync('/tmp/ccst-');
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const base = require('../../src/claude/tested.js').loadDecoderBaseline()['2.1.267'];
+  const bin = path.join(root, '9.9.9');
+  fs.writeFileSync(bin, base.text + 'var wa=50,sy=2000,oy2=2000;');
+  const c = checkDecoder({ path: bin, version: '9.9.9', source: 'versions' }, 30000);
+  assert.equal(c.level, 'ok', c.detail);
+  assert.match(c.detail, /112313 inputs.*control routing verified/);
+});
+
+test('a decoder changing Ctrl+Z is rejected even when its structure is valid', (t) => {
+  const root = fs.mkdtempSync('/tmp/ccst-');
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const base = require('../../src/claude/tested.js').loadDecoderBaseline()['2.1.267'];
+  const bin = path.join(root, '9.9.9');
+  const changed = base.text.replace('c.name=String.fromCharCode(n.charCodeAt(0)+97-1)', 'c.name="a"');
+  fs.writeFileSync(bin, changed + 'var wa=50,sy=2000,oy2=2000;');
+  const c = checkDecoder({ path: bin, version: '9.9.9', source: 'versions' }, 30000);
+  assert.equal(c.level, 'fail');
+  assert.match(c.detail, /Ctrl\+Z self-check|input routing/);
+});
+
+
+test('a control-routing regression beyond the Ctrl+Z self-check fails doctor', (t) => {
+  const root = fs.mkdtempSync('/tmp/ccst-');
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const base = require('../../src/claude/tested.js').loadDecoderBaseline()['2.1.267'];
+  const bin = path.join(root, '9.9.9');
+  const changed = base.text.replace('c.name=String.fromCharCode(n.charCodeAt(0)+97-1)', 'c.name=n.charCodeAt(0)===3?"a":String.fromCharCode(n.charCodeAt(0)+97-1)');
+  fs.writeFileSync(bin, changed + 'var wa=50,sy=2000,oy2=2000;');
+  const c = checkDecoder({ path: bin, version: '9.9.9', source: 'versions' }, 30000);
+  assert.equal(c.level, 'fail');
+  assert.match(c.detail, /(?:control|input) routing/);
 });

@@ -44,3 +44,17 @@ test('a missing end anchor, a missing keypress parser or a short chunk is "decod
   const short = BASE.text.slice(0, BASE.text.indexOf('function Oa(')) + BASE.text.slice(BASE.text.indexOf('function Cr(')) + END;
   assert.throws(() => extract(fakeBin(t, short)), /decoder not found/);
 });
+
+
+test('extract follows decoder structure when function arguments are renamed', (t) => {
+  const renamed = BASE.text.replace('function Vp(n,s)', 'function Vp(n,prior)')
+    .replaceAll('highSurrogate:s', 'highSurrogate:prior')
+    .replace('if(!s)return{sequences:[],highSurrogate:""};W=s+W', 'if(!prior)return{sequences:[],highSurrogate:""};W=prior+W')
+    .replace('function Cr(n=""){let s,c=', 'function Cr(n=""){let match,c=')
+    .replaceAll('s=ES.exec(n)', 'match=ES.exec(n)').replaceAll('s=xS.exec(n)', 'match=xS.exec(n)')
+    .replaceAll('s[1]', 'match[1]').replaceAll('s[2]', 'match[2]').replaceAll('s[3]', 'match[3]')
+    .replaceAll('s[4]', 'match[4]').replaceAll('s[5]', 'match[5]').replaceAll('s[6]', 'match[6]');
+  const ex = extract(fakeBin(t, renamed + END));
+  assert.deepEqual(ex.names, BASE.names);
+  selfCheck(load(ex));
+});

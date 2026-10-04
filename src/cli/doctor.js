@@ -20,6 +20,7 @@ const platform = require('../common/platform/index.js');
 // running is the one native modules must match", which is the right answer for a normal install.
 const PINNED_NODE = process.env.CCS_PINNED_NODE || '';
 const PINNED_NODE_VERSION = process.env.CCS_PINNED_NODE_VERSION || '';
+const COMPATIBILITY = path.join(__dirname, '..', '..', 'tools', 'decoder-compatibility.js');
 const EXTRACTOR = path.join(__dirname, '..', '..', 'tools', 'extract-claude-decoder.js');
 
 /** @typedef {{level: 'ok'|'warn'|'fail', label: string, detail: string}} Check */
@@ -88,14 +89,15 @@ function checkPlatform() {
 }
 
 /**
- * Extract and load the decoder from the binary in a child process (the binary lives on NFS; a child can
- * be abandoned if the read hangs) and compare with the committed baseline. Contract R12: a version whose
- * decoder cannot be extracted/loaded, or has no baseline, is untested and reported as FAIL, never skipped.
+ * Verify extracted behavior in a timeout-limited child. Both recorded and new builds must
+ * pass the control-routing corpus and fuzz checks; imported helpers can change independently
+ * of the decoder chunk. Extraction or behavior failures always report FAIL.
  * @param {{path: string, version: string, source: string}} bin @param {number} timeoutMs @returns {Check}
  */
 function checkDecoder(bin, timeoutMs = 60000) {
   if (bin.source === 'env') return { level: 'warn', label: 'decoder', detail: 'not checked: CCS_CLAUDE_BIN override in effect (a test/dev binary, not a Claude release)' };
-  const script = `const x=require(${JSON.stringify(EXTRACTOR)});const ex=x.extract(process.argv[1]);x.selfCheck(x.load(ex));process.stdout.write(JSON.stringify({sha256:ex.sha256}));`;
+  const baseline = loadDecoderBaseline()[bin.version];
+  const script = `const x=require(${JSON.stringify(EXTRACTOR)});const ex=x.extract(process.argv[1]);const d=x.load(ex);x.selfCheck(d);const compatibility=require(${JSON.stringify(COMPATIBILITY)}).verifyRouting(d);process.stdout.write(JSON.stringify({sha256:ex.sha256,compatibility}));`;
   const r = cp.spawnSync(process.execPath, ['-e', script, bin.path], { encoding: 'utf8', timeout: timeoutMs, killSignal: 'SIGTERM' });
   if (r.error || r.status !== 0) {
     // A child that dies with an uncaught exception prints, in order: a `file:line` header, the
@@ -128,15 +130,17 @@ function checkDecoder(bin, timeoutMs = 60000) {
       || lines.find((s) => /error/i.test(s))
       || lines[0] || `exit ${r.status}`;
     if (why.length > 200) why = `${why.slice(0, 200)}…`; // a pathological single-line stderr must not make the detail unbounded
-    return { level: 'fail', label: 'decoder', detail: `${bin.version}: the key decoder could not be extracted/loaded (${why}) — this version is untested; use a tested claude version` };
+    return { level: 'fail', label: 'decoder', detail: `${bin.version}: the key decoder could not be extracted/loaded or verified (${why}) — this version is untested; update ccs or select a verified Claude build` };
   }
-  /** @type {string|null} */
-  let sha = null;
-  try { sha = JSON.parse(r.stdout).sha256; } catch { /* reported below */ }
-  const baseline = loadDecoderBaseline()[bin.version];
-  if (!baseline) return { level: 'fail', label: 'decoder', detail: `${bin.version} is untested: no committed decoder baseline (extracted sha256 ${String(sha).slice(0, 12)}…); run 'node --test test/golden/decoder-diff.test.js' before adding it to testedVersions` };
-  if (sha === baseline.sha256) return { level: 'ok', label: 'decoder', detail: `sha256 ${String(sha).slice(0, 12)}… matches the ${bin.version} baseline` };
-  return { level: 'fail', label: 'decoder', detail: `sha256 ${String(sha).slice(0, 12)}… differs from the ${bin.version} baseline ${baseline.sha256.slice(0, 12)}… — the key decoder changed; run 'node --test test/golden/decoder-diff.test.js'` };
+  let result;
+  try { result = JSON.parse(r.stdout); } catch { return { level: 'fail', label: 'decoder', detail: 'decoder verification produced no valid result' }; }
+  const sha = result.sha256;
+  if (baseline && sha === baseline.sha256) return { level: 'ok', label: 'decoder', detail: `sha256 ${String(sha).slice(0, 12)}… matches the ${bin.version} baseline` };
+  if (result.compatibility) {
+    const { checked, forwardedDifferences } = result.compatibility;
+    return { level: 'ok', label: 'decoder', detail: `${bin.version}: ${checked} inputs — control routing verified (sha256 ${String(sha).slice(0, 12)}…; ${forwardedDifferences} forwarded event differences). Full release compatibility remains untested.` };
+  }
+  return { level: 'fail', label: 'decoder', detail: `${bin.version}: decoder hash changed and compatibility was not verified` };
 }
 
 /** @param {any} paths @param {any} config @returns {Check} */
