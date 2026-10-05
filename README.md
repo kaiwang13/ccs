@@ -31,8 +31,8 @@ not built yet.
 
 - **Linux or macOS.** Process information comes from `/proc` on Linux and `libproc` on macOS, behind a
   single platform seam (`src/common/procinfo.js`); the native TTY addon builds on both.
-- **Node.js 22.x** — one interpreter, consistently: the native addons are compiled for its ABI, and Codex
-  support additionally needs Node's built-in `node:sqlite` (Node 22.5+)
+- **Node.js 24.x** — one interpreter, consistently: the native addons are compiled for its ABI, and Codex
+  support additionally needs Node's built-in `node:sqlite`
 - **gcc/clang, make, python3** — `node-gyp` builds `node-pty` and the bundled `ttyctl` addon from source
   (on macOS: `xcode-select --install`)
 - **Claude Code** installed and logged in. `ccs` accepts any credential Claude itself can use, and

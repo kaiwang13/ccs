@@ -5,7 +5,7 @@
   "description": "ccs: multi-client host for long-lived Claude Code and Codex CLI sessions",
   "license": "UNLICENSED",
   "engines": {
-    "node": "22.22.2"
+    "node": "24.14.1"
   },
   "scripts": {
     "build:native": "node-gyp rebuild --directory=native/ttyctl --nodedir=$(node -p \"require('path').dirname(require('path').dirname(process.execPath))\")",

@@ -7,8 +7,8 @@ const assert = require('node:assert/strict');
 // compiled against one Node ABI, so ccs must run on the interpreter it was built for.
 //
 // The environment variable is the escape hatch that keeps this test meaningful on a machine that
-// cannot install the exact pin. macOS developers on Homebrew get 22.23.2 where the project pins
-// 22.22.2, and nodejs.org is not always reachable to fetch the tarball; setting CCS_ALLOW_NODE_DRIFT
+// cannot install the exact pin. Homebrew ships its own patch release of the pinned major, which
+// rarely equals the pin, and nodejs.org is not always reachable to fetch the tarball; setting CCS_ALLOW_NODE_DRIFT
 // to the running version records that the drift is understood rather than silently ignoring a
 // mismatch. A wrong major is never acceptable -- that is a real ABI break, not drift.
 test('node satisfies the version pinned in package.json engines', () => {

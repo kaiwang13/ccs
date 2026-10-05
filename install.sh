@@ -46,7 +46,7 @@ check_prereqs() {
     *) die "ccs supports Linux and macOS; found $(uname -s)" ;;
   esac
   major=$(node -p 'process.versions.node.split(".")[0]')
-  [ "$major" -ge 22 ] || die "Node 22+ required; found $(node -v)"
+  [ "$major" -ge 24 ] || die "Node 24+ required; found $(node -v)"
 }
 
 # The optional Feishu add-on's dependencies — only when it is enabled (docs/feishu.md). A release directory is otherwise
