@@ -22,7 +22,7 @@ conversation seen from two places. Turning the add-on off, or never setting it u
   running, idle, stopped), each with its agent, status, folder and an **Open** button. Send `/sessions` there to
   refresh it.
 - **A message in a topic** is typed into that session (type it as a reply under the topic's first card; a message
-  typed in the group's main area starts a stray topic that belongs to no session and gets a ✗) (bursts within 600 ms are merged). A stopped session is
+  typed in the group's main area starts a stray topic that belongs to no session and gets a ✗ with the reason) (bursts within 600 ms are merged). A stopped session is
   started first. A ✓ reaction means it was typed; ✗ comes with the reason.
 - **In a topic or group**, `/screen` shows the current screen, `/interrupt` sends Esc, `/status` shows the state. Any other
   `/…` goes to the agent, so `/model`, `/cost` etc. work.

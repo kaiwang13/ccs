@@ -58,6 +58,9 @@ test('a message in the group\'s main area belongs to no session and is marked âœ
   const { gw, conn } = await start(t);
   const id = gw.userSays(conn.state.hubChat, 'hello?');
   await waitFor(() => gw.reactionsOn(id).includes('ERROR'), { timeoutMs: 3000, what: 'âœ—' });
+  const stray = `${conn.state.hubChat}#${id}`;
+  await waitFor(() => gw.messages(stray).length > 0, { timeoutMs: 3000, what: 'reason in the stray topic' });
+  assert.match(JSON.stringify(gw.messages(stray)), /belongs to no session.*ccs new/);
 });
 
 test('a card button works from inside its own topic and only for its own session', async (t) => {

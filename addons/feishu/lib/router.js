@@ -7,6 +7,7 @@
 
 const MAX_TEXT_BYTES = 16384;
 const HELP = 'Open a session\'s group to talk to that session. Here: /sessions lists every session.';
+const STRAY = 'this topic belongs to no session — reply inside a session\'s topic; new sessions start from the CLI: ccs new <name>';
 
 /** CRLF/CR → LF; drop control characters other than TAB and LF (sessiond's INPUT refuses them). @param {string} s */
 function normalizeInbound(s) {
@@ -54,7 +55,8 @@ class Router {
     if (!target) {
       // A message in the ccs group's main area starts a stray topic that belongs to no session.
       const hub = this.d.hubChat ? this.d.hubChat() : null;
-      if (hub && m.chatId === hub && text) await this.d.gateway.react(m.messageId, 'ERROR');
+      // The reason goes into that stray topic, not the group's main area (which would open yet another topic).
+      if (hub && m.chatId === hub && text) await this._fail(`${hub}#${m.rootId || m.messageId}`, [m.messageId], STRAY);
       return;
     }
     const chat = target.chatId || m.chatId; // the topic (or group) that every reply goes back to
