@@ -113,8 +113,10 @@ running_sessions() {
     });' 2>/dev/null || true
 }
 
+# The rename must not follow `current` into the directory it points at: GNU mv spells that -T, BSD (macOS) mv -h.
 point_current_at() {
-  ln -sfn "$1" "$ROOT/current.new" && mv -Tf "$ROOT/current.new" "$ROOT/current"
+  case "$(uname -s)" in Darwin) _nofollow=-h ;; *) _nofollow=-T ;; esac
+  ln -sfn "$1" "$ROOT/current.new" && mv "$_nofollow" -f "$ROOT/current.new" "$ROOT/current"
 }
 
 cmd_install() {
