@@ -383,7 +383,11 @@ test('the macOS procStart encoding is the one claude writes', () => {
   const P = require('../../src/common/procinfo.js');
   // "Www Mmm dd hh:mm:ss yyyy", e.g. "Mon Sep 21 01:13:03 2026" -- the form observed in a real
   // claude's session json on macOS. Rendered in UTC, which is what the file contains.
-  assert.match(String(P.procStart(process.pid)), /^[A-Z][a-z]{2} [A-Z][a-z]{2} \d{2} \d{2}:\d{2}:\d{2} \d{4}$/);
+  assert.match(String(P.procStart(process.pid)), /^[A-Z][a-z]{2} [A-Z][a-z]{2} [ \d]\d \d{2}:\d{2}:\d{2} \d{4}$/);
+  // A single-digit day is space-padded, as in a real claude 2.1.289 session json from Oct 5.
+  const { ctimeUtc } = require('../../src/common/platform/ctime.js');
+  assert.equal(ctimeUtc(Date.UTC(2026, 9, 5, 6, 41, 43)), 'Mon Oct  5 06:41:43 2026');
+  assert.equal(ctimeUtc(Date.UTC(2026, 8, 21, 1, 13, 3)), 'Mon Sep 21 01:13:03 2026');
 });
 
 test('listProcesses lists this process with its parent and command line', () => {
