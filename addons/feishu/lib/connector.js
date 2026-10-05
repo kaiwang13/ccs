@@ -132,7 +132,8 @@ function nextLineStart(file, start) {
 
 /**
  * @typedef {{info: SessionInfo, link: ControlLink|null, pollTimer: ReturnType<typeof setInterval>|null, state: any,
- *   sessionId: string|null, tail: TranscriptTail|null, assembler: TurnAssembler, sent: Array<{text: string, at: number}>,
+ *   sessionId: string|null, tail: TranscriptTail|null, assembler: TurnAssembler, sent: Array<{text: string, at: number, messageIds: string[], claimed: boolean}>,
+ *   ackNext: string[]|null, acks: Map<number, string[]>,
  *   cards: Map<number, {ids: string[], title?: string, lastAt: number, timer: ReturnType<typeof setTimeout>|null, chain: Promise<void>}>,
  *   statusText: string, statusSentText: string|null, statusTimer: ReturnType<typeof setTimeout>|null,
  *   statusWriting: boolean, statusWriteAgain: boolean,
@@ -214,12 +215,12 @@ class Connector {
       overview: () => this._overview(),
       history: (id, skip) => this._history(id, skip),
       answer: (id, pid, key) => this._answer(id, pid, key),
-      noteSent: (id, text) => {
+      noteSent: (id, text, messageIds) => {
         const r = this.rt.get(id);
         if (!r) return;
         const now = Date.now();
         r.sent = r.sent.filter((s) => now - s.at < RECENT_SENT_MS);
-        r.sent.push({ text, at: now });
+        r.sent.push({ text, at: now, messageIds: messageIds || [], claimed: false });
       },
     });
   }
@@ -649,20 +650,34 @@ class Connector {
     let r = this.rt.get(info.id);
     if (r) return r;
     /** @type {Runtime} */
-    const nr = { info, link: null, pollTimer: null, state: null, sessionId: info.sessionId, tail: null, sent: [], cards: new Map(),
+    const nr = { info, link: null, pollTimer: null, state: null, sessionId: info.sessionId, tail: null, sent: [], ackNext: null, acks: new Map(), cards: new Map(),
       statusText: info.live ? 'running' : 'stopped', statusSentText: null, statusTimer: null, statusWriting: false, statusWriteAgain: false, catchingUp: false,
       since: Date.now(), discoverAt: 0, creatingGroup: false, groupRetryAt: 0, assembler: /** @type {any} */ (null),
       prompt: null, peekAt: 0, promptQuietUntil: 0 };
     nr.assembler = new TurnAssembler({
-      isFeishuPrompt: (text) => nr.sent.some((s) => s.text === text && Date.now() - s.at < RECENT_SENT_MS),
+      isFeishuPrompt: (text) => {
+        const fresh = nr.sent.filter((s) => s.text === text && Date.now() - s.at < RECENT_SENT_MS);
+        // The turn being begun is the one that answers these messages; the next 'update' binds them to it.
+        const s = fresh.find((x) => !x.claimed);
+        if (s) { s.claimed = true; nr.ackNext = s.messageIds; }
+        return fresh.length > 0;
+      },
       keep: this.keepTurns,
       // I3: a turn still shown by an open card, or still the subject of a final-write retry job, must survive
       // trimming — _catchUp's `r.assembler.turns.find((x) => x.id === tid)` (for a card) and _retryFinal (for a
       // job) both need to find it later. Evaluated lazily, only when a trim is about to happen.
       protect: () => { const ids = [...nr.cards.keys()]; for (const j of this.retries) if (j.id === info.id) ids.push(j.turn.id); return ids; },
     });
-    nr.assembler.on('update', (turn) => { if (!nr.catchingUp) this._cardUpdate(nr, turn, false); });
-    nr.assembler.on('done', (turn) => { if (!nr.catchingUp) this._cardUpdate(nr, turn, true); });
+    nr.assembler.on('update', (turn) => {
+      if (nr.ackNext && !turn.done) { nr.acks.set(turn.id, nr.ackNext); nr.ackNext = null; }
+      if (!nr.catchingUp) this._cardUpdate(nr, turn, false);
+    });
+    nr.assembler.on('done', (turn) => {
+      // ✓ on the Feishu messages once their turn has ended, not when they were typed into the session.
+      const ids = nr.acks.get(turn.id);
+      if (ids) { nr.acks.delete(turn.id); for (const mid of ids) this._track(this.gw.react(mid, 'OK')); }
+      if (!nr.catchingUp) this._cardUpdate(nr, turn, true);
+    });
     this.rt.set(info.id, nr);
     return nr;
   }

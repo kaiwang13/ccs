@@ -200,6 +200,24 @@ test('noteSent prunes entries older than RECENT_SENT_MS (M2)', (t) => {
   assert.deepEqual(r.sent.map((/** @type {any} */ s) => s.text), ['recent-ish', 'new message']);
 });
 
+test('a Feishu prompt gets ✓ when its turn ends, not when it is typed', async (t) => {
+  const paths = tmpPaths(t);
+  const gw = new FakeGateway();
+  const conn = new Connector({ gateway: gw, paths, registry: new FakeRegistry(), env: {} });
+  const r = conn._runtime({ id: 's1', name: 's1', agent: 'claude', cwd: '/work', live: false, lifecycle: null, sessionId: null });
+  conn.router.d.noteSent('s1', 'hello', ['om_a', 'om_b']);
+  r.assembler.push([{ kind: 'prompt', key: 'p', text: 'hello' }, { kind: 'text', key: 't', text: 'working' }]);
+  await Promise.all([...conn.jobs]);
+  assert.deepEqual([gw.reactionsOn('om_a'), gw.reactionsOn('om_b')], [[], []]);
+  r.assembler.push([{ kind: 'turn_end', key: 'e', durationMs: 1 }]);
+  await Promise.all([...conn.jobs]);
+  assert.deepEqual([gw.reactionsOn('om_a'), gw.reactionsOn('om_b')], [['OK'], ['OK']]);
+  // A terminal prompt with the same text afterwards is a new turn with nothing to acknowledge.
+  r.assembler.push([{ kind: 'prompt', key: 'p2', text: 'hello' }, { kind: 'turn_end', key: 'e2', durationMs: 1 }]);
+  await Promise.all([...conn.jobs]);
+  assert.deepEqual(gw.reactionsOn('om_a'), ['OK']);
+});
+
 test('a session rename renames its Feishu group (M12)', async (t) => {
   const paths = tmpPaths(t);
   const registry = new FakeRegistry();

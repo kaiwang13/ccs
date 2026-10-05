@@ -23,7 +23,7 @@ conversation seen from two places. Turning the add-on off, or never setting it u
   refresh it.
 - **A message in a topic** is typed into that session (type it as a reply under the topic's first card; a message
   typed in the group's main area starts a stray topic that belongs to no session and gets a ✗ with the reason) (bursts within 600 ms are merged). A stopped session is
-  started first. A ✓ reaction means it was typed; ✗ comes with the reason.
+  started first. A ✓ reaction means its turn has finished (for `/interrupt`, that Esc was sent); ✗ comes with the reason.
 - **In a topic or group**, `/screen` shows the current screen, `/interrupt` sends Esc, `/status` shows the state. Any other
   `/…` goes to the agent, so `/model`, `/cost` etc. work.
 - **Permission prompts** (Claude): a card with one button per option; a tap presses that digit. Answered at a
@@ -89,8 +89,8 @@ Run against a real Feishu app before a release that changes the add-on (the real
 1. `ccs feishu setup` by QR binds the app; `ccs feishu start`; `status` shows connected.
 2. Every running session has a topic in the `ccs` group with a status card as its first message and a history card
    as the first reply; the DM has the overview, and its Open buttons open the group.
-3. Send a prompt from the phone: ✓ appears, the terminal shows it typed, the turn card streams and finalises,
-   labelled 📱.
+3. Send a prompt from the phone: the terminal shows it typed, the turn card streams and finalises, labelled 📱,
+   and ✓ appears once it has finalised.
 4. Type a prompt at a terminal: its turn card appears labelled ⌨.
 5. Trigger a Claude permission prompt (e.g. ask for a Bash command): the prompt card's buttons answer it; then
    answer one at the terminal and see "answered at the terminal".

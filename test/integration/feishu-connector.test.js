@@ -60,19 +60,20 @@ test('the connector links sessions, syncs both directions, resumes, catches up, 
   const second = new Connector({ gateway: new FakeGateway(), paths: ctx.paths, registry, env: ctx.env });
   await assert.rejects(second.start(), (e) => /** @type {any} */ (e).code === 'LOCKED');
 
-  // 3. Feishu → session, acknowledged
+  // 3. Feishu → session (its ✓ comes once the turn ends, in step 4)
   const msgId = gw.userSays(group, 'hello from phone');
   await waitFor(async () => {
     const r = await controlRequest(ctx.paths.ctlSock(s1.id), 'PEEK', { lines: 30 });
     return r.ok && r.data.lines.some((/** @type {string} */ l) => l.includes('RECEIVED') && l.includes('hello from phone'));
   }, { timeoutMs: 15000, what: 'typed into the session' });
-  await waitFor(() => gw.reactionsOn(msgId).includes('OK'), { timeoutMs: 5000, what: '✓ reaction' });
+  assert.deepEqual(gw.reactionsOn(msgId), [], 'no ✓ before the turn ends');
 
   // 4. session → Feishu: a terminal turn and a Feishu-origin turn, labelled
   writeTranscript(ctx, s1.sessionId, turn('typed at terminal', 'terminal answer'));
   writeTranscript(ctx, s1.sessionId, turn('hello from phone', 'phone answer'));
   await waitFor(() => cards(gw, group).some((/** @type {any} */ c) => c.title.startsWith('⌨ typed at terminal') && /✓/.test(c.footer || '')), { timeoutMs: 10000, what: 'terminal turn card' });
   await waitFor(() => cards(gw, group).some((/** @type {any} */ c) => c.title.startsWith('📱 hello from phone') && JSON.stringify(c).includes('phone answer')), { timeoutMs: 10000, what: 'feishu turn card' });
+  await waitFor(() => gw.reactionsOn(msgId).includes('OK'), { timeoutMs: 5000, what: '✓ once the turn ended' });
 
   // 5. strangers do nothing
   const stranger = gw.userSays(group, 'rm -rf', 'ou_stranger');
@@ -100,7 +101,7 @@ test('the connector links sessions, syncs both directions, resumes, catches up, 
       return r.ok && r.data.lines.some((/** @type {string} */ l) => l.includes('RECEIVED') && l.includes('wake up'));
     } catch { return false; }
   }, { timeoutMs: 60000, what: 'resumed and typed' });
-  await waitFor(() => gw.reactionsOn(wake).includes('OK'), { timeoutMs: 10000, what: '✓ after resume' });
+  assert.ok(!gw.reactionsOn(wake).includes('ERROR'), 'no ✗ after resume');
 
   // 8. removal deletes the group
   assert.equal((await runCcs(ctx, ['stop', 's1'])).code, 0);

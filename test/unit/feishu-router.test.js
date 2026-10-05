@@ -20,7 +20,7 @@ async function setup(over = {}) {
     screen: async () => 'screen text',
     statusText: () => 'idle',
     overview: () => ({ kind: 'text', text: 'overview' }),
-    noteSent: (/** @type {string} */ id, /** @type {string} */ text) => calls.push(['noteSent', id, text]),
+    noteSent: (/** @type {string} */ id, /** @type {string} */ text, /** @type {string[]} */ mids) => calls.push(['noteSent', id, text, mids]),
     debounceMs: 30,
     ...over,
   };
@@ -34,22 +34,22 @@ test('normalizeInbound turns CRLF into LF and drops control characters other tha
   assert.equal(normalizeInbound('a\r\nb\rc\x07d\te\x1b[1m'), 'a\nb\ncd\te[1m');
 });
 
-test('a message from the owner is delivered as text, noted as sent, and gets ✓', async () => {
+test('a message from the owner is delivered as text and noted as sent; its ✓ waits for the turn to end', async () => {
   const { gw, group, calls, r } = await setup();
   const id = gw.userSays(group, 'hello');
   await tick(80); await r.flushAll();
   assert.deepEqual(calls.filter((c) => c[0] === 'deliver'), [['deliver', 'aaaa1111', { text: 'hello' }]]);
-  assert.deepEqual(calls.filter((c) => c[0] === 'noteSent'), [['noteSent', 'aaaa1111', 'hello']]);
-  assert.deepEqual(gw.reactionsOn(id), ['OK']);
+  assert.deepEqual(calls.filter((c) => c[0] === 'noteSent'), [['noteSent', 'aaaa1111', 'hello', [id]]]);
+  assert.deepEqual(gw.reactionsOn(id), []);
 });
 
-test('two messages within the debounce window are delivered as one prompt, both acknowledged', async () => {
+test('two messages within the debounce window are delivered as one prompt, noted with both message ids', async () => {
   const { gw, group, calls, r } = await setup();
   const a = gw.userSays(group, 'first');
   const b = gw.userSays(group, 'second');
   await tick(80); await r.flushAll();
   assert.deepEqual(calls.filter((c) => c[0] === 'deliver'), [['deliver', 'aaaa1111', { text: 'first\nsecond' }]]);
-  assert.deepEqual([gw.reactionsOn(a), gw.reactionsOn(b)], [['OK'], ['OK']]);
+  assert.deepEqual(calls.filter((c) => c[0] === 'noteSent'), [['noteSent', 'aaaa1111', 'first\nsecond', [a, b]]]);
 });
 
 test('strangers, unmapped chats and removed sessions get nothing delivered', async () => {

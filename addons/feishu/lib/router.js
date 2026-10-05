@@ -21,7 +21,7 @@ function normalizeInbound(s) {
  *   resume: (id: string) => Promise<{ok: boolean, error?: string}>,
  *   deliver: (id: string, op: {text?: string, key?: string}) => Promise<{ok: boolean, error?: string}>,
  *   screen: (id: string) => Promise<string|null>, statusText: (id: string) => string, overview: () => OutMessage,
- *   noteSent: (id: string, text: string) => void, debounceMs?: number,
+ *   noteSent: (id: string, text: string, messageIds: string[]) => void, debounceMs?: number,
  *   history?: (id: string, skip: number) => Promise<OutMessage>,
  *   answer?: (id: string, pid: string, key: string) => Promise<{ok: boolean, error?: string}>}} RouterDeps */
 /** @typedef {import('./types').InAction} InAction */
@@ -157,7 +157,8 @@ class Router {
   async _run(chatId, id, messageIds, op) {
     const r = await this.d.deliver(id, op);
     if (!r.ok) { await this._fail(chatId, messageIds, `not sent: ${r.error || 'unknown error'}`); return; }
-    if (op.text !== undefined) this.d.noteSent(id, op.text);
+    // A prompt gets its ✓ from the connector once its turn ends; a key (Esc) has no turn, so it gets one now.
+    if (op.text !== undefined) { this.d.noteSent(id, op.text, messageIds); return; }
     for (const mid of messageIds) await this.d.gateway.react(mid, 'OK');
   }
 

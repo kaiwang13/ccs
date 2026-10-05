@@ -57,7 +57,8 @@ test('a message to a session still starting is typed once the session is running
   const mid = gw.userSays(chatId, 'wake up');
   await waitFor(() => link.refused >= 1, { timeoutMs: 3000, what: 'first INPUT refused while starting' });
   link.push('RUNNING');
-  await waitFor(() => gw.reactionsOn(mid).includes('OK'), { timeoutMs: 3000, what: '✓ once running' });
+  await waitFor(() => link.inputs.length >= 1, { timeoutMs: 3000, what: 'typed once running' });
+  assert.deepEqual(gw.reactionsOn(mid), [], 'no ✗; its ✓ waits for the turn to end');
   assert.deepEqual(link.inputs, [{ text: 'wake up' }], 'typed exactly once');
   assert.doesNotMatch(JSON.stringify(gw.messages(chatId)), /has exited/);
 });
