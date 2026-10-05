@@ -74,6 +74,16 @@ test('send and update carry card JSON; a format rejection falls back to the plai
   assert.deepEqual(ch().last('send').a[1], { markdown: '**T**\n\nb' });
 });
 
+test('an update Feishu refuses as a card patches the same message with the plain text, never posting a new one', async () => {
+  const { gw, ch } = mk();
+  await gw.connect();
+  ch().failOnce.set('updateCard', larkError('format_error'));
+  await gw.update('om_1', { kind: 'card', title: 'T', sections: [{ body: 'b' }] });
+  assert.equal(ch().count('updateCard'), 2);
+  assert.deepEqual(ch().last('updateCard').a, ['om_1', { schema: '2.0', body: { elements: [{ tag: 'markdown', content: '**T**\n\nb' }] } }]);
+  assert.equal(ch().count('send'), 0);
+});
+
 test('a rate-limited call is retried with backoff; other errors are thrown at once', async () => {
   const { gw, ch } = mk();
   await gw.connect();

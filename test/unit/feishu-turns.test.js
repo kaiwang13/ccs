@@ -3,6 +3,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const { TurnAssembler, renderTurn, renderHistory, turnText, CARD_BUDGET, COLLAPSE_TOOLS } = require('../../addons/feishu/lib/turns.js');
+const { toFeishuCard } = require('../../addons/feishu/lib/render/card.js');
 
 /** @param {any[]} evs @param {object} [o] */
 function run(evs, o = {}) {
@@ -181,4 +182,21 @@ test('renderHistory carries an optional Load earlier button; turnText flattens a
   const plain = renderHistory(a.turns);
   assert.ok(plain.kind === 'card' && plain.buttons === undefined);
   assert.equal(turnText(a.turns[0]), '⌨ q1\n\na1\n\n✓ 0s');
+});
+
+test('a turn of many short collapsed sections splits so each Feishu card stays under 30 KB', () => {
+  // 80 thinking/tool pairs: ~24 KB of section text, but ~50 KB once each section is wrapped in a collapsible panel.
+  /** @type {any[]} */
+  const evs = [{ kind: 'prompt', key: 'p', text: 'x' }];
+  for (let i = 0; i < 80; i++) {
+    evs.push({ kind: 'thinking', key: `k${i}`, text: `思考 ${i} `.repeat(20) });
+    evs.push({ kind: 'tool', key: `t${i}`, toolId: `u${i}`, name: 'Bash', input: `echo ${i}` });
+    evs.push({ kind: 'tool_result', key: `r${i}`, toolId: `u${i}`, text: 'ok', isError: false });
+  }
+  evs.push({ kind: 'text', key: 'final', text: 'FINAL ANSWER' });
+  evs.push({ kind: 'turn_end', key: 'e', durationMs: 1 });
+  const parts = renderTurn(run(evs).a.turns[0]);
+  assert.ok(parts.length >= 2);
+  for (const p of parts) assert.ok(Buffer.byteLength(JSON.stringify(toFeishuCard(p)), 'utf8') < 30000);
+  assert.match(JSON.stringify(parts[parts.length - 1]), /FINAL ANSWER/);
 });

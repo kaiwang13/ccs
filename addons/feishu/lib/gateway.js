@@ -49,6 +49,9 @@ function quietLogger(forward) {
   return { fatal: only('fatal'), error: only('error'), warn: only('warn'), info: only('info'), debug: only('debug'), trace: only('trace') };
 }
 
+/** The plain-markdown card sent when Feishu refuses a card's format. @param {OutMessage} msg */
+const plainCard = (msg) => ({ schema: '2.0', body: { elements: [{ tag: 'markdown', content: plainText(msg) || '…' }] } });
+
 /** A topic is addressed as `<group chat id>#<root message id>`; anything else is a plain chat. @param {string} t */
 const isTopic = (t) => t.includes('#');
 /** @param {string} t @returns {{chat: string, root: string}} */
@@ -265,7 +268,7 @@ class FeishuGateway extends EventEmitter {
       const st = /** @type {any} */ (e).response && /** @type {any} */ (e).response.status;
       if (st !== 400) throw e;
       this.log('gateway.card_refused', { chatId: target });
-      r = await post({ schema: '2.0', body: { elements: [{ tag: 'markdown', content: plainText(msg) || '…' }] } });
+      r = await post(plainCard(msg));
     }
     return String(r.data.message_id);
   }
@@ -284,7 +287,12 @@ class FeishuGateway extends EventEmitter {
 
   /** @param {string} messageId @param {OutMessage} msg */
   async update(messageId, msg) {
-    await this._call(() => this.ch.updateCard(messageId, toFeishuCard(msg)));
+    try { await this._call(() => this.ch.updateCard(messageId, toFeishuCard(msg))); } catch (e) {
+      if (/** @type {any} */ (e).code !== 'format_error') throw e;
+      // Patch the same message with the plain text: throwing here makes the caller post a new message on every update.
+      this.log('gateway.card_refused', { messageId });
+      await this._call(() => this.ch.updateCard(messageId, plainCard(msg)));
+    }
   }
 
   /** Cosmetic: a failed reaction is logged, never thrown (the router's text reply carries the reason). @param {string} messageId @param {'OK'|'ERROR'} emoji */

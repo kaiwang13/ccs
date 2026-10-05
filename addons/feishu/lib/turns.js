@@ -13,6 +13,9 @@ const { truncate, sanitizeMessage } = require('./text.js');
  *   output: string|null, done: boolean, durationMs: number|null}} Turn */
 
 const CARD_BUDGET = 28000;
+/** Bytes a platform card adds around each section: Feishu wraps a collapsed section in a collapsible_panel of ~330 bytes.
+ *  Without it a turn of many short sections fits the budget as sections but not as a card (Feishu refuses > 30 KB). */
+const SECTION_OVERHEAD = 400;
 const SEEN_CAP = 20000;
 /** Spec §8: a turn with this many tools or more shows tool headers only (the bridge's COLLAPSE_TOOL_THRESHOLD). */
 const COLLAPSE_TOOLS = 3;
@@ -205,8 +208,8 @@ function title(t) {
   return t.prompt === null ? `${icon(t)} (continuing)` : `${icon(t)} ${firstLine(t.prompt, 120)}`;
 }
 
-/** @param {any} v */
-const bytes = (v) => Buffer.byteLength(JSON.stringify(v), 'utf8');
+/** Estimated card bytes of these sections. @param {OutSection[]} v */
+const bytes = (v) => Buffer.byteLength(JSON.stringify(v), 'utf8') + v.length * SECTION_OVERHEAD;
 
 /**
  * One turn as ≥ 1 messages, each within CARD_BUDGET bytes; later ones are marked "(continued)". Sanitised.
