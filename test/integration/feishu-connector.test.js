@@ -109,9 +109,12 @@ test('the connector links sessions, syncs both directions, resumes, catches up, 
   await waitFor(() => !gw.chats.has(group), { timeoutMs: 10000, what: 'group deleted' });
 });
 
-test('a message sent right after `ccs stop` starts the session and is typed, every time', { timeout: 180000 }, async (t) => {
+test('a message sent right after `ccs stop` starts the session and is typed, every time', { timeout: 300000 }, async (t) => {
   const ctx = makeCcsEnv(t);
   assert.equal((await runCcs(ctx, ['new', 's1', '--no-attach'])).code, 0);
+  // Start from a session that has finished starting: stopping one that is still starting is a different case, and on a
+  // slow runner the first round would otherwise spend its time on the start lock and the agent's startup.
+  await waitFor(async () => !!(await sessionOf(ctx, 's1'))?.sessionId, 60000, 'claude session id known');
   const gw = new FakeGateway();
   const conn = new Connector({ gateway: gw, paths: ctx.paths, registry: createRegistry(ctx.paths), env: ctx.env, tailMs: 100, pollMs: 300, updateMs: 100, statusMs: 100 });
   t.after(() => conn.stop());
@@ -119,6 +122,7 @@ test('a message sent right after `ccs stop` starts the session and is typed, eve
   await waitFor(() => gw.chatByName('ccs · s1') !== null, { timeoutMs: 10000, what: 'group created' });
   const group = /** @type {string} */ (gw.chatByName('ccs · s1'));
   const s1 = await sessionOf(ctx, 's1');
+  await waitFor(() => conn.rt.get(s1.id)?.link?.up, { timeoutMs: 20000, what: 'the connector linked to the session' });
   // The index only polls every couple of seconds, so for a moment after a stop the connector's cached record still said
   // "live": such a message was typed into the dead session and lost ("not reachable right now"). Several rounds, because
   // how long that moment lasts varies from run to run.
@@ -127,12 +131,17 @@ test('a message sent right after `ccs stop` starts the session and is typed, eve
     assert.equal((await runCcs(ctx, ['stop', 's1'])).code, 0);
     const text = `wake round ${round}`;
     const id = gw.userSays(group, text);
-    await waitFor(async () => {
-      try {
-        const r = await controlRequest(ctx.paths.ctlSock(s1.id), 'PEEK', { lines: 30 });
-        return r.ok && r.data.lines.some((/** @type {string} */ l) => l.includes('RECEIVED') && l.includes(text));
-      } catch { return false; }
-    }, { timeoutMs: 30000, what: `typed after the stop (round ${round})` });
+    try {
+      await waitFor(async () => {
+        try {
+          const r = await controlRequest(ctx.paths.ctlSock(s1.id), 'PEEK', { lines: 30 });
+          return r.ok && r.data.lines.some((/** @type {string} */ l) => l.includes('RECEIVED') && l.includes(text));
+        } catch { return false; }
+      }, { timeoutMs: 60000, what: `typed after the stop (round ${round})` });
+    } catch (e) {
+      // Say what the connector told the user, so a failure on a runner we cannot log into explains itself.
+      throw new Error(`${/** @type {any} */ (e).message}; reactions ${JSON.stringify(gw.reactionsOn(id))}; last replies ${JSON.stringify(gw.messages(group).slice(-2)).slice(0, 600)}`);
+    }
     assert.ok(!gw.reactionsOn(id).includes('ERROR'), `no ✗ in round ${round}`);
   }
 });
