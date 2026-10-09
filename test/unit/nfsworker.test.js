@@ -4,7 +4,7 @@ const assert = require('node:assert/strict');
 const fs = require('fs');
 const path = require('path');
 const cp = require('child_process');
-const { runNfsOp, closeNfsWorker, createNfsRunner, NfsTimeoutError, NfsOpError } = require('../../src/common/nfsworker.js');
+const { runNfsOp, closeNfsWorker, createNfsRunner, NfsTimeoutError, NfsOpError, moveLeavingLink } = require('../../src/common/nfsworker.js');
 
 function tmpdir(t) {
   const d = fs.mkdtempSync('/tmp/ccst-');
@@ -36,6 +36,34 @@ test('real worker: write/read JSON and text, stat, readdir, unlink, rmrf', async
   await runNfsOp({ kind: 'mkdirp', args: [path.join(d, 'x/y'), 0o700] });
   await runNfsOp({ kind: 'rmrf', args: [path.join(d, 'x')] });
   assert.equal(fs.existsSync(path.join(d, 'x')), false);
+});
+
+test('real worker: lstat tells a link from a directory; moveLeavingLink leaves a relative link', async (t) => {
+  const d = tmpdir(t);
+  const from = path.join(d, 'old', 'sessions', 'aaaaaaaa');
+  const to = path.join(d, 'new', 'sessions', 'aaaaaaaa');
+  fs.mkdirSync(from, { recursive: true });
+  fs.mkdirSync(path.dirname(to), { recursive: true });
+  fs.writeFileSync(path.join(from, 'intent.json'), 'i');
+  assert.deepEqual(await runNfsOp({ kind: 'lstat', args: [from] }), { isDirectory: true, isSymbolicLink: false });
+  assert.equal(await runNfsOp({ kind: 'moveLeavingLink', args: [from, to] }), true);
+  assert.deepEqual(await runNfsOp({ kind: 'lstat', args: [from] }), { isDirectory: false, isSymbolicLink: true });
+  assert.equal(fs.readlinkSync(from), path.join('..', '..', 'new', 'sessions', 'aaaaaaaa'));
+  assert.equal(fs.readFileSync(path.join(from, 'intent.json'), 'utf8'), 'i');
+  assert.equal(await runNfsOp({ kind: 'lstat', args: [path.join(d, 'nope')] }), null);
+});
+
+test('moveLeavingLink: a writer that recreates the old path between move and link keeps its newer files', (t) => {
+  const d = tmpdir(t);
+  const from = path.join(d, 'old');
+  const to = path.join(d, 'new');
+  fs.mkdirSync(from);
+  fs.writeFileSync(path.join(from, 'intent.json'), 'i');
+  fs.writeFileSync(path.join(from, 'state.json'), 'older');
+  moveLeavingLink(from, to, () => { fs.mkdirSync(from); fs.writeFileSync(path.join(from, 'state.json'), 'newer'); });
+  assert.ok(fs.lstatSync(from).isSymbolicLink());
+  assert.equal(fs.readFileSync(path.join(to, 'state.json'), 'utf8'), 'newer');
+  assert.equal(fs.readFileSync(path.join(to, 'intent.json'), 'utf8'), 'i');
 });
 
 test('findTranscript locates <projects>/*/<sessionId>.jsonl', async (t) => {

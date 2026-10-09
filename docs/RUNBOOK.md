@@ -166,10 +166,17 @@ batch or every 6 h).
 | Path | Content |
 |---|---|
 | `/tmp/ccs-1018/` | Runtime root (local disk, 0700, verified on every use): `s/<id>/{ctl.sock,pty.sock,*.lock,settings.json}`, `locks/`, `run/` (Claude's messaging sockets), `log/<id>/{sessiond,holder}.log` |
-| `~/.local/state/ccs/hosts/<hostname>/sessions/<id>/intent.json` | What the CLI asked for (desired state, cwd, args, env snapshot) |
-| `~/.local/state/ccs/hosts/<hostname>/sessions/<id>/state.json` | What that session's daemon reports |
+| `~/.local/state/ccs/hosts/<machine id>/sessions/<id>/intent.json` | What the CLI asked for (desired state, cwd, args, env snapshot) |
+| `~/.local/state/ccs/hosts/<machine id>/sessions/<id>/state.json` | What that session's daemon reports |
 | `~/.config/ccs/config.json` | Optional configuration (spec §10.5); invalid values fall back to defaults |
 | `~/.codex/state_5.sqlite` | Codex's own thread database — read-only, never written by ccs (`src/codex/threads.js`) |
+
+`<machine id>` is `/etc/machine-id` on Linux and the IOPlatformUUID without dashes on macOS (`ioreg -rd1 -c
+IOPlatformExpertDevice`); `CCS_HOSTNAME` replaces it. It is not the hostname, because macOS changes the hostname
+with the network when none is set (`scutil --get HostName`). Directories named after a hostname come from older
+versions: the first ccs command after the update moves this machine's sessions out of them and leaves a link at each
+old session path, for session daemons of the older version that still write there. Hosts that share an NFS home
+must have distinct machine ids — regenerate `/etc/machine-id` on cloned VMs.
 
 ## 8. Tests
 
@@ -228,7 +235,7 @@ Pass criteria:
 - [ ] a permission dialog answered on either side closes on both
 - [ ] near-simultaneous answers do no harm (one approval, the session keeps working)
 - [ ] exactly one transcript: `ls ~/.claude/projects/*/<sessionId>.jsonl | wc -l` is 1, where `<sessionId>` is
-      `lastSessionId` in `~/.local/state/ccs/hosts/$(hostname)/sessions/<id>/state.json` (`<id>` from `ccs ls --json`)
+      `lastSessionId` in `~/.local/state/ccs/hosts/<machine id>/sessions/<id>/state.json` (`<id>` from `ccs ls --json`; §7)
 - [ ] one bridge: `bridgeSessionId` in `~/.claude/sessions/<claude pid>.json` is the same before step 1 and after step 5
 - [ ] `grep -c $'\e\[3J\|\ec' ~/ccs-t1/A.raw ~/ccs-t1/B.raw` prints 0 for both files
 

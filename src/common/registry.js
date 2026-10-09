@@ -3,9 +3,13 @@
 /**
  * Session registry on the NFS state dir (spec §3.12, §6.2).
  *
- *   <stateDir>/hosts/<hostname>/host.json                {schema, hostname, machineId}
- *   <stateDir>/hosts/<hostname>/sessions/<id>/intent.json  written ONLY by CLI processes, under local registry.lock
- *   <stateDir>/hosts/<hostname>/sessions/<id>/state.json   written ONLY by that session's sessiond
+ *   <stateDir>/hosts/<key>/host.json                {schema, hostname, machineId}
+ *   <stateDir>/hosts/<key>/sessions/<id>/intent.json  written ONLY by CLI processes, under local registry.lock
+ *   <stateDir>/hosts/<key>/sessions/<id>/state.json   written ONLY by that session's sessiond
+ *
+ * <key> is paths.hostKey: the machine id, or CCS_HOSTNAME when set. Older versions used os.hostname(), which changes
+ * with the network on some systems and so split one machine's sessions over several directories; see
+ * adoptLegacyHosts.
  *
  * Exactly one writer per file, so no cross-host arbitration is needed. Locks are flock(2) on
  * local files in the runtime dir (never on NFS). Every read/write goes through the killable
@@ -119,7 +123,7 @@ function createRegistry(paths, opts = {}) {
     const mid = machineId();
     if (h) {
       if (h.machineId !== mid) {
-        throw new RegistryError('HOST_MISMATCH', `${file} belongs to machine ${h.machineId} but this host's machine id is ${mid}; two hosts share the hostname '${paths.hostname}' — set CCS_HOSTNAME on one of them`);
+        throw new RegistryError('HOST_MISMATCH', `${file} belongs to machine ${h.machineId} but this host's machine id is ${mid}; two hosts use the host directory '${paths.hostKey}' — set CCS_HOSTNAME on one of them`);
       }
       hostVerified = true;
     } else if (createIfMissing) {
@@ -143,6 +147,46 @@ function createRegistry(paths, opts = {}) {
     try { return await fn(); } finally { lock.release(); }
   }
 
+  /**
+   * Move this machine's sessions out of the hostname-named directories older versions made (their host.json names
+   * this machine id) into hosts/<machine id>/, leaving a link at each old session path: a sessiond of an older version
+   * keeps writing its state through it, and an older connector keeps finding the session. Only when the key is the
+   * machine id — a CCS_HOSTNAME directory stays as the user named it. A session id already here is never overwritten;
+   * that one stays where it was.
+   */
+  async function adoptLegacyHosts() {
+    let mid;
+    try { mid = machineId(); } catch { return; }
+    if (paths.hostKey !== mid) return;
+    for (const name of (await op('readdir', paths.hostsDir)) || []) {
+      if (name === paths.hostKey) continue;
+      const dir = path.join(paths.hostsDir, name);
+      const h = await op('readJson', path.join(dir, 'host.json'), { retries: 1, retryDelayMs: 50 });
+      if (!h || h.machineId !== mid) continue; // another machine's registry on a shared home
+      await withLock(async () => {
+        const from = path.join(dir, 'sessions');
+        for (const id of ((await op('readdir', from)) || []).filter((/** @type {string} */ n) => ID_RE.test(n))) {
+          const src = path.join(from, id);
+          const s = await op('lstat', src);
+          if (!s || !s.isDirectory) continue; // the link an earlier adoption left
+          if (await op('lstat', sessionDirOf(id))) continue;
+          await checkHost(true);
+          await op('mkdirp', paths.sessionsStateDir, 0o700);
+          await op('moveLeavingLink', src, sessionDirOf(id));
+        }
+      });
+    }
+  }
+
+  /** @type {Promise<void>|null} */
+  let adopted = null;
+  /** adoptLegacyHosts once per registry, before its first read or write; a failure (an NFS timeout) is retried by
+   *  the next call. Never from inside withLock: it takes the lock itself. */
+  function ready() {
+    if (!adopted) adopted = adoptLegacyHosts().catch((e) => { adopted = null; throw e; });
+    return adopted;
+  }
+
   async function listIds() {
     const names = await op('readdir', paths.sessionsStateDir);
     return (names || []).filter((/** @type {string} */ n) => ID_RE.test(n)).sort();
@@ -151,6 +195,7 @@ function createRegistry(paths, opts = {}) {
   /** @param {string} id @returns {Promise<SessionRecord|null>} */
   async function get(id) {
     if (!ID_RE.test(String(id))) return null;
+    await ready();
     await checkHost(false);
     const intent = await op('readJson', paths.intentFile(id), { retries: 1, retryDelayMs: 50 });
     if (!intent) return null;
@@ -160,6 +205,7 @@ function createRegistry(paths, opts = {}) {
 
   /** @returns {Promise<SessionRecord[]>} */
   async function list() {
+    await ready();
     await checkHost(false);
     const out = [];
     for (const id of await listIds()) {
@@ -188,6 +234,7 @@ function createRegistry(paths, opts = {}) {
     if (draft.agent != null && !KNOWN_AGENTS.includes(draft.agent)) {
       throw new RegistryError('UNKNOWN_AGENT', formatUnknownAgent(String(draft.agent)));
     }
+    await ready();
     return withLock(async () => {
       await checkHost(true);
       await op('mkdirp', paths.sessionsStateDir, 0o700);
@@ -221,6 +268,7 @@ function createRegistry(paths, opts = {}) {
    * @param {string} id @param {(draft: any) => any} mutator
    */
   async function updateIntent(id, mutator) {
+    await ready();
     return withLock(async () => {
       await checkHost(false);
       const cur = await op('readJson', paths.intentFile(id), { retries: 1, retryDelayMs: 50 });
@@ -239,6 +287,7 @@ function createRegistry(paths, opts = {}) {
 
   /** @param {string} id */
   async function readState(id) {
+    await ready();
     await checkHost(false);
     return op('readJson', paths.stateFile(id), { retries: 1, retryDelayMs: 50 });
   }
@@ -246,6 +295,7 @@ function createRegistry(paths, opts = {}) {
   /** sessiond only (it holds sessiond.lock, so it is the file's single writer).
    *  @param {string} id @param {any} state */
   async function writeState(id, state) {
+    await ready();
     await checkHost(false);
     const next = { ...state, schema: 'ccs.state/1', ccsId: id, host: hostInfo(), gen: (state.gen || 0) + 1, updatedAt: iso() };
     await op('mkdirp', sessionDirOf(id), 0o700);
@@ -261,6 +311,7 @@ function createRegistry(paths, opts = {}) {
   /** `ccs rm`: delete the session's registry directory (never transcripts). @param {string} id */
   async function remove(id) {
     if (!ID_RE.test(String(id))) throw new RegistryError('NOT_FOUND', `no session ${id}`);
+    await ready();
     return withLock(async () => {
       await checkHost(false);
       const grave = path.join(paths.sessionsStateDir, `.rm-${id}-${crypto.randomBytes(3).toString('hex')}`);

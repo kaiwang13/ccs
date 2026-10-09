@@ -12,7 +12,9 @@
  *   CCS_CLAUDE_BIN   default unset (null)               explicit claude binary
  *   CCS_CODEX_HOME   default ~/.codex                    Codex's state dbs and sessions (read-only)
  *   CCS_CODEX_BIN    default unset (null)                explicit codex binary
- *   CCS_HOSTNAME     default os.hostname()              host tag
+ *   CCS_HOSTNAME     default unset                      names this host: its registry directory hosts/<name>/ and the
+ *                                                       host ccs shows. Unset: the directory is the machine id and
+ *                                                       the host shown is os.hostname()
  *
  * `~` is `env.HOME` when set, else os.homedir().
  */
@@ -27,7 +29,7 @@ const path = require('node:path');
  *   holderSpec(id: string, gen: number): string, holderJson(id: string): string, settingsFile(id: string): string,
  *   locksDir: string, startLock: string, registryLock: string, reconcileLock: string,
  *   runDir: string, logDir: string, logFile(id: string, comp: string): string, cliLog: string,
- *   stateDir: string, hostDir: string, sessionsStateDir: string,
+ *   stateDir: string, hostKey: string, hostsDir: string, hostDir: string, sessionsStateDir: string,
  *   intentFile(id: string): string, stateFile(id: string): string, backupsDir: string,
  *   configFile: string, claudeHome: string, claudeSessionsDir: string, claudeSettings: string,
  *   claudeProjectsDir: string, claudeJson: string, claudeBin: string|null, claudeVersionsDir: string,
@@ -56,6 +58,21 @@ function segment(kind, value, re = SAFE_SEGMENT) {
 }
 
 /**
+ * The directory under hosts/ that holds this host's registry: CCS_HOSTNAME when set, else the machine id. Not
+ * os.hostname(): some systems change it with the network, and every change used to start an empty registry next to
+ * the old one. A machine whose id cannot be read keeps the hostname, as before.
+ * @param {Record<string, string|undefined>} env @param {string} hostname
+ */
+function hostKeyOf(env, hostname) {
+  if (env.CCS_HOSTNAME) return hostname;
+  try {
+    return segment('machine id', require('./procinfo.js').machineId(), SAFE_HOSTNAME);
+  } catch {
+    return hostname;
+  }
+}
+
+/**
  * @param {Record<string, string|undefined>} [env]
  * @returns {Paths}
  */
@@ -69,7 +86,9 @@ function resolvePaths(env = process.env) {
   const codexHome = path.resolve(env.CCS_CODEX_HOME || path.join(home, '.codex'));
   const locksDir = path.join(runtimeDir, 'locks');
   const logDir = path.join(runtimeDir, 'log');
-  const hostDir = path.join(stateDir, 'hosts', hostname);
+  const hostKey = hostKeyOf(env, hostname);
+  const hostsDir = path.join(stateDir, 'hosts');
+  const hostDir = path.join(hostsDir, hostKey);
   const sessionsStateDir = path.join(hostDir, 'sessions');
   const sessionDir = (/** @type {string} */ id) => path.join(runtimeDir, 's', segment('session id', id));
 
@@ -97,6 +116,8 @@ function resolvePaths(env = process.env) {
     logFile: (id, comp) => path.join(logDir, segment('session id', id), `${segment('component', comp)}.log`),
     cliLog: path.join(logDir, 'cli.log'),
     stateDir,
+    hostKey,
+    hostsDir,
     hostDir,
     sessionsStateDir,
     intentFile: (id) => path.join(sessionsStateDir, segment('session id', id), 'intent.json'),

@@ -4,6 +4,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const os = require('node:os');
 const { resolvePaths } = require('../../src/common/paths.js');
+const { machineId } = require('../../src/common/procinfo.js');
 
 const uid = /** @type {() => number} */ (process.getuid)();
 
@@ -64,6 +65,17 @@ test('persistent layout (NFS state dir, host-tagged)', () => {
   assert.equal(p.intentFile('k3f9x2ab'), '/x/state/hosts/testhost/sessions/k3f9x2ab/intent.json');
   assert.equal(p.stateFile('k3f9x2ab'), '/x/state/hosts/testhost/sessions/k3f9x2ab/state.json');
   assert.equal(p.backupsDir, '/x/state/backups/claude.json');
+});
+
+test('the host directory is the machine id, not the hostname, unless CCS_HOSTNAME names it', () => {
+  const p = resolvePaths({ HOME: '/home/u', CCS_STATE_DIR: '/x/state' });
+  assert.equal(p.hostname, os.hostname());
+  assert.equal(p.hostKey, machineId());
+  assert.equal(p.hostsDir, '/x/state/hosts');
+  assert.equal(p.hostDir, `/x/state/hosts/${machineId()}`);
+  const named = resolvePaths({ HOME: '/home/u', CCS_STATE_DIR: '/x/state', CCS_HOSTNAME: 'testhost' });
+  assert.equal(named.hostKey, 'testhost');
+  assert.equal(named.hostDir, '/x/state/hosts/testhost');
 });
 
 test('every override variable is honoured', () => {

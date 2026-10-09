@@ -155,6 +155,26 @@ function closeNfsWorker() {
 /** @param {any} e */
 function isMissing(e) { return e && (e.code === 'ENOENT' || e.code === 'ENOTDIR'); }
 
+/**
+ * Move directory `from` to `to` and leave a relative link at `from`, so a process that still uses the old path reaches
+ * the moved directory. For an instant between the rename and the link `from` does not exist; a writer that recreates
+ * it then (mkdir -p, then write) has its files moved over — they are newer than the ones moved before — and the link
+ * is tried again.
+ * @param {string} from @param {string} to @param {() => void} [afterRename] test hook: runs between rename and link
+ */
+function moveLeavingLink(from, to, afterRename = () => {}) {
+  fs.renameSync(from, to);
+  afterRename();
+  const target = path.relative(path.dirname(from), to);
+  for (let tries = 0; ; tries++) {
+    try { fs.symlinkSync(target, from); return true; } catch (e) {
+      if (/** @type {any} */ (e).code !== 'EEXIST' || tries >= 3) throw e;
+      for (const f of fs.readdirSync(from)) fs.renameSync(path.join(from, f), path.join(to, f));
+      try { fs.rmdirSync(from); } catch (e2) { if (/** @type {any} */ (e2).code !== 'ENOTEMPTY') throw e2; }
+    }
+  }
+}
+
 /** @type {Record<string, (...args: any[]) => any>} */
 const OPS = {
   readJson(file, opts) { return require('./atomic.js').readJson(file, opts); },
@@ -164,6 +184,12 @@ const OPS = {
     try {
       const s = fs.statSync(file);
       return { size: s.size, mtimeMs: s.mtimeMs, mode: s.mode, uid: s.uid, isFile: s.isFile(), isDirectory: s.isDirectory() };
+    } catch (e) { if (isMissing(e)) return null; throw e; }
+  },
+  lstat(file) {
+    try {
+      const s = fs.lstatSync(file);
+      return { isDirectory: s.isDirectory(), isSymbolicLink: s.isSymbolicLink() };
     } catch (e) { if (isMissing(e)) return null; throw e; }
   },
   readText(file) { try { return fs.readFileSync(file, 'utf8'); } catch (e) { if (isMissing(e)) return null; throw e; } },
@@ -178,6 +204,7 @@ const OPS = {
   unlink(file) { try { fs.unlinkSync(file); return true; } catch (e) { if (isMissing(e)) return false; throw e; } },
   rename(from, to) { fs.renameSync(from, to); return true; },
   rmrf(dir) { fs.rmSync(dir, { recursive: true, force: true }); return true; },
+  moveLeavingLink(from, to) { return moveLeavingLink(from, to); },
   findTranscript(projectsDir, sessionId) {
     if (typeof sessionId !== 'string' || !/^[0-9a-fA-F-]{8,64}$/.test(sessionId)) return null;
     let dirs;
@@ -207,4 +234,4 @@ function childMain() {
 
 if (require.main === module && process.argv.includes('--nfs-worker-child')) childMain();
 
-module.exports = { runNfsOp, closeNfsWorker, createNfsRunner, NfsTimeoutError, NfsOpError };
+module.exports = { runNfsOp, closeNfsWorker, createNfsRunner, NfsTimeoutError, NfsOpError, moveLeavingLink };

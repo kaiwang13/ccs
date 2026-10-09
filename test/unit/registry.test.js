@@ -6,6 +6,7 @@ const path = require('path');
 const cp = require('child_process');
 const { resolvePaths } = require('../../src/common/paths.js');
 const { closeNfsWorker } = require('../../src/common/nfsworker.js');
+const { machineId } = require('../../src/common/procinfo.js');
 const {
   createRegistry, RegistryError, normalizeName, sanitizeName, uniqueName, recordName, retryPending, matchName,
 } = require('../../src/common/registry.js');
@@ -17,6 +18,22 @@ function env(t) {
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));
   const e = { ...process.env, HOME: path.join(root, 'home'), CCS_RUNTIME_DIR: path.join(root, 'rt'), CCS_STATE_DIR: path.join(root, 'state'), CCS_HOSTNAME: 'testhost' };
   return { root, env: e, paths: resolvePaths(e) };
+}
+
+/** Like env(), but without CCS_HOSTNAME: the registry lives in hosts/<machine id>/. */
+function machineEnv(t) {
+  const { root, env: e } = env(t);
+  delete e.CCS_HOSTNAME;
+  return { root, env: e, paths: resolvePaths(e) };
+}
+
+/** One session in a host directory an older version named after the hostname. @returns {string} its directory */
+function legacySession(paths, hostname, id, name, mid = machineId()) {
+  const dir = path.join(paths.hostsDir, hostname);
+  fs.mkdirSync(path.join(dir, 'sessions', id), { recursive: true });
+  fs.writeFileSync(path.join(dir, 'host.json'), JSON.stringify({ schema: 'ccs.host/1', hostname, machineId: mid }));
+  fs.writeFileSync(path.join(dir, 'sessions', id, 'intent.json'), JSON.stringify({ schema: 'ccs.intent/1', ccsId: id, nameAtCreate: name, cwd: '/x' }));
+  return path.join(dir, 'sessions', id);
 }
 
 test('name helpers', () => {
@@ -143,6 +160,39 @@ test('host.json naming another machine refuses updateIntent/readState/writeState
   await assert.rejects(createRegistry(paths).readState(a.id), (e) => e.code === 'HOST_MISMATCH');
   await assert.rejects(createRegistry(paths).writeState(a.id, { lifecycle: 'RUNNING' }), (e) => e.code === 'HOST_MISMATCH');
   await assert.rejects(createRegistry(paths).remove(a.id), (e) => e.code === 'HOST_MISMATCH');
+});
+
+test("this machine's hostname-named directories are moved into the machine-id one, leaving links", async (t) => {
+  const { paths } = machineEnv(t);
+  const oldA = legacySession(paths, 'Mac', 'aaaaaaaa', 'one');
+  const oldB = legacySession(paths, 'Mac.local', 'bbbbbbbb', 'two');
+  assert.deepEqual((await createRegistry(paths).list()).map(recordName), ['one', 'two']);
+  for (const [old, id] of [[oldA, 'aaaaaaaa'], [oldB, 'bbbbbbbb']]) {
+    const moved = path.dirname(paths.intentFile(id));
+    assert.ok(fs.lstatSync(moved).isDirectory(), moved);
+    assert.ok(fs.lstatSync(old).isSymbolicLink(), old);
+    assert.equal(fs.realpathSync(old), fs.realpathSync(moved));
+  }
+  // A sessiond of the older version still writes its old path, and lands in the moved directory.
+  fs.writeFileSync(path.join(oldA, 'state.json'), JSON.stringify({ lastName: 'renamed' }));
+  const again = createRegistry(paths);
+  assert.equal(recordName(await again.get('aaaaaaaa')), 'renamed');
+  assert.equal((await again.list()).length, 2);
+});
+
+test("another machine's directory, a session id already present, and a CCS_HOSTNAME registry are left alone", async (t) => {
+  const { paths } = machineEnv(t);
+  const theirs = legacySession(paths, 'other', 'cccccccc', 'theirs', 'f'.repeat(32));
+  const a = await createRegistry(paths).create({ name: 'here', cwd: '/x' });
+  const clash = legacySession(paths, 'Mac', a.id, 'there');
+  assert.deepEqual((await createRegistry(paths).list()).map(recordName), ['here']);
+  assert.ok(fs.lstatSync(theirs).isDirectory());
+  assert.ok(fs.lstatSync(clash).isDirectory());
+
+  const named = env(t).paths; // CCS_HOSTNAME=testhost
+  const mine = legacySession(named, 'Mac', 'dddddddd', 'mine');
+  assert.deepEqual(await createRegistry(named).list(), []);
+  assert.ok(fs.lstatSync(mine).isDirectory());
 });
 
 test('remove deletes the registry directory', async (t) => {
