@@ -47,7 +47,7 @@ async function liveSession(t, { agent = 'claude' } = {}) {
   t.after(() => conn.stop());
   await conn.start();
   await waitFor(() => gw.chatByName('ccs · s1') !== null && conn.rt.get('s1')?.link === link, { timeoutMs: 3000, what: 'group and link' });
-  return { gw, link, conn, chatId: /** @type {string} */ (gw.chatByName('ccs · s1')) };
+  return { gw, link, conn, held, chatId: /** @type {string} */ (gw.chatByName('ccs · s1')) };
 }
 
 /** @param {FakeGateway} gw @param {string} chatId */
@@ -193,4 +193,12 @@ test('Claude: a question (waitingFor "input needed") gets a card whose numbered 
   gw.userClicks(chatId, id, m.buttons[1].value);
   await waitFor(() => link.inputs.length === 1, { timeoutMs: 3000, what: 'digit sent' });
   assert.deepEqual(link.inputs, [{ key: '2' }]);
+});
+
+test('a session that was just stopped counts as stopped at once, not after the index\'s next poll', async (t) => {
+  const { conn, held } = await liveSession(t);
+  assert.equal(conn._sessionState('s1').live, true);
+  held.release(); // `ccs stop`: the holder's lock goes away; the index has not polled yet
+  assert.equal(conn.rt.get('s1').info.live, true, 'the index record is stale');
+  assert.equal(conn._sessionState('s1').live, false, 'the router must not type into a dead session');
 });

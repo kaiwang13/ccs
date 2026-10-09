@@ -18,6 +18,7 @@ const { parseClaudePrompt, detectCodexPrompt, TYPED_OPTION_RE } = require('./pro
 const { sanitizeMessage, maskEmails, truncate } = require('./text.js');
 const { loadState, saveState, acquireLock } = require('./state.js');
 const { ensureRunning } = require('../../../src/cli/commands/attach.js');
+const { isLive } = require('../../../src/cli/lifecycle.js');
 
 /** @typedef {import('./types').Gateway} Gateway */
 /** @typedef {import('./types').OutMessage} OutMessage */
@@ -1046,7 +1047,10 @@ class Connector {
   /** @param {string} id */
   _sessionState(id) {
     const r = this.rt.get(id);
-    const live = !!(r && r.info.live);
+    // Asked of the lock itself, not of the index's last poll: after `ccs stop` the index goes on reporting "live" for up
+    // to a poll period, and a message that arrives in that gap would be typed into a dead session and lost instead of
+    // starting it.
+    const live = !!r && isLive(this.paths, id);
     const waiting = !!(r && ((r.state && r.state.claude && r.state.claude.status === 'waiting') || (r.prompt && !r.prompt.answered)));
     return { live, waiting, lifecycle: r && r.state ? r.state.lifecycle : (r ? r.info.lifecycle : null), name: r ? r.info.name : id };
   }

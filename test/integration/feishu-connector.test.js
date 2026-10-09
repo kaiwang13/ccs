@@ -108,3 +108,31 @@ test('the connector links sessions, syncs both directions, resumes, catches up, 
   assert.equal((await runCcs(ctx, ['rm', 's1'])).code, 0);
   await waitFor(() => !gw.chats.has(group), { timeoutMs: 10000, what: 'group deleted' });
 });
+
+test('a message sent right after `ccs stop` starts the session and is typed, every time', { timeout: 180000 }, async (t) => {
+  const ctx = makeCcsEnv(t);
+  assert.equal((await runCcs(ctx, ['new', 's1', '--no-attach'])).code, 0);
+  const gw = new FakeGateway();
+  const conn = new Connector({ gateway: gw, paths: ctx.paths, registry: createRegistry(ctx.paths), env: ctx.env, tailMs: 100, pollMs: 300, updateMs: 100, statusMs: 100 });
+  t.after(() => conn.stop());
+  await conn.start();
+  await waitFor(() => gw.chatByName('ccs · s1') !== null, { timeoutMs: 10000, what: 'group created' });
+  const group = /** @type {string} */ (gw.chatByName('ccs · s1'));
+  const s1 = await sessionOf(ctx, 's1');
+  // The index only polls every couple of seconds, so for a moment after a stop the connector's cached record still said
+  // "live": such a message was typed into the dead session and lost ("not reachable right now"). Several rounds, because
+  // how long that moment lasts varies from run to run.
+  for (let round = 1; round <= 4; round++) {
+    await new Promise((r) => setTimeout(r, 1500));
+    assert.equal((await runCcs(ctx, ['stop', 's1'])).code, 0);
+    const text = `wake round ${round}`;
+    const id = gw.userSays(group, text);
+    await waitFor(async () => {
+      try {
+        const r = await controlRequest(ctx.paths.ctlSock(s1.id), 'PEEK', { lines: 30 });
+        return r.ok && r.data.lines.some((/** @type {string} */ l) => l.includes('RECEIVED') && l.includes(text));
+      } catch { return false; }
+    }, { timeoutMs: 30000, what: `typed after the stop (round ${round})` });
+    assert.ok(!gw.reactionsOn(id).includes('ERROR'), `no ✗ in round ${round}`);
+  }
+});
