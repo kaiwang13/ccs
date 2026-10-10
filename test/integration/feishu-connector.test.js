@@ -35,6 +35,32 @@ const turn = (prompt, answer) => [
   { type: 'system', subtype: 'turn_duration', uuid: `s${++uuid}`, isSidechain: false, durationMs: 2000 },
 ];
 
+/** The connector's own log, for a failure message. @returns {{logs: string[], log: (ev: string, f?: object) => void}} */
+function captureLog() {
+  /** @type {string[]} */
+  const logs = [];
+  return { logs, log: (ev, f) => { logs.push(`${new Date().toISOString().slice(11, 23)} ${ev} ${f ? JSON.stringify(f).slice(0, 200) : ''}`); if (logs.length > 60) logs.shift(); } };
+}
+
+/** What the connector and the session were doing when a wait timed out: a failure on a runner we cannot log into has to
+ *  explain itself. @param {any} ctx @param {any} conn @param {any} gw @param {string} group @param {string} sessionId
+ *  @param {string} msgId @param {string[]} logs */
+async function diagnose(ctx, conn, gw, group, sessionId, msgId, logs) {
+  /** @type {Record<string, unknown>} */
+  const d = {};
+  const r = conn.rt.get(sessionId);
+  d.runtime = r ? { live: r.info.live, link: !!r.link, linkUp: !!(r.link && r.link.up), statusText: r.statusText, lifecycle: r.state && r.state.lifecycle } : null;
+  try { const { isLive } = require('../../src/cli/lifecycle.js'); d.lockHeld = isLive(ctx.paths, sessionId); } catch (e) { d.lockHeld = String(e); }
+  try { d.ls = JSON.parse((await runCcs(ctx, ['ls', '--json'])).stdout).map((/** @type {any} */ x) => ({ name: x.name, status: x.status, lifecycle: x.lifecycle })); } catch (e) { d.ls = String(e); }
+  d.reactions = gw.reactionsOn(msgId);
+  d.lastMessages = gw.messages(group).slice(-3).map((/** @type {any} */ m) => (m.kind === 'text' ? m.text : m.title)).map((/** @type {string} */ x) => String(x).slice(0, 120));
+  for (const comp of ['sessiond', 'holder']) {
+    try { d[`${comp}.log`] = fs.readFileSync(ctx.paths.logFile(sessionId, comp), 'utf8').split('\n').slice(-12).map((l) => l.slice(0, 220)); } catch { /* none */ }
+  }
+  d.connector = logs.slice(-25);
+  return JSON.stringify(d);
+}
+
 /** @param {any} gw @param {string} chatId */
 const cards = (gw, chatId) => gw.messages(chatId).filter((/** @type {any} */ m) => m.kind === 'card');
 
@@ -47,7 +73,8 @@ test('the connector links sessions, syncs both directions, resumes, catches up, 
 
   const gw = new FakeGateway();
   const registry = createRegistry(ctx.paths);
-  const conn = new Connector({ gateway: gw, paths: ctx.paths, registry, env: ctx.env, tailMs: 100, pollMs: 300, updateMs: 100, statusMs: 100 });
+  const cap = captureLog();
+  const conn = new Connector({ gateway: gw, paths: ctx.paths, registry, env: ctx.env, tailMs: 100, pollMs: 300, updateMs: 100, statusMs: 100, log: cap.log });
   t.after(() => conn.stop());
   await conn.start();
 
@@ -95,12 +122,16 @@ test('the connector links sessions, syncs both directions, resumes, catches up, 
   // 7. a stopped session is resumed by a message
   assert.equal((await runCcs(ctx, ['stop', 's1'])).code, 0);
   const wake = gw.userSays(group, 'wake up');
-  await waitFor(async () => {
-    try {
-      const r = await controlRequest(ctx.paths.ctlSock(s1.id), 'PEEK', { lines: 30 });
-      return r.ok && r.data.lines.some((/** @type {string} */ l) => l.includes('RECEIVED') && l.includes('wake up'));
-    } catch { return false; }
-  }, { timeoutMs: 60000, what: 'resumed and typed' });
+  try {
+    await waitFor(async () => {
+      try {
+        const r = await controlRequest(ctx.paths.ctlSock(s1.id), 'PEEK', { lines: 30 });
+        return r.ok && r.data.lines.some((/** @type {string} */ l) => l.includes('RECEIVED') && l.includes('wake up'));
+      } catch { return false; }
+    }, { timeoutMs: 60000, what: 'resumed and typed' });
+  } catch (e) {
+    throw new Error(`${/** @type {any} */ (e).message}; ${await diagnose(ctx, conn, gw, group, s1.id, wake, cap.logs)}`);
+  }
   assert.ok(!gw.reactionsOn(wake).includes('ERROR'), 'no ✗ after resume');
 
   // 8. removal deletes the group
@@ -116,7 +147,8 @@ test('a message sent right after `ccs stop` starts the session and is typed, eve
   // slow runner the first round would otherwise spend its time on the start lock and the agent's startup.
   await waitFor(async () => !!(await sessionOf(ctx, 's1'))?.sessionId, 60000, 'claude session id known');
   const gw = new FakeGateway();
-  const conn = new Connector({ gateway: gw, paths: ctx.paths, registry: createRegistry(ctx.paths), env: ctx.env, tailMs: 100, pollMs: 300, updateMs: 100, statusMs: 100 });
+  const cap = captureLog();
+  const conn = new Connector({ gateway: gw, paths: ctx.paths, registry: createRegistry(ctx.paths), env: ctx.env, tailMs: 100, pollMs: 300, updateMs: 100, statusMs: 100, log: cap.log });
   t.after(() => conn.stop());
   await conn.start();
   await waitFor(() => gw.chatByName('ccs · s1') !== null, { timeoutMs: 10000, what: 'group created' });
@@ -140,7 +172,7 @@ test('a message sent right after `ccs stop` starts the session and is typed, eve
       }, { timeoutMs: 60000, what: `typed after the stop (round ${round})` });
     } catch (e) {
       // Say what the connector told the user, so a failure on a runner we cannot log into explains itself.
-      throw new Error(`${/** @type {any} */ (e).message}; reactions ${JSON.stringify(gw.reactionsOn(id))}; last replies ${JSON.stringify(gw.messages(group).slice(-2)).slice(0, 600)}`);
+      throw new Error(`${/** @type {any} */ (e).message}; ${await diagnose(ctx, conn, gw, group, s1.id, id, cap.logs)}`);
     }
     assert.ok(!gw.reactionsOn(id).includes('ERROR'), `no ✗ in round ${round}`);
   }
