@@ -17,22 +17,23 @@ Unlike `tmux` or `screen`, `ccs` does not own your scrollback. Each client rende
 so you scroll with your normal mouse wheel, trackpad, and scrollbar — no prefix key, no copy mode.
 
 **Status: v0.5.0.** Adds an optional **Feishu (Lark) add-on**: every session is a topic in one `ccs` Feishu
-group (or its own group, if you prefer), where you read the conversation as cards, send prompts, answer Claude's permission prompts with a tap,
-interrupt, and wake a stopped session — from the phone or desktop app, in sync with the terminal
-([`docs/feishu.md`](docs/feishu.md)). It is off unless you run `ccs feishu setup`, and being off changes
-nothing. Runs on **Linux and macOS** from one codebase, with every OS difference behind one platform seam
-(see [`CLAUDE.md`](CLAUDE.md)); hosts Claude Code and Codex CLI on the same terms. The automated suite
-(652 unit, 130 integration, 92 golden) passes in CI on both Linux and macOS. Against a real Feishu app,
-connecting, linking sessions and phone-to-terminal input are verified; the rest of the add-on's live
-checklist in [`docs/feishu.md`](docs/feishu.md) is not yet run. See [Limitations](#limitations) for what is
-not built yet.
+group (or gets its own group, if you prefer), where you read the conversation as cards, send prompts, answer
+Claude's permission prompts and questions with a tap, interrupt, and wake a stopped session — from the phone or
+desktop app, in sync with the terminal ([`docs/feishu.md`](docs/feishu.md)). It is off unless you run
+`ccs feishu setup`, and being off changes nothing. Runs on **Linux and macOS** from one codebase, with every OS
+difference behind one platform seam (see [`CLAUDE.md`](CLAUDE.md)); hosts Claude Code and Codex CLI on the same
+terms. The automated suite (700 unit, 135 integration, 92 golden) passes in CI on both Linux and macOS. Against a real
+Feishu app, connecting, linking sessions, the topic layout and phone-to-terminal input are verified;
+the rest of the add-on's live checklist in [`docs/feishu.md`](docs/feishu.md) is not yet run. See
+[Limitations](#limitations) for what is not built yet.
 
 ## Requirements
 
 - **Linux or macOS.** Process information comes from `/proc` on Linux and `libproc` on macOS, behind a
   single platform seam (`src/common/procinfo.js`); the native TTY addon builds on both.
-- **Node.js 24.x** — one interpreter, consistently: the native addons are compiled for its ABI, and Codex
-  support additionally needs Node's built-in `node:sqlite`
+- **Node.js 24.x** (`package.json` pins 24.14.1; `install.sh` refuses anything older than 24) — one interpreter,
+  consistently: the native addons are compiled for its ABI, and Codex support additionally needs Node's built-in
+  `node:sqlite`. With nvm: `nvm install 24.14.1 && nvm alias default 24.14.1`
 - **gcc/clang, make, python3** — `node-gyp` builds `node-pty` and the bundled `ttyctl` addon from source
   (on macOS: `xcode-select --install`)
 - **Claude Code** installed and logged in. `ccs` accepts any credential Claude itself can use, and
@@ -281,9 +282,10 @@ count. Send at least one real message first.
 
 ## Feishu (optional)
 
-An add-on connects ccs to Feishu/Lark: one group per session, turn cards, prompts and permission answers from your
-phone, synced with the terminal. It is off unless you run `ccs feishu setup`, and being off changes nothing.
-See [docs/feishu.md](docs/feishu.md).
+An add-on connects ccs to Feishu/Lark: one `ccs` group with a topic per session (or one group per session, with
+`"layout": "groups"`), turn cards, permission prompts and questions answered from your phone, synced with the
+terminal. It is off unless you run `ccs feishu setup`, and being off changes nothing. Each host needs its own
+Feishu app. See [docs/feishu.md](docs/feishu.md).
 
 ## How it works
 
