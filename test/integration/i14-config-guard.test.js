@@ -106,6 +106,20 @@ test('I14: a token-authenticated host (no oauthAccount) starts a session', async
   assert.ok(fs.existsSync(marker), 'a token host must not be blocked');
 });
 
+test('I14: a gateway host with its token only in settings.json env starts a session', { skip: credentiallessImpossible }, async (t) => {
+  // The bug this pins: claude applies settings.json's env block to itself, so a custom-gateway host
+  // that keeps ANTHROPIC_AUTH_TOKEN there runs claude fine -- but ccs only looked at its own process
+  // env and refused it with CONFIG_UNHEALTHY / NO_CREDENTIAL.
+  const { ctx, marker } = spyEnv(t, { claudeJson: claudeJsonFixture({ oauth: false }), env: withoutCredentials(process.env) });
+  delete ctx.env.ANTHROPIC_API_KEY;
+  delete ctx.env.ANTHROPIC_AUTH_TOKEN;
+  fs.writeFileSync(ctx.paths.claudeSettings, JSON.stringify({ theme: 'dark', env: { ANTHROPIC_BASE_URL: 'https://gateway.invalid', ANTHROPIC_AUTH_TOKEN: 'sk-test-not-a-real-token' } }));
+  const rec = await createRegistry(ctx.paths).create({ name: 'gwhost', cwd: ctx.work, env: { PATH: process.env.PATH, HOME: ctx.home } });
+  spawnSessiond(ctx, ['--start', rec.id]);
+  await waitFor(() => fs.existsSync(marker), 20000, 'claude spawned on a settings.json-token host');
+  assert.ok(fs.existsSync(marker), 'a settings.json-token host must not be blocked');
+});
+
 test('I14: a host with no credential anywhere is still blocked, and says why', { skip: credentiallessImpossible }, async (t) => {
   // Widening "is there a credential?" must not turn into "never block": with no OAuth record and no
   // env credential, claude genuinely cannot run, so the start is refused -- with a reason that names

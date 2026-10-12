@@ -160,7 +160,7 @@ async function checkClaudeJsonHealth(paths, nfsTimeoutMs) {
     // Naming the credential source is the difference between "why won't this start?" and an answer:
     // on macOS a normally logged-in machine has no oauthAccount at all, so "store" here is what
     // tells a puzzled user that ccs did find their Keychain login.
-    const where = { oauth: 'oauthAccount', store: 'platform credential store (macOS Keychain / .credentials.json)', env: 'ANTHROPIC_* in the environment', none: 'NONE — claude.allowNoCredential is on; the first API request will fail' }[g.credential] || g.credential;
+    const where = { oauth: 'oauthAccount', store: 'platform credential store (macOS Keychain / .credentials.json)', env: 'ANTHROPIC_* in the environment', settings: 'ANTHROPIC_* in the env block of ~/.claude/settings.json', none: 'NONE — claude.allowNoCredential is on; the first API request will fail' }[g.credential] || g.credential;
     return [{ level: g.credential === 'none' ? 'warn' : 'ok', label: '~/.claude.json', detail: `${g.keys} keys, ${g.projects} projects, onboarding complete; credential: ${where}; ${backup}` }];
   }
   const vs = g.baselineKeys != null ? ` (baseline ${g.baselineKeys} keys, ${g.baselineProjects} projects)` : '';
@@ -204,6 +204,7 @@ async function runDoctorLite({ paths, config, out, acceptConfig = false, nfsTime
       // Same credential rules the sessiond will apply, or --accept-config could bless a file that
       // then refuses to start (and vice versa).
       storedCredential: require('../common/procinfo.js').hasStoredCredential(paths.claudeHome),
+      settingsCredential: g.settingsCredential,
       allowNoCredential: Boolean(config.claude && config.claude.allowNoCredential),
     });
     if (!abs.ok) {

@@ -51,7 +51,7 @@ function blockedHint(name, blocked) {
       // your newest backup" is the correct remedy there, and telling that user to just re-run
       // onboarding would invite them to overwrite a config that is still recoverable.
       if (d.reason === 'NO_CREDENTIAL') {
-        return `claude has no credential ccs can find — log in with 'claude' in a normal terminal, or set ANTHROPIC_API_KEY / ANTHROPIC_AUTH_TOKEN, then 'ccs restart ${name}'`;
+        return `claude has no credential ccs can find — log in with 'claude' in a normal terminal, or set ANTHROPIC_API_KEY / ANTHROPIC_AUTH_TOKEN (in the environment or the env block of ~/.claude/settings.json), then 'ccs restart ${name}'`;
       }
       return `~/.claude.json looks damaged (${d.reason || 'unhealthy'}); restore it from ${d.newestBackup || 'your newest backup'} or run 'ccs doctor --accept-config', then 'ccs restart ${name}'`;
     case 'SECOND_WRITER':

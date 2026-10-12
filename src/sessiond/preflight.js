@@ -64,6 +64,24 @@ function hasEnvCredential(env = process.env) {
 }
 
 /**
+ * Does ~/.claude/settings.json give claude a credential through its `env` block?
+ *
+ * Hosts behind a custom gateway commonly put ANTHROPIC_AUTH_TOKEN (with ANTHROPIC_BASE_URL) there
+ * instead of exporting them: claude applies that block to itself at startup, so the hosted agent
+ * authenticates even though neither the ccs process env nor the credential store has anything.
+ * Only presence is checked; the value is never kept or logged.
+ * @param {string|null} text raw settings.json, or null when it does not exist
+ */
+function hasSettingsCredential(text) {
+  if (text === null) return false;
+  let obj;
+  try { obj = JSON.parse(text); } catch { return false; }
+  const env = obj && typeof obj === 'object' ? obj.env : null;
+  if (!env || typeof env !== 'object') return false;
+  return [env.ANTHROPIC_API_KEY, env.ANTHROPIC_AUTH_TOKEN].some((v) => typeof v === 'string' && v !== '');
+}
+
+/**
  * The exact health rules of spec §3.11 item 2 (pure), plus the credential rules from §3.11 item 2
  * as amended: a healthy file is one claude can actually use, which OAuth or an env credential both
  * satisfy.
@@ -82,16 +100,17 @@ function hasEnvCredential(env = process.env) {
  * @param {any} obj parsed ~/.claude.json
  * @param {{keys: number, projects: number, account?: string|null}|null} baseline counts (and
  *   hashAccount) of the newest readable backup
- * @param {{envCredential?: boolean, storedCredential?: boolean, allowNoCredential?: boolean}} [o]
+ * @param {{envCredential?: boolean, storedCredential?: boolean, settingsCredential?: boolean, allowNoCredential?: boolean}} [o]
  */
 function checkClaudeJson(obj, baseline, o = {}) {
   if (!obj || typeof obj !== 'object' || Array.isArray(obj)) return { ok: false, reason: 'NOT_AN_OBJECT', keys: 0, projects: 0 };
   const c = countsOf(obj);
   const envCredential = o.envCredential ?? hasEnvCredential();
   const storedCredential = o.storedCredential ?? false;
+  const settingsCredential = o.settingsCredential ?? false;
   if (obj.hasCompletedOnboarding !== true) return { ok: false, reason: 'ONBOARDING_NOT_COMPLETED', ...c };
   const oauth = Boolean(obj.oauthAccount && typeof obj.oauthAccount === 'object');
-  if (!oauth && !envCredential && !storedCredential && !o.allowNoCredential) {
+  if (!oauth && !envCredential && !storedCredential && !settingsCredential && !o.allowNoCredential) {
     // Distinguish "no credential anywhere" from "the OAuth record is missing", because the second
     // is what a token- or keychain-authenticated host looks like and is entirely normal.
     return { ok: false, reason: 'NO_CREDENTIAL', ...c };
@@ -107,7 +126,7 @@ function checkClaudeJson(obj, baseline, o = {}) {
   // Report which credential made this healthy, or 'none' when it was only allowed through by
   // allowNoCredential -- so callers can warn about a session that will fail on its first request
   // rather than implying it has working auth.
-  const credential = oauth ? 'oauth' : storedCredential ? 'store' : envCredential ? 'env' : 'none';
+  const credential = oauth ? 'oauth' : storedCredential ? 'store' : envCredential ? 'env' : settingsCredential ? 'settings' : 'none';
   return { ok: true, reason: null, credential, accountSwitched, ...c };
 }
 
@@ -161,12 +180,27 @@ async function claudeJsonGuard({ paths, op, sleep = realSleep, retries = 3, retr
     }
     if (i < retries) await sleep(retryDelayMs);
   }
+  // Only read settings.json when it is the last credential that could save this host. On a machine
+  // with an OAuth login or an env token the answer is already yes, and reading anyway would spend
+  // the file read (and, for a host with no settings.json at all, all three retries) on nothing.
+  //
+  // Retried like ~/.claude.json above: claude rewrites settings.json with tmp+rename, so a single
+  // read can land mid-rewrite, and a torn read here would refuse a host that does have a credential.
+  let settingsCredential = false;
+  const oauthPresent = Boolean(obj && typeof obj === 'object' && obj.oauthAccount);
+  if (!oauthPresent && !storedCredential && !hasEnvCredential()) {
+    for (let i = 0; i <= retries; i++) {
+      settingsCredential = hasSettingsCredential(await run('readText', paths.claudeSettings));
+      if (settingsCredential) break;
+      if (i < retries) await sleep(retryDelayMs);
+    }
+  }
   const baseline = await newestBaseline(paths, run);
   const common = { file: paths.claudeJson, newestBackup: baseline ? baseline.file : null, baselineKeys: baseline ? baseline.keys : null, baselineProjects: baseline ? baseline.projects : null };
   if (text === null) return { ok: false, reason: 'MISSING', keys: 0, projects: 0, ...common };
   if (!parsed) return { ok: false, reason: 'UNPARSEABLE', keys: 0, projects: 0, ...common };
-  const r = checkClaudeJson(obj, baseline, { allowNoCredential, storedCredential });
-  return { ...r, ...common, text, obj, sha256: sha256(text) };
+  const r = checkClaudeJson(obj, baseline, { allowNoCredential, storedCredential, settingsCredential });
+  return { ...r, ...common, settingsCredential, text, obj, sha256: sha256(text) };
 }
 
 /** @param {string} file */
@@ -392,6 +426,6 @@ async function runPreflight(ctx) {
 }
 
 module.exports = {
-  runPreflight, claudeJsonGuard, checkClaudeJson, backupClaudeJson, scanSecondWriters, scanOrphans, hashAccount,
+  runPreflight, claudeJsonGuard, checkClaudeJson, hasSettingsCredential, backupClaudeJson, scanSecondWriters, scanOrphans, hashAccount,
   claudeJsonBackupDir, newestBaseline, listBackups, utcStamp, stampToMs, BACKUP_KEEP, acquireStartLock,
 };

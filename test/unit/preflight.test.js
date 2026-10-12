@@ -44,6 +44,17 @@ function sleeper(t) {
   return c;
 }
 
+test('hasSettingsCredential finds a non-empty ANTHROPIC_* token in the env block only', () => {
+  assert.equal(pf.hasSettingsCredential(JSON.stringify({ env: { ANTHROPIC_AUTH_TOKEN: 'x', ANTHROPIC_BASE_URL: 'https://gw' } })), true);
+  assert.equal(pf.hasSettingsCredential(JSON.stringify({ env: { ANTHROPIC_API_KEY: 'x' } })), true);
+  assert.equal(pf.hasSettingsCredential(JSON.stringify({ env: { ANTHROPIC_AUTH_TOKEN: '' } })), false);
+  assert.equal(pf.hasSettingsCredential(JSON.stringify({ env: { ANTHROPIC_BASE_URL: 'https://gw' } })), false);
+  assert.equal(pf.hasSettingsCredential(JSON.stringify({ ANTHROPIC_AUTH_TOKEN: 'x' })), false);
+  assert.equal(pf.hasSettingsCredential(JSON.stringify({ env: null })), false);
+  assert.equal(pf.hasSettingsCredential('{not json'), false);
+  assert.equal(pf.hasSettingsCredential(null), false);
+});
+
 test('checkClaudeJson applies every rule of spec §3.11 item 2', () => {
   const good = claudeJsonFixture();
   assert.equal(pf.checkClaudeJson(good, null).ok, true);
@@ -63,6 +74,11 @@ test('checkClaudeJson applies every rule of spec §3.11 item 2', () => {
   const stored = pf.checkClaudeJson(claudeJsonFixture({ oauth: false }), null, { envCredential: false, storedCredential: true });
   assert.equal(stored.ok, true);
   assert.equal(stored.credential, 'store');
+  // A custom-gateway host keeps its token in settings.json's env block, which claude applies to
+  // itself; ccs used to see nothing there and refused a working install.
+  const viaSettings = pf.checkClaudeJson(claudeJsonFixture({ oauth: false }), null, { envCredential: false, settingsCredential: true });
+  assert.equal(viaSettings.ok, true);
+  assert.equal(viaSettings.credential, 'settings');
   // The explicit opt-in lets it through, and reports that there was no credential.
   const optedIn = pf.checkClaudeJson(claudeJsonFixture({ oauth: false }), null, { envCredential: false, allowNoCredential: true });
   assert.equal(optedIn.ok, true);
