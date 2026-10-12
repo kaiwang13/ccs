@@ -105,6 +105,12 @@ class FeishuGateway extends EventEmitter {
       this.emit('action', { chatId: e.chatId, messageId: e.messageId, operatorId: e.operator && e.operator.openId, value });
       return undefined; // no synchronous callback response: the connector updates the card itself
     });
+    // Fired when the user opens the direct chat with the bot (e.g. taps its avatar); needs the event subscribed in
+    // the developer console. A raw event: the channel does not wrap it.
+    ch.onRawEvent('im.chat.access_event.bot_p2p_chat_entered_v1', (/** @type {any} */ e) => {
+      const operatorId = e && e.operator_id && e.operator_id.open_id;
+      if (e && e.chat_id && operatorId) this.emit('dmOpened', { chatId: String(e.chat_id), operatorId: String(operatorId) });
+    });
     ch.on('reconnecting', () => { if (this.up) { this.up = false; this.emit('down'); } });
     ch.on('reconnected', () => { if (!this.up) { this.up = true; this.emit('up'); } });
     ch.on('error', (/** @type {any} */ err) => this.log('gateway.error', { code: err && err.code, error: String(err && err.message || err) }));
@@ -232,6 +238,24 @@ class FeishuGateway extends EventEmitter {
     }
   }
 
+  /** The topic's thread id (`omt_…`), which a link needs to open the topic itself; null when Feishu gives none.
+   *  @param {string} target @returns {Promise<string|null>} */
+  async threadOf(target) {
+    const r = await this._raw(() => this.ch.rawClient.im.v1.message.get({ path: { message_id: splitTarget(target).root } }));
+    const t = r && r.data && r.data.items && r.data.items[0] && r.data.items[0].thread_id;
+    return t ? String(t) : null;
+  }
+
+  /** The position of the newest message in a topic (`thread_message_position`), or null when Feishu gives none.
+   *  @param {string} threadId @returns {Promise<number|null>} */
+  async lastPosition(threadId) {
+    const r = await this._raw(() => this.ch.rawClient.im.v1.message.list({
+      params: { container_id_type: 'thread', container_id: threadId, sort_type: 'ByCreateTimeDesc', page_size: 1 },
+    }));
+    const p = Number(r && r.data && r.data.items && r.data.items[0] && r.data.items[0].thread_message_position);
+    return Number.isInteger(p) ? p : null;
+  }
+
   /** Every group the bot is in. @returns {Promise<{chatId: string, name: string}[]>} */
   async listGroups() {
     /** @type {{chatId: string, name: string}[]} */
@@ -312,10 +336,18 @@ class FeishuGateway extends EventEmitter {
     await this._call(() => this.ch.rawClient.im.v1.pin.delete({ path: { message_id: messageId } }));
   }
 
-  /** A link that opens a group (a topic's group) in the Feishu/Lark app. @param {string} target */
-  chatLink(target) {
+  /** A link that opens a group in the Feishu/Lark app; with the topic's `threadId`, the topic page itself, scrolled to
+   *  the message at `position` when given. Desktop and mobile clients read different spellings of the thread
+   *  parameters, so both are sent. A position past the newest message makes the link fail, so it is never guessed.
+   *  @param {string} target @param {string|null} [threadId] @param {number|null} [position] */
+  chatLink(target, threadId, position) {
     const chatId = splitTarget(target).chat;
     const host = this.tenant === 'lark' ? 'applink.larksuite.com' : 'applink.feishu.cn';
+    if (threadId) {
+      const q = new URLSearchParams({ openthreadid: threadId, openchatid: chatId, open_thread_id: threadId, open_chat_id: chatId });
+      if (position != null) q.set('thread_position', String(position));
+      return `https://${host}/client/thread/open?${q}`;
+    }
     return `https://${host}/client/chat/open?openChatId=${encodeURIComponent(chatId)}`;
   }
 }

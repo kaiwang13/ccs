@@ -10,7 +10,7 @@ const SCHEMA = 'ccs.feishu-state/1';
 
 /**
  * @typedef {{schema: 'ccs.feishu-state/1', dmChat: string|null, overviewMessageId: string|null, hubChat?: string|null, hubCreatedAt?: number,
- *   groups: Record<string, {chatId: string, removed: boolean, statusMessageId: string|null, name?: string, createdAt?: number}>,
+ *   groups: Record<string, {chatId: string, removed: boolean, statusMessageId: string|null, name?: string, createdAt?: number, threadId?: string, threadPos?: number}>,
  *   cursors: Record<string, {file: string, offset: number}>,
  *   openCards: Record<string, Array<{turnId: number, ids: string[], title: string}>>,
  *   pendingFinals: Array<{chatId: string, text: string, attempts?: number, nextAt?: number, createdAt?: number}>}} FeishuState

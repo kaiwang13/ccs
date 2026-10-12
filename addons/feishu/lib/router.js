@@ -20,7 +20,7 @@ function normalizeInbound(s) {
  *   sessionState: (id: string) => {live: boolean, waiting: boolean, lifecycle: string|null, name: string},
  *   resume: (id: string) => Promise<{ok: boolean, error?: string}>,
  *   deliver: (id: string, op: {text?: string, key?: string}) => Promise<{ok: boolean, error?: string}>,
- *   screen: (id: string) => Promise<string|null>, statusText: (id: string) => string, overview: () => OutMessage,
+ *   screen: (id: string) => Promise<string|null>, statusText: (id: string) => string, overview: () => OutMessage|Promise<OutMessage>,
  *   noteSent: (id: string, text: string, messageIds: string[]) => void, debounceMs?: number,
  *   history?: (id: string, skip: number) => Promise<OutMessage>,
  *   answer?: (id: string, pid: string, key: string) => Promise<{ok: boolean, error?: string}>}} RouterDeps */
@@ -48,7 +48,7 @@ class Router {
     if (!owner || m.senderId !== owner) return;
     const text = normalizeInbound(String(m.text || '')).trim();
     if (m.chatId === this.d.dmChat()) {
-      await this._send(m.chatId, text === '/sessions' ? this.d.overview() : { kind: 'text', text: HELP });
+      await this._send(m.chatId, text === '/sessions' ? await this.d.overview() : { kind: 'text', text: HELP });
       return;
     }
     const target = this.d.sessionForChat(m.chatId, m.rootId);

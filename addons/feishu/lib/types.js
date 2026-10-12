@@ -39,6 +39,8 @@
  *   createHub(name: string, ownerId: string): Promise<string>,
  *   createTopic(hubChat: string, msg: OutMessage): Promise<string>,
  *   alive(target: string): Promise<boolean>,
+ *   threadOf(target: string): Promise<string|null>,
+ *   lastPosition(threadId: string): Promise<number|null>,
  *   renameGroup(chatId: string, name: string): Promise<void>,
  *   deleteGroup(chatId: string): Promise<void>,
  *   listGroups(): Promise<{chatId: string, name: string}[]>,
@@ -47,7 +49,7 @@
  *   react(messageId: string, emoji: 'OK'|'ERROR'): Promise<void>,
  *   pin(messageId: string): Promise<void>,
  *   unpin(messageId: string): Promise<void>,
- *   chatLink(chatId: string): string,
+ *   chatLink(chatId: string, threadId?: string|null, position?: number|null): string,
  *   on(event: string, fn: (...a: any[]) => void): any,
  * }} Gateway
  *   Events: 'message' (InMessage); 'action' (InAction); 'down'; 'up'.

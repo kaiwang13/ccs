@@ -48,7 +48,9 @@ also visible to Feishu the service.
    `ccs proxy feishu` removes it.
 2. In the Feishu developer console for that app, check:
    - **Events & callbacks → subscription mode:** long connection (no public URL needed; ccs opens no port).
-   - **Events:** `im.message.receive_v1`. **Callbacks:** `card.action.trigger`.
+   - **Events:** `im.message.receive_v1`, and optionally `im.chat.access_event.bot_p2p_chat_entered_v1` (the user
+     opened the chat with the bot): with it, opening that chat refreshes the overview so each Open button scrolls to
+     its topic's newest message; without it, only `/sessions` does. **Callbacks:** `card.action.trigger`.
    - **Scopes:** send and receive messages (`im:message`, `im:message:send_as_bot`), group messages without an
      @-mention (`im:message.group_msg`), create and update groups (`im:chat`), reactions, pins, and application
      info (to find the owner). `ccs feishu setup` warns about the ones it can check.

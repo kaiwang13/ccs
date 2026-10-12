@@ -120,3 +120,42 @@ test('sessions that still have their own group move into topics, and the old gro
   assert.ok(topicOf(conn, 's1').includes('#'));
   await waitFor(() => !loadState(paths).groups['legacy-s1'], { timeoutMs: 3000, what: 'legacy entry forgotten' });
 });
+
+test('the overview\'s Open button opens the topic itself, including a topic saved before thread ids were kept', async (t) => {
+  const { gw, conn } = await start(t, ['alpha']);
+  const a = topicOf(conn, 's1');
+  await waitFor(() => conn.state.groups.s1.threadId, { timeoutMs: 3000, what: 'thread id of a new topic' });
+  const url = () => /** @type {any} */ (conn._overview()).groups.flatMap((/** @type {any} */ g) => g.rows)[0].url;
+  assert.equal(url(), `https://fake.feishu/chat/${conn.state.hubChat}/thread/omt_${a.split('#')[1]}`);
+
+  delete conn.state.groups.s1.threadId;
+  assert.equal(url(), `https://fake.feishu/chat/${conn.state.hubChat}`, 'without a thread id it falls back to the group');
+  await conn._syncGroups();
+  await waitFor(() => conn.state.groups.s1.threadId, { timeoutMs: 3000, what: 'thread id filled in by the group sync' });
+  assert.match(url(), /\/thread\/omt_/);
+});
+
+test('opening the direct chat refreshes the overview so Open scrolls to each topic\'s newest message', async (t) => {
+  const { gw, conn } = await start(t, ['alpha']);
+  const a = topicOf(conn, 's1');
+  await waitFor(() => conn.state.groups.s1.threadId && conn.state.overviewMessageId, { timeoutMs: 3000, what: 'thread id and overview' });
+  const thread = `/thread/omt_${a.split('#')[1]}`;
+  const card = () => JSON.stringify(/** @type {any} */ (gw.msgs.get(conn.state.overviewMessageId)).msg);
+  const n = gw.messages(a).length;
+  gw.userSays(a, '/status');
+  await waitFor(() => gw.messages(a).length > n, { timeoutMs: 3000, what: 'reply in topic' });
+  const newest = gw.messages(a).length - 2;
+
+  gw.userOpensDm('ou_stranger');
+  await new Promise((res) => setTimeout(res, 100));
+  assert.ok(!card().includes(`${thread}@${newest}`), 'someone else opening a chat with the bot changes nothing');
+
+  gw.userOpensDm();
+  await waitFor(() => card().includes(`${thread}@${newest}`), { timeoutMs: 3000, what: 'overview pointing at the newest message' });
+
+  gw.userSays(a, '/status');
+  await waitFor(() => gw.messages(a).length - 2 > newest, { timeoutMs: 3000, what: 'second reply' });
+  const latest = gw.messages(a).length - 2;
+  gw.userSays(gw.dm, '/sessions');
+  await waitFor(() => gw.messages(gw.dm).some((m) => JSON.stringify(m).includes(`${thread}@${latest}`)), { timeoutMs: 3000, what: '/sessions with the newest position' });
+});

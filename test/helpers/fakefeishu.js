@@ -67,6 +67,10 @@ class FakeGateway extends EventEmitter {
   }
   /** @param {string} target */
   async alive(target) { return !this.deletedTopics.has(target) && this.chats.has(target.split('#')[0]); }
+  /** @param {string} target */
+  async threadOf(target) { return `omt_${target.split('#')[1]}`; }
+  /** The newest message's position in a topic: one per reply under its root, the root itself being -1. @param {string} threadId */
+  async lastPosition(threadId) { return this.messages(`${[...this.chats.keys()].find((c) => this.chats.get(c)?.order.includes(threadId.slice(4)))}#${threadId.slice(4)}`).length - 2; }
   async listGroups() { this._maybeFail('listGroups'); return [...this.chats].filter(([id]) => id !== this.dm).map(([chatId, c]) => ({ chatId, name: c.name, })); }
   /** @param {string} chatId @param {any} msg */
   async send(chatId, msg) {
@@ -96,8 +100,12 @@ class FakeGateway extends EventEmitter {
   async pin(messageId) { this._maybeFail('pin'); this.pins.push(messageId); }
   /** @param {string} messageId */
   async unpin(messageId) { this._maybeFail('unpin'); this.pins = this.pins.filter((p) => p !== messageId); }
-  /** @param {string} chatId */
-  chatLink(chatId) { return `https://fake.feishu/chat/${chatId.split('#')[0]}`; }
+  /** @param {string} chatId @param {string|null} [threadId] @param {number|null} [position] */
+  chatLink(chatId, threadId, position) {
+    return `https://fake.feishu/chat/${chatId.split('#')[0]}${threadId ? `/thread/${threadId}` : ''}${position != null ? `@${position}` : ''}`;
+  }
+  /** Drive: the user opens the direct chat with the bot. @param {string} [operatorId] */
+  userOpensDm(operatorId = this.owner) { this.emit('dmOpened', { chatId: this.dm, operatorId }); }
   /** Drive: the user taps a card button. @param {string} chatId @param {string} messageId @param {Record<string, string>} value @param {string} [operatorId] */
   userClicks(chatId, messageId, value, operatorId = this.owner) {
     this.emit('action', { chatId: chatId.split('#')[0], messageId, operatorId, value });

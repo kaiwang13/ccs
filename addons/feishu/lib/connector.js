@@ -50,13 +50,15 @@ function wrapGateway(gw) {
     createHub: (name, ownerId) => gw.createHub(maskEmails(name), ownerId),
     createTopic: (hubChat, msg) => gw.createTopic(hubChat, sanitizeMessage(msg)),
     alive: (target) => gw.alive(target),
+    threadOf: (target) => gw.threadOf(target),
+    lastPosition: (threadId) => gw.lastPosition(threadId),
     listGroups: () => gw.listGroups(),
     send: (chatId, msg) => gw.send(chatId, sanitizeMessage(msg)),
     update: (messageId, msg) => gw.update(messageId, sanitizeMessage(msg)),
     react: (messageId, emoji) => gw.react(messageId, emoji),
     pin: (messageId) => gw.pin(messageId),
     unpin: (messageId) => gw.unpin(messageId),
-    chatLink: (chatId) => gw.chatLink(chatId),
+    chatLink: (chatId, threadId, position) => gw.chatLink(chatId, threadId, position),
     on: (event, fn) => gw.on(event, fn),
   };
 }
@@ -173,6 +175,8 @@ class Connector {
     this.layout = layout;
     /** @type {Promise<string>|null} */
     this.hubPromise = null;
+    /** @type {Promise<void>|null} */
+    this.positionsPromise = null;
     this.syncAt = 0;
     this.syncing = false;
     this.maintainAt = 0;
@@ -213,7 +217,7 @@ class Connector {
       sessionState: (id) => this._sessionState(id),
       resume: (id) => this._resume(id), deliver: (id, op) => this._deliver(id, op),
       screen: (id) => this._screen(id), statusText: (id) => (this.rt.get(id)?.statusText || 'unknown'),
-      overview: () => this._overview(),
+      overview: () => this._refreshPositions().then(() => this._overview()),
       history: (id, skip) => this._history(id, skip),
       answer: (id, pid, key) => this._answer(id, pid, key),
       noteSent: (id, text, messageIds) => {
@@ -242,6 +246,10 @@ class Connector {
       this._listenersBound = true;
       this.gw.on('message', (m) => { this.router.onMessage(m).catch((e) => this.log('route.error', { error: String(e) })); });
       this.gw.on('action', (a) => { this.router.onAction(a).catch((e) => this.log('action.error', { error: String(e) })); });
+      this.gw.on('dmOpened', (e) => {
+        if (!this.owner || e.operatorId !== this.owner || e.chatId !== this.state.dmChat) return;
+        this._track(this._refreshPositions().then(() => this._writeOverview()).catch((err) => this.log('overview.error', { error: String(err) })));
+      });
       this.gw.on('down', () => { this.online = false; });
       this.gw.on('up', () => {
         this.online = true;
@@ -367,6 +375,7 @@ class Connector {
       this.state.groups[r.info.id] = { chatId, removed: false, statusMessageId: rootId, name: r.info.name, createdAt: Date.now() };
       this._save(true);
       if (this.stopped) return;
+      if (rootId) this._track(this._fillThread(r.info.id));
       const file = this._transcriptFile(r);
       if (file) {
         const { turns, offset } = this._readRecentTurns(r, file);
@@ -433,6 +442,40 @@ class Connector {
     this._save(true);
     this._syncLink(r);
     this._touchOverview();
+  }
+
+  /** Remember the topic's thread id so the overview's Open button lands on the topic, not just near it in the group.
+   *  A failure is only logged: the button falls back to the group, and the next group sync tries again. @param {string} id */
+  async _fillThread(id) {
+    const g = this.state.groups[id];
+    if (!g || g.removed || g.threadId || !g.chatId.includes('#')) return;
+    try {
+      const t = await this.gw.threadOf(g.chatId);
+      if (!t || this.state.groups[id] !== g) return;
+      g.threadId = t;
+      this._save();
+      this._touchOverview();
+    } catch (e) { this.log('thread.error', { id, error: String(e) }); }
+  }
+
+  /** Look up each topic's newest message so the overview's Open buttons scroll to it. Only when the overview is looked
+   *  at (the direct chat opened, `/sessions`), not on every message. A failure keeps the last known position.
+   *  Concurrent callers share one pass. @returns {Promise<void>} */
+  _refreshPositions() {
+    if (!this.positionsPromise) {
+      this.positionsPromise = (async () => {
+        for (const id of this.rt.keys()) {
+          const g = this.state.groups[id];
+          if (!g || g.removed || !g.threadId) continue;
+          try {
+            const p = await this.gw.lastPosition(g.threadId);
+            if (p != null) g.threadPos = p;
+          } catch (e) { this.log('position.error', { id, error: String(e) }); }
+        }
+        this._save();
+      })().finally(() => { this.positionsPromise = null; });
+    }
+    return this.positionsPromise;
   }
 
   /** After `ccs rename`: the group follows the session's name. A failure is only logged — item 5's retry tracks
@@ -527,7 +570,10 @@ class Connector {
           delete this.state.groups[id];
           this._save(true);
           this._track(this._ensureGroup(r));
-        } else if (g.name !== r.info.name) this._track(this._renameGroup(r, r.info.name));
+        } else {
+          if (g.name !== r.info.name) this._track(this._renameGroup(r, r.info.name));
+          if (alive && g.chatId.includes('#') && !g.threadId) this._track(this._fillThread(id));
+        }
       }
       for (const c of list) {
         if (!c.name.startsWith('ccs · ') || tracked.has(c.chatId) || c.chatId === this.state.dmChat) continue;
@@ -1022,7 +1068,7 @@ class Connector {
       const cwd = home && r.info.cwd.startsWith(home) ? `~${r.info.cwd.slice(home.length)}` : r.info.cwd;
       groups[kinds.indexOf(k)].rows.push({
         dot: k.dot, name: r.info.name, agent: r.info.agent, detail: `${r.statusText} · ${cwd}`,
-        ...(g && !g.removed ? { url: this.gw.chatLink(g.chatId) } : {}), primary: k.key === 'waiting',
+        ...(g && !g.removed ? { url: this.gw.chatLink(g.chatId, g.threadId, g.threadPos) } : {}), primary: k.key === 'waiting',
       });
     }
     for (const g of groups) g.rows.sort((a, b) => a.name.localeCompare(b.name));
