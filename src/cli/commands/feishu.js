@@ -78,7 +78,10 @@ async function start(ctx, f) {
   while (Date.now() < deadline) {
     if (exitCode !== null) break;
     const s = readJson(f.status);
-    if (isLocked(f.lock) && s && s.pid === child.pid) {
+    // The daemon writes its status (pid only) before reading its config and secret, and `appId` only once both have
+    // loaded: everything after that is retried, not fatal. Waiting for the pid alone reported a daemon about to
+    // die on a damaged secret as started whenever a poll landed between the two writes.
+    if (isLocked(f.lock) && s && s.pid === child.pid && s.appId) {
       ctx.out.write(`ccs: Feishu connector started (pid ${child.pid}); 'ccs feishu status' shows the connection\n`);
       return 0;
     }
