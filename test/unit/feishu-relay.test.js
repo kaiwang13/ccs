@@ -19,14 +19,14 @@ const screen = (name) => fs.readFileSync(path.join(__dirname, '..', 'fixtures', 
 
 /** A control link that answers PEEK with `lines`, records INPUT, and lets the test push STATE. */
 class FakeLink extends EventEmitter {
-  constructor() { super(); this.up = true; /** @type {string[]} */ this.lines = []; /** @type {any[]} */ this.inputs = []; }
+  constructor() { super(); this.up = true; /** @type {string[]} */ this.lines = []; /** @type {any[]} */ this.inputs = []; /** @type {string|undefined} what STATUS reports; unset = nothing */ this.lifecycle = undefined; }
   start() {}
   stop() { this.up = false; }
   /** @param {string} op @param {any} [args] */
   async request(op, args) {
     if (op === 'PEEK') return { ok: true, data: { lines: this.lines } };
     if (op === 'INPUT') { this.inputs.push(args); return { ok: true }; }
-    return { ok: true, data: { claude: { sessionId: null } } };
+    return { ok: true, data: { claude: { sessionId: null }, lifecycle: this.lifecycle } };
   }
   /** @param {string|null} status @param {string|null} [waitingFor] */
   state(status, waitingFor = null) { this.emit('state', { t: 'STATE', lifecycle: 'RUNNING', claude: { status, waitingFor } }); }
@@ -201,4 +201,17 @@ test('a session that was just stopped counts as stopped at once, not after the i
   held.release(); // `ccs stop`: the holder's lock goes away; the index has not polled yet
   assert.equal(conn.rt.get('s1').info.live, true, 'the index record is stale');
   assert.equal(conn._sessionState('s1').live, false, 'the router must not type into a dead session');
+});
+
+test('a message typed while the agent is still starting waits for RUNNING, then goes in once (macOS drops early input)', async (t) => {
+  const { gw, link, chatId } = await liveSession(t);
+  link.lifecycle = 'STARTING';
+  link.emit('state', { t: 'STATE', lifecycle: 'STARTING', claude: { status: null, waitingFor: null } });
+  gw.userSays(chatId, 'hello after resume');
+  await new Promise((r) => setTimeout(r, 1500));
+  assert.deepEqual(link.inputs, [], 'nothing is typed into a session that is still starting');
+  link.lifecycle = 'RUNNING';
+  link.emit('state', { t: 'STATE', lifecycle: 'RUNNING', claude: { status: 'idle', waitingFor: null } });
+  await waitFor(() => link.inputs.length === 1, { timeoutMs: 3000, what: 'typed once running' });
+  assert.deepEqual(link.inputs, [{ text: 'hello after resume' }]);
 });

@@ -1077,6 +1077,23 @@ class Connector {
     // before its agent runs — refuses INPUT with EXITED until its holder exists. That is not an exit: wait for its next
     // state and type the message then. A refused INPUT typed nothing, so retrying never types it twice.
     const startDeadline = Date.now() + this.startWaitMs;
+    // Text typed while the agent is still coming up is accepted by sessiond (its holder already exists) and then lost:
+    // the agent is not reading yet, and macOS drops pending terminal input when the agent switches the terminal mode. So
+    // a message goes in only once the lifecycle has left STARTING. (A key — Esc — is for a session that is running.)
+    if (op.text !== undefined) {
+      for (;;) {
+        const link = /** @type {any} */ (r.link);
+        let lifecycle = r.state ? r.state.lifecycle : null;
+        if (!lifecycle || STARTING_LIFECYCLES.has(lifecycle)) {
+          // The cached state can be missing (just connected) or stale; ask the session itself.
+          try { const st = await link.request('STATUS'); lifecycle = st.ok && st.data ? st.data.lifecycle || null : null; } catch { lifecycle = null; }
+        }
+        if (!lifecycle || !STARTING_LIFECYCLES.has(lifecycle)) break;
+        if (Date.now() >= startDeadline) return { ok: false, error: `the session is still starting — try again in a moment (or look: ccs a ${r.info.name})` };
+        await nextState(link, Math.min(1000, startDeadline - Date.now()));
+        if (!r.link || !r.link.up) return { ok: false, error: 'the session is not reachable right now (restarting?) — try again' };
+      }
+    }
     let res;
     for (;;) {
       const link = /** @type {any} */ (r.link);
