@@ -38,9 +38,10 @@ the rest of the add-on's live checklist in [`docs/feishu.md`](docs/feishu.md) is
   (on macOS: `xcode-select --install`)
 - **Claude Code** installed and logged in. `ccs` accepts any credential Claude itself can use, and
   checks for them in this order: the `oauthAccount` record in `~/.claude.json`; the platform
-  credential store (the **macOS Keychain**, or `~/.claude/.credentials.json` on Linux); or
-  `ANTHROPIC_API_KEY` / `ANTHROPIC_AUTH_TOKEN` in the environment. Only existence is checked — no
-  secret is ever read. This matters on macOS, where a normally logged-in machine has **no**
+  credential store (the **macOS Keychain**, or `~/.claude/.credentials.json` on Linux);
+  `ANTHROPIC_API_KEY` / `ANTHROPIC_AUTH_TOKEN` in the environment; or either of them in the `env`
+  block of `~/.claude/settings.json` (where a custom gateway's token usually lives). Only existence
+  is checked — no secret is kept or logged. This matters on macOS, where a normally logged-in machine has **no**
   `oauthAccount` and no environment variable, because Claude keeps its login in the Keychain.
   Tested against **2.1.267**–**2.1.280**; other versions run but report `UNTESTED_CLAUDE_VERSION`
   (a warning, never a block). Setting `claude.allowNoCredential` hosts a Claude with no credential

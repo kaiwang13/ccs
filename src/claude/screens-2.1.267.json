@@ -4,5 +4,6 @@
   "onboarding": ["Choose the text style", "Let's get started"],
   "login": ["Select login method", "Paste code here", "Browser didn't open"],
   "trust": ["Quick safety check", "Is this a project you created or one you trust"],
-  "suspendBanner": "has been suspended"
+  "suspendBanner": "has been suspended",
+  "ack": [["We're changing auto mode", "which isn't compatible with this update"]]
 }

@@ -16,7 +16,7 @@ for (const version of TESTED_VERSIONS) {
 
   test(`${version}: every screens-${version}.json string occurs in the binary`, { skip }, () => {
     const { checked, missing } = checkStrings(bin, loadScreens(version));
-    assert.equal(checked.length, 8);
+    assert.equal(checked.length, 10);
     assert.deepEqual(missing, []);
   });
 }
@@ -27,6 +27,6 @@ test('checkStrings reports strings absent from a file', (t) => {
   const file = path.join(dir, 'fakebin');
   fs.writeFileSync(file, 'xx Select login method xx has been suspended');
   const { missing } = checkStrings(file, loadScreens('2.1.267'));
-  assert.equal(missing.length, 6);
+  assert.equal(missing.length, 8);
   assert.ok(!missing.includes('Select login method'));
 });

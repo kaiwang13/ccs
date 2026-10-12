@@ -62,6 +62,9 @@ feishu_deps() {
   ( cd "$1/addons/feishu" && npm ci --omit=dev --silent --no-audit --no-fund ) || die "could not install the Feishu add-on's dependencies"
 }
 
+# The connector is not started at boot (docs/feishu.md), so "not running now" says nothing about whether it should
+# run: after a reboot it is down and the update must still start it. Enabled is the question, not running.
+feishu_enabled() { [ -f "$STATE/feishu/enabled" ]; }
 feishu_running() { "$WRAPPER" feishu status 2>/dev/null | grep -q '^ccs: Feishu connector: running'; }
 
 # Build a release directory from a git ref. Never touches the running install.
@@ -135,13 +138,23 @@ cmd_update() {
   [ -e "$ROOT/current" ] || die "no install found at $ROOT — run install first"
   _old=$(readlink -f "$ROOT/current")
   build_release "$REF"            # built BEFORE anything stops; a failure here changes nothing
-  if [ "$(readlink -f "$RELEASE")" = "$_old" ]; then say "already up to date"; return 0; fi
-
   _feishu=""
-  if feishu_running; then
+  if feishu_enabled; then
     _feishu=1
-    say "stopping the Feishu connector"
-    "$WRAPPER" feishu stop >/dev/null || warn "  the Feishu connector did not stop cleanly — check 'ccs feishu status'"
+    if feishu_running; then
+      say "stopping the Feishu connector"
+      "$WRAPPER" feishu stop >/dev/null || warn "  the Feishu connector did not stop cleanly — check 'ccs feishu status'"
+    else
+      say "the Feishu connector is not running; starting it after the update"
+    fi
+  fi
+
+  # "Already up to date" is about the release, not about the connector: it is not started at boot, so this may be the
+  # only chance to bring it back after a reboot.
+  if [ "$(readlink -f "$RELEASE")" = "$_old" ]; then
+    say "already up to date"
+    if [ -n "$_feishu" ]; then "$WRAPPER" feishu start >/dev/null || warn "the Feishu connector did not start — run 'ccs feishu start'"; fi
+    return 0
   fi
 
   _live=$(running_sessions)

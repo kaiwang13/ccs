@@ -66,7 +66,7 @@ outside=$(find "$CCS_HOME" -maxdepth 0 2>/dev/null | wc -l)
 
 say "the installed ccs runs and is pointed at its own registry"
 if "$WRAPPER" ls >"$PREFIX/ls.log" 2>&1; then pass "ccs ls exits 0"; else bad "ccs ls failed"; tail -5 "$PREFIX/ls.log"; fi
-if "$WRAPPER" ls --json 2>/dev/null | grep -q '^\[\]$\|^\[$'; then pass "isolated registry is empty (cannot see your sessions)"
+if "$WRAPPER" ls --json 2>/dev/null | grep -q '^\[\]$'; then pass "isolated registry is empty (cannot see your sessions)"
 else bad "isolated install sees sessions — NOT isolated"; "$WRAPPER" ls --json 2>/dev/null | head -5; fi
 
 say "the Feishu add-on stays off unless set up"
@@ -77,6 +77,17 @@ say "the Feishu add-on stays off unless set up"
 say "update"
 if sh "$INSTALLER" update >"$PREFIX/update.log" 2>&1; then pass "update exited 0"; else bad "update failed"; tail -15 "$PREFIX/update.log"; fi
 [ -x "$WRAPPER" ] && pass "wrapper still present after update" || bad "wrapper lost during update"
+grep -q "Feishu" "$PREFIX/update.log" && bad "update touched Feishu although the add-on was never enabled" || pass "update leaves the Feishu add-on alone when it is not enabled"
+
+# The connector is not started at boot, so "not running" must not be read as "never set up": an enabled add-on whose
+# connector is down (a reboot) still has to be started by the update. Setup itself is skipped — it needs a QR code —
+# so the start fails for want of config.json, which is enough to prove the attempt.
+say "an enabled add-on is started by update even when its connector is not running"
+mkdir -p "$CCS_STATE_DIR/feishu" && : > "$CCS_STATE_DIR/feishu/enabled"
+if sh "$INSTALLER" update >"$PREFIX/update2.log" 2>&1; then pass "update exited 0 with the add-on enabled"; else bad "update failed with the add-on enabled"; tail -15 "$PREFIX/update2.log"; fi
+grep -q "not running; starting it after the update" "$PREFIX/update2.log" && pass "update noticed the connector was down" || bad "update did not notice the connector was down"
+grep -qE "restart the Feishu connector|did not start" "$PREFIX/update2.log" && pass "update tried to start the connector" || bad "update did not try to start the connector"
+[ ! -e "$CCS_STATE_DIR/feishu/enabled" ] || rm -f "$CCS_STATE_DIR/feishu/enabled"
 
 say "uninstall keeps session records"
 # Plant a record so the assertion has something to protect — an empty registry proves nothing.
