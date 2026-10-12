@@ -264,6 +264,22 @@ test('topics: a hub is a thread-mode group; a topic is <hub>#<root>; replies, re
   await gw.renameGroup(topic, 'ignored');
   assert.equal(ch().count('chat.update'), 0, 'a topic has no name of its own');
   assert.equal(gw.chatLink(topic), `https://applink.feishu.cn/client/chat/open?openChatId=${hub}`);
+  assert.equal(await gw.threadOf(topic), 'omt_1');
+  assert.deepEqual(ch().last('message.get').a[0], { path: { message_id: root } });
+  assert.equal(gw.chatLink(topic, 'omt_1'),
+    `https://applink.feishu.cn/client/thread/open?openthreadid=omt_1&openchatid=${hub}&open_thread_id=omt_1&open_chat_id=${hub}`);
+  assert.equal(await gw.lastPosition('omt_1'), 7);
+  assert.deepEqual(ch().last('message.list').a[0].params,
+    { container_id_type: 'thread', container_id: 'omt_1', sort_type: 'ByCreateTimeDesc', page_size: 1 });
+  assert.match(gw.chatLink(topic, 'omt_1', 7), /&thread_position=7$/);
+  assert.match(gw.chatLink(topic, 'omt_1', -1), /&thread_position=-1$/);
+
+  /** @type {any[]} */
+  const opened = [];
+  gw.on('dmOpened', (e) => opened.push(e));
+  await ch().fire('raw:im.chat.access_event.bot_p2p_chat_entered_v1', { chat_id: 'oc_dm', operator_id: { open_id: 'ou_owner' } });
+  await ch().fire('raw:im.chat.access_event.bot_p2p_chat_entered_v1', { chat_id: 'oc_dm' });
+  assert.deepEqual(opened, [{ chatId: 'oc_dm', operatorId: 'ou_owner' }]);
 
   assert.equal(await gw.alive(topic), true);
   ch().rawClient.im.v1.message.get = async () => ({ data: { items: [{ deleted: true }] } });

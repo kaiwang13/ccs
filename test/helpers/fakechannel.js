@@ -29,7 +29,8 @@ class FakeChannel {
           create: rec('message.create', () => ({ data: { chat_id: 'oc_dm', message_id: `om_${++this.seq}` } })),
           reply: rec('message.reply', () => ({ data: { message_id: `om_${++this.seq}` } })),
           delete: rec('message.delete', () => ({ code: 0 })),
-          get: rec('message.get', () => ({ data: { items: [{ deleted: false }] } })),
+          get: rec('message.get', () => ({ data: { items: [{ deleted: false, thread_id: 'omt_1' }] } })),
+          list: rec('message.list', () => ({ data: { items: [{ thread_message_position: '7' }] } })),
         },
         chat: {
           update: rec('chat.update', () => ({ code: 0 })),
@@ -54,6 +55,8 @@ class FakeChannel {
   getConnectionStatus() { return this.connStatus; }
   /** @param {string} name @param {Function} fn */
   on(name, fn) { this.handlers[name] = fn; return () => { delete this.handlers[name]; }; }
+  /** @param {string} type @param {Function} fn */
+  onRawEvent(type, fn) { this.handlers[`raw:${type}`] = fn; return () => { delete this.handlers[`raw:${type}`]; }; }
   /** Drive an SDK event. @param {string} name @param {any} [arg] */
   fire(name, arg) { const h = this.handlers[name]; return h ? h(arg) : undefined; }
   /** @param {string} m */

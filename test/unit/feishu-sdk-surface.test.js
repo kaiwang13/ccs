@@ -17,7 +17,7 @@ test('the installed @larksuite/channel still offers every call the add-on makes'
   assert.equal(typeof sdk.createLarkChannel, 'function');
   assert.equal(typeof sdk.registerApp, 'function');
   const ch = sdk.createLarkChannel({ appId: 'cli_surface_probe', appSecret: 'x' });
-  for (const m of ['connect', 'disconnect', 'on', 'send', 'updateCard', 'addReaction', 'createChat', 'getAppInfo']) {
+  for (const m of ['connect', 'disconnect', 'on', 'send', 'updateCard', 'addReaction', 'createChat', 'getAppInfo', 'onRawEvent']) {
     assert.equal(typeof ch[m], 'function', `LarkChannel.${m}`);
   }
   assert.equal(typeof ch.rawClient.im.v1.message.create, 'function');
