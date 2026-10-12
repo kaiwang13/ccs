@@ -11,7 +11,7 @@ const { Connector } = require('../../addons/feishu/lib/connector.js');
 const { tryLock } = require('../../src/common/locks.js');
 const { FakeGateway } = require('../helpers/fakefeishu.js');
 const { waitFor } = require('../helpers/waitfor.js');
-const { FakeRegistry, mkRec, tmpPaths } = require('../helpers/feishuconn.js');
+const { FakeRegistry, mkRec, tmpPaths, appendTranscript, userRec, asstRec, endRec, cards } = require('../helpers/feishuconn.js');
 
 /** @param {string} name */
 const screen = (name) => fs.readFileSync(path.join(__dirname, '..', 'fixtures', 'feishu', 'screens', name), 'utf8')
@@ -32,22 +32,22 @@ class FakeLink extends EventEmitter {
   state(status, waitingFor = null) { this.emit('state', { t: 'STATE', lifecycle: 'RUNNING', claude: { status, waitingFor } }); }
 }
 
-/** A live session s1 whose control link is a FakeLink. @param {import('node:test').TestContext} t @param {{agent?: string}} [o] */
-async function liveSession(t, { agent = 'claude' } = {}) {
+/** A live session s1 whose control link is a FakeLink. @param {import('node:test').TestContext} t @param {{agent?: string, sessionId?: string|null}} [o] */
+async function liveSession(t, { agent = 'claude', sessionId = null } = {}) {
   const paths = tmpPaths(t);
   fs.mkdirSync(paths.sessionDir('s1'), { recursive: true, mode: 0o700 });
   const held = tryLock(paths.sessiondLock('s1'));
   assert.ok(held);
   t.after(() => held.release());
   const registry = new FakeRegistry();
-  registry.set(mkRec('s1', { agent }));
+  registry.set(mkRec('s1', { agent, sessionId }));
   const gw = new FakeGateway();
   const link = new FakeLink();
   const conn = new Connector({ gateway: gw, paths, registry, env: {}, tailMs: 20, pollMs: 100, updateMs: 30, statusMs: 5000, linkFactory: () => link });
   t.after(() => conn.stop());
   await conn.start();
   await waitFor(() => gw.chatByName('ccs · s1') !== null && conn.rt.get('s1')?.link === link, { timeoutMs: 3000, what: 'group and link' });
-  return { gw, link, conn, held, chatId: /** @type {string} */ (gw.chatByName('ccs · s1')) };
+  return { gw, link, conn, held, paths, chatId: /** @type {string} */ (gw.chatByName('ccs · s1')) };
 }
 
 /** @param {FakeGateway} gw @param {string} chatId */
@@ -201,4 +201,33 @@ test('a session that was just stopped counts as stopped at once, not after the i
   held.release(); // `ccs stop`: the holder's lock goes away; the index has not polled yet
   assert.equal(conn.rt.get('s1').info.live, true, 'the index record is stale');
   assert.equal(conn._sessionState('s1').live, false, 'the router must not type into a dead session');
+});
+
+test('Claude: a turn that goes on after a prompt continues in a new card below the prompt card, not above it', async (t) => {
+  const sid = 'aaaaaaaa-0000-0000-0000-000000000001';
+  const { gw, link, paths, chatId } = await liveSession(t, { sessionId: sid });
+  const ask = { type: 'assistant', uuid: 'ask1', isSidechain: false, message: { role: 'assistant', content: [{ type: 'tool_use', id: 'tq', name: 'AskUserQuestion', input: { questions: [] } }] } };
+  appendTranscript(paths, sid, [userRec('write the script'), asstRec('before the question'), ask]);
+  const turnCards = () => cards(gw, chatId).filter((/** @type {any} */ m) => m.title.includes('write the script'));
+  await waitFor(() => turnCards().some((/** @type {any} */ m) => JSON.stringify(m).includes('AskUserQuestion')), { timeoutMs: 3000, what: 'turn card' });
+  link.lines = screen('claude-ask-question.txt');
+  link.state('waiting', 'input needed');
+  await waitFor(() => cards(gw, chatId).some((/** @type {any} */ m) => m.title.startsWith('❓')), { timeoutMs: 3000, what: 'question card' });
+  link.state('busy');
+  const answer = { type: 'user', uuid: 'ans1', isSidechain: false, message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'tq', content: 'answered: One topic group' }] } };
+  appendTranscript(paths, sid, [answer, asstRec('after the answer'), endRec(5000)]);
+  await waitFor(() => turnCards().some((/** @type {any} */ m) => m.footer === '✓ 5s'), { timeoutMs: 3000, what: 'turn finished' });
+  const all = cards(gw, chatId);
+  const first = all.findIndex((/** @type {any} */ m) => m.title.includes('write the script'));
+  const q = all.findIndex((/** @type {any} */ m) => m.title.startsWith('❓'));
+  const rest = all.findIndex((/** @type {any} */ m) => m.title.includes('write the script') && m.footer === '✓ 5s');
+  assert.ok(first < q && q < rest, 'turn card, then the question card, then the rest of the turn');
+  assert.equal(all[first].footer, '↓ continued below');
+  assert.match(JSON.stringify(all[first]), /before the question/);
+  assert.doesNotMatch(JSON.stringify(all[first]), /after the answer/);
+  assert.match(all[rest].title, /\(continued\)$/);
+  assert.doesNotMatch(JSON.stringify(all[rest]), /before the question/);
+  assert.match(JSON.stringify(all[rest]), /answered: One topic group/, 'the question\'s tool and its answer open the new card');
+  assert.match(JSON.stringify(all[rest]), /after the answer/);
+  assert.equal(turnCards().length, 2);
 });

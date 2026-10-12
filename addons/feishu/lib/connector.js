@@ -135,7 +135,7 @@ function nextLineStart(file, start) {
  * @typedef {{info: SessionInfo, link: ControlLink|null, pollTimer: ReturnType<typeof setInterval>|null, state: any,
  *   sessionId: string|null, tail: TranscriptTail|null, assembler: TurnAssembler, sent: Array<{text: string, at: number, messageIds: string[], claimed: boolean}>,
  *   ackNext: string[]|null, acks: Map<number, string[]>,
- *   cards: Map<number, {ids: string[], title?: string, lastAt: number, timer: ReturnType<typeof setTimeout>|null, chain: Promise<void>}>,
+ *   cards: Map<number, {ids: string[], from: number, title?: string, lastAt: number, timer: ReturnType<typeof setTimeout>|null, chain: Promise<void>}>,
  *   statusText: string, statusSentText: string|null, statusTimer: ReturnType<typeof setTimeout>|null,
  *   statusWriting: boolean, statusWriteAgain: boolean,
  *   catchingUp: boolean, since: number, discoverAt: number, creatingGroup: boolean, groupRetryAt: number,
@@ -839,7 +839,7 @@ class Connector {
     const g = this.state.groups[r.info.id];
     if (!g || g.removed) return;
     let c = r.cards.get(turn.id);
-    if (!c) { c = { ids: [], lastAt: 0, timer: null, chain: Promise.resolve() }; r.cards.set(turn.id, c); }
+    if (!c) { c = { ids: [], from: 0, lastAt: 0, timer: null, chain: Promise.resolve() }; r.cards.set(turn.id, c); }
     const card = c;
     const run = () => {
       card.timer = null;
@@ -880,9 +880,11 @@ class Connector {
     if (list.length) this.state.openCards[id] = list; else delete this.state.openCards[id];
   }
 
-  /** @param {string} chatId @param {{ids: string[], title?: string}} card @param {import('./turns').Turn} turn */
-  async _writeTurn(chatId, card, turn) {
-    const msgs = renderTurn(turn);
+  /** @param {string} chatId @param {{ids: string[], from: number, title?: string}} card @param {import('./turns').Turn} turn @param {string} [foot] */
+  async _writeTurn(chatId, card, turn, foot) {
+    // A continuation card is not sent until it has something to show: an empty "…" right under a prompt card is noise.
+    if (card.from && !card.ids.length && !turn.done && turn.items.length <= card.from) return;
+    const msgs = renderTurn(turn, { from: card.from, foot });
     if (msgs[0] && msgs[0].kind === 'card') card.title = msgs[0].title;
     for (let i = 0; i < msgs.length; i++) {
       if (i < card.ids.length) {
@@ -1143,6 +1145,37 @@ class Connector {
     } catch { return null; }
   }
 
+  /**
+   * Close the open turn's card where it stands and send the rest of the turn as a new card below the prompt card.
+   * Feishu neither notifies nor scrolls for an edited message, so a turn that went on updating its card above the
+   * prompt card looked, on a phone, as if nothing happened after the answer. The returned promise settles once the
+   * old card is closed; the turn's later writes wait for `gate`, so its new card cannot land above the prompt card.
+   * @param {Runtime} r @param {Promise<void>} gate @returns {Promise<void>}
+   */
+  _splitTurnCard(r, gate) {
+    const g = this.state.groups[r.info.id];
+    const turn = r.assembler.open;
+    const card = turn && r.cards.get(turn.id);
+    if (!g || !turn || !card) return Promise.resolve();
+    if (card.timer) { clearTimeout(card.timer); card.timer = null; } // the closing write below shows the same items
+    const upTo = turn.items.length;
+    const closed = card.chain.then(async () => {
+      // Nothing to close: the card from the last split has not been sent yet, or nothing came since.
+      if ((card.from && !card.ids.length) || upTo <= card.from) return;
+      const items = turn.items.slice(0, upTo);
+      // The new card starts at the tool the prompt is about (still without a result), so its result — or, for a
+      // question, the answer — shows up there instead of on the closed card.
+      const pending = items.findIndex((i, n) => n >= card.from && i.type === 'tool' && i.result === null);
+      await this._writeTurn(g.chatId, card, { ...turn, items }, '↓ continued below');
+      card.ids = [];
+      card.from = pending < 0 ? upTo : pending;
+      this._noteOpenCard(r, turn, card);
+    }).catch((e) => this.log('card.error', { error: String(e) }));
+    card.chain = closed.then(() => gate);
+    this._track(card.chain);
+    return closed;
+  }
+
   /** @param {Runtime} r @param {'claude'|'codex'} kind @param {string[]|null} lines */
   async _openPrompt(r, kind, lines) {
     const g = this.state.groups[r.info.id];
@@ -1159,13 +1192,17 @@ class Connector {
       if (found) p.question = found.question;
     }
     p.snapshot = shown.slice(-15).join('\n');
+    /** @type {() => void} */
+    let release = () => {};
+    const sent = new Promise((resolve) => { release = () => resolve(undefined); });
     try {
+      await this._splitTurnCard(r, sent);
       p.messageId = await this.gw.send(g.chatId, this._promptCard(r, p));
     } catch (e) {
       this.log('prompt.error', { id: r.info.id, error: String(e) });
       if (r.prompt === p) r.prompt = null; // retried on the next tick
       return;
-    }
+    } finally { release(); }
     if (p.outcome) await this._updatePromptCard(r, p); // closed while the card was being sent
   }
 

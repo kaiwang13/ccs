@@ -213,13 +213,14 @@ const bytes = (v) => Buffer.byteLength(JSON.stringify(v), 'utf8') + v.length * S
 
 /**
  * One turn as ≥ 1 messages, each within CARD_BUDGET bytes; later ones are marked "(continued)". Sanitised.
- * @param {Turn} t @returns {OutMessage[]}
+ * `from` renders only the items from that index on, as a continuation of an earlier card; `foot` replaces the footer.
+ * @param {Turn} t @param {{from?: number, foot?: string}} [o] @returns {OutMessage[]}
  */
-function renderTurn(t) {
+function renderTurn(t, { from = 0, foot } = {}) {
   /** @type {OutSection[]} */
   const pieces = [];
   const chunk = CARD_BUDGET - 4000;
-  for (const s of sections(t)) {
+  for (const s of sections(from ? { ...t, items: t.items.slice(from) } : t)) {
     if (Buffer.byteLength(s.body, 'utf8') <= chunk) { pieces.push(s); continue; }
     const step = Math.floor(chunk / 3);
     for (let i = 0; i < s.body.length;) {
@@ -236,7 +237,7 @@ function renderTurn(t) {
   let cur = [];
   const head = title(t);
   const flush = (/** @type {boolean} */ last) => {
-    out.push({ kind: 'card', title: out.length === 0 ? head : `${head} (continued)`, sections: cur, ...(last ? { footer: footer(t) } : {}) });
+    out.push({ kind: 'card', title: out.length === 0 && !from ? head : `${head} (continued)`, sections: cur, ...(last ? { footer: foot || footer(t) } : {}) });
     cur = [];
   };
   for (const p of pieces) {
