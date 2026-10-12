@@ -12,12 +12,12 @@ const { loadScreens } = require('../src/sessiond/screens.js');
 
 /**
  * @param {string} binPath
- * @param {{onboarding: string[], login: string[], trust: string[], suspendBanner: string}} screens
+ * @param {{onboarding: string[], login: string[], trust: string[], suspendBanner: string, ack: string[][]}} screens
  * @returns {{checked: string[], missing: string[]}}
  */
 function checkStrings(binPath, screens) {
   const src = fs.readFileSync(binPath).toString('latin1');
-  const checked = [...screens.onboarding, ...screens.login, ...screens.trust, screens.suspendBanner];
+  const checked = [...screens.onboarding, ...screens.login, ...screens.trust, screens.suspendBanner, ...(screens.ack || []).flat()];
   // the binary stores these literals as UTF-8; latin1-decoding keeps ASCII byte-identical
   const missing = checked.filter((s) => !src.includes(Buffer.from(s, 'utf8').toString('latin1')));
   return { checked, missing };

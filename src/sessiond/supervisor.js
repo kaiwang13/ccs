@@ -52,7 +52,7 @@ function defaultStateWriter(file, st) {
 class Supervisor extends EventEmitter {
   /**
    * @param {{spec: import('./spec').SessionSpec, config: any, clock: import('../common/types').Clock, log: any, paths: any,
-   *   screens: {onboarding: string[], login: string[], trust: string[], suspendBanner: string}, recover?: boolean,
+   *   screens: {onboarding: string[], login: string[], trust: string[], suspendBanner: string, ack: string[][]}, recover?: boolean,
    *   startHolder: (o: {gen: number, argv: string[], cols: number, rows: number}) => Promise<void>,
    *   connectHolder: (sockPath: string) => Promise<import('./holderclient').HolderClient>,
    *   clientsInfo?: () => object[], timers?: Partial<typeof DEFAULT_TIMERS>}} o
@@ -85,6 +85,12 @@ class Supervisor extends EventEmitter {
     /** @type {'trust'|'login'|'onboarding'|null} */
     this.setupCandidate = null;
     this.setupHits = 0;
+    /**
+     * Notices already confirmed with an automatic Enter, so a screen that lingers is pressed once.
+     * Keyed by notice text and reset per claude process, because a new process shows them again.
+     * @type {Set<string>}
+     */
+    this.ackedNotices = new Set();
     /** @type {import('./holderclient').HolderClient|null} */
     this.holder = null;
     /** @type {any} */
@@ -413,9 +419,24 @@ class Supervisor extends EventEmitter {
   /** Setup detection (spec §3.10, R11): PTY screen rows only, 2 consecutive matching scans, weak login strings excluded, no login gate while busy. */
   _scan() {
     if (!['STARTING', 'STARTING_SLOW', 'RUNNING', 'SETUP_GATED', 'BLOCKED'].includes(this.lifecycle)) return;
-    /** @type {'trust'|'login'|'onboarding'|null} */
+    /** @type {'trust'|'login'|'onboarding'|'ack'|null} */
     let kind = matchSetup(this.screenText(), this.gateScreens);
     if (kind === 'login' && this.lifecycle === 'RUNNING' && this.observed && this.observed.status === 'busy') kind = null;
+    // An acknowledgement notice is not a setup screen: it wants one Enter and carries no decision,
+    // so confirm it rather than gating the session. Leaving it up stranded attached terminals (the
+    // TUI ignores everything else until it is dismissed) and, on the phone, an unusable session.
+    // Confirmed only after the same 2 scans as a setup screen, so a notice scrolling past inside a
+    // redraw is not pressed, and only once per process.
+    if (kind === 'ack') {
+      if (this.setupCandidate !== 'ack') { this.setupCandidate = 'ack'; this.setupHits = 1; return; }
+      this.setupHits++;
+      if (this.setupHits >= this.timers.setupConfirmScans && !this.ackedNotices.has(this.screenText())) {
+        // Recorded only when it was actually written: with no holder the Enter goes nowhere, and
+        // marking it here would leave the notice unconfirmed for good.
+        if (this._ackNotice()) this.ackedNotices.add(this.screenText());
+      }
+      return;
+    }
     if (kind !== null && kind === this.setupCandidate) this.setupHits++;
     else { this.setupCandidate = kind; this.setupHits = kind === null ? 0 : 1; }
     if (kind !== null) {
@@ -429,6 +450,18 @@ class Supervisor extends EventEmitter {
       this.setupKind = null;
       this._setLifecycle(this.observed ? 'RUNNING' : 'STARTING');
     }
+  }
+
+  /**
+   * Press Enter on the acknowledgement notice on screen. Reached only through _scan, so the notice
+   * has been stable for setupConfirmScans scans and the lifecycle still allows input.
+   */
+  _ackNotice() {
+    if (!this.holder || this.exitHandled) return false;
+    const text = 'confirmed a notice from claude automatically (Enter); nothing was chosen';
+    this.emit('notice', { level: 'info', code: 'NOTICE_ACKED', text });
+    this.write(Buffer.from('\r'));
+    return true;
   }
 
   _armPing() {
@@ -495,6 +528,12 @@ class Supervisor extends EventEmitter {
     this.setupKind = null;
     this.setupCandidate = null;
     this.setupHits = 0;
+    /**
+     * Notices already confirmed with an automatic Enter, so a screen that lingers is pressed once.
+     * Keyed by notice text and reset per claude process, because a new process shows them again.
+     * @type {Set<string>}
+     */
+    this.ackedNotices = new Set();
     this._setLifecycle('STARTING');
     await this._adopt(hc, false);
   }

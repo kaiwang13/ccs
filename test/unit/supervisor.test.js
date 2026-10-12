@@ -160,6 +160,38 @@ test('R11(b): a setup screen gates only after 2 consecutive 1 s scans; it ungate
   s.sup.dispose();
 });
 
+test('R11(e): an acknowledgement notice is confirmed with one Enter and never gates', async (t) => {
+  const s = setup(t);
+  await s.sup.start();
+  const notice = "We're changing auto mode to no longer charge for classifier requests in Claude Code.\r\n"
+    + "However, this session isn't eligible because your requests go through\r\n"
+    + "ai-gateway.prod.shu.team, which isn't compatible with this update.\r\n"
+    + 'Enter to continue · Esc to cancel\r\n';
+  const before = s.holders[0].calls.length;
+  s.holders[0].data(RESET(30) + notice);
+  await s.tickAndSettle(1000);
+  assert.equal(s.holders[0].calls.length, before, 'one scan is not enough to press a notice');
+  await s.tickAndSettle(2000);
+  const writes = s.holders[0].calls.slice(before).filter((c) => c[0] === 'write');
+  assert.deepEqual(writes, [['write', '\r', false]], 'exactly one Enter');
+  assert.notEqual(s.sup.lifecycle, 'SETUP_GATED');
+  assert.ok(!s.sup.gates().includes('SETUP'));
+  assert.ok(s.events.some((e) => e[0] === 'notice' && e[1].code === 'NOTICE_ACKED'), 'the auto-confirm is announced');
+  s.sup.dispose();
+});
+
+test('R11(f): Enter is pressed once however long the notice stays up, and never on a partial match', async (t) => {
+  const s = setup(t);
+  await s.sup.start();
+  s.holders[0].data(RESET(30) + "We're changing auto mode\r\nwhich isn't compatible with this update\r\n");
+  await s.tickAndSettle(6000);
+  assert.equal(s.holders[0].calls.filter((c) => c[0] === 'write').length, 1, 'a lingering notice is confirmed once, not on every scan');
+  s.holders[0].data(RESET(30) + "We're changing auto mode to no longer charge for classifier requests\r\n");
+  await s.tickAndSettle(6000);
+  assert.equal(s.holders[0].calls.filter((c) => c[0] === 'write').length, 1, 'Enter must not be pressed on a notice ccs cannot read in full');
+  s.sup.dispose();
+});
+
 test('R11(a): setup text only in scrollback, not on the PTY screen rows, never gates', async (t) => {
   const s = setup(t);
   await s.sup.start();
