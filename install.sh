@@ -1,8 +1,8 @@
 #!/bin/sh
 # ccs installer — install, update and uninstall from an authenticated clone (this repository is private).
 #
-#   git clone git@github.com:kaiwang13/AgentServer.git ~/src/AgentServer
-#   cd ~/src/AgentServer
+#   git clone git@github.com:kaiwang13/ccs.git ~/src/ccs
+#   cd ~/src/ccs
 #   CCS_REPO="$PWD" sh install.sh
 #   CCS_REPO="$PWD" sh install.sh update
 #   sh install.sh uninstall
@@ -18,7 +18,7 @@
 # the running ones, swaps the symlink, and starts exactly those again, resuming each conversation.
 set -eu
 
-REPO="${CCS_REPO:-https://github.com/kaiwang13/AgentServer.git}"
+REPO="${CCS_REPO:-https://github.com/kaiwang13/ccs.git}"
 REF="${CCS_REF:-main}"
 ROOT="${CCS_HOME:-$HOME/.local/share/ccs}"
 BIN="${CCS_BIN_DIR:-$HOME/.local/bin}"

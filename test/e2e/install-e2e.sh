@@ -15,7 +15,7 @@
 #   CCS_E2E_REPO=$PWD sh test/e2e/install-e2e.sh   # test this working copy instead
 set -eu
 
-REPO_UNDER_TEST="${CCS_E2E_REPO:-https://github.com/kaiwang13/AgentServer.git}"
+REPO_UNDER_TEST="${CCS_E2E_REPO:-https://github.com/kaiwang13/ccs.git}"
 REF="${CCS_E2E_REF:-main}"
 PREFIX=$(mktemp -d "${TMPDIR:-/tmp}/ccs-e2e-XXXXXX")
 REAL_STATE="${HOME}/.local/state/ccs"

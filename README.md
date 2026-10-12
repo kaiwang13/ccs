@@ -79,8 +79,8 @@ The repository is private, so install from a clone you are authorised to read (o
 GitHub account, or HTTPS with a credential helper such as `gh auth setup-git`):
 
 ```sh
-git clone git@github.com:kaiwang13/AgentServer.git ~/src/AgentServer
-cd ~/src/AgentServer
+git clone git@github.com:kaiwang13/ccs.git ~/src/ccs
+cd ~/src/ccs
 CCS_REPO="$PWD" sh install.sh
 ```
 
@@ -96,7 +96,7 @@ ccs doctor --lite             # fix every FAIL before going further
 Pull, then install from the clone again:
 
 ```sh
-cd ~/src/AgentServer && git pull
+cd ~/src/ccs && git pull
 CCS_REPO="$PWD" sh install.sh update
 ```
 
@@ -138,7 +138,7 @@ stop the sessions of the one you use — which is what makes that test safe to r
 ### Uninstall
 
 ```sh
-sh ~/src/AgentServer/install.sh uninstall
+sh ~/src/ccs/install.sh uninstall
 ```
 
 Stops running sessions and removes the install and the wrapper. **Session records are kept** so a
@@ -148,7 +148,7 @@ reinstall picks them up; add `--purge` to delete them and the config too. Claude
 ### From a clone instead
 
 ```bash
-git clone https://github.com/kaiwang13/AgentServer.git ccs && cd ccs
+git clone https://github.com/kaiwang13/ccs.git ccs && cd ccs
 npm ci && npm run build:native && npm test
 ```
 
