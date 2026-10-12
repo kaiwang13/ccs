@@ -214,6 +214,7 @@ test('a message typed while the agent is still starting waits for RUNNING, then 
   link.emit('state', { t: 'STATE', lifecycle: 'RUNNING', claude: { status: 'idle', waitingFor: null } });
   await waitFor(() => link.inputs.length === 1, { timeoutMs: 3000, what: 'typed once running' });
   assert.deepEqual(link.inputs, [{ text: 'hello after resume' }]);
+});
 
 /** Records of a turn that asks a question. Claude writes the message holding the question's tool call only once the
  *  question is answered, so `before` is what is in the transcript while the prompt is showing. @param {string} prompt */
