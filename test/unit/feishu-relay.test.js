@@ -203,19 +203,33 @@ test('a session that was just stopped counts as stopped at once, not after the i
   assert.equal(conn._sessionState('s1').live, false, 'the router must not type into a dead session');
 });
 
+/** Records of a turn that asks a question. Claude writes the message holding the question's tool call only once the
+ *  question is answered, so `before` is what is in the transcript while the prompt is showing. @param {string} prompt */
+function askTurn(prompt) {
+  const ask = { type: 'assistant', uuid: `ask-${prompt}`, isSidechain: false, message: { role: 'assistant', content: [{ type: 'tool_use', id: `tq-${prompt}`, name: 'AskUserQuestion', input: { questions: [] } }] } };
+  const answer = { type: 'user', uuid: `ans-${prompt}`, isSidechain: false, message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: `tq-${prompt}`, content: 'answered: One topic group' }] } };
+  return { before: [userRec(prompt)], after: [ask, answer, asstRec('after the answer'), endRec(5000)] };
+}
+
+/** Show the question dialog, wait for `n` question cards in all, and take the dialog away again.
+ *  @param {FakeLink} link @param {FakeGateway} gw @param {string} chatId @param {number} n */
+async function askOnce(link, gw, chatId, n) {
+  link.lines = screen('claude-ask-question.txt');
+  link.state('waiting', 'input needed');
+  await waitFor(() => cards(gw, chatId).filter((/** @type {any} */ m) => m.title.startsWith('❓')).length === n, { timeoutMs: 3000, what: `question card ${n}` });
+  link.state('busy');
+  await waitFor(() => cards(gw, chatId).filter((/** @type {any} */ m) => /answered at the terminal/.test(m.footer || '')).length === n, { timeoutMs: 3000, what: `question ${n} closed` });
+}
+
 test('Claude: a turn that goes on after a prompt continues in a new card below the prompt card, not above it', async (t) => {
   const sid = 'aaaaaaaa-0000-0000-0000-000000000001';
   const { gw, link, paths, chatId } = await liveSession(t, { sessionId: sid });
-  const ask = { type: 'assistant', uuid: 'ask1', isSidechain: false, message: { role: 'assistant', content: [{ type: 'tool_use', id: 'tq', name: 'AskUserQuestion', input: { questions: [] } }] } };
-  appendTranscript(paths, sid, [userRec('write the script'), asstRec('before the question'), ask]);
+  const turn = askTurn('write the script');
+  appendTranscript(paths, sid, [...turn.before, asstRec('before the question')]);
   const turnCards = () => cards(gw, chatId).filter((/** @type {any} */ m) => m.title.includes('write the script'));
-  await waitFor(() => turnCards().some((/** @type {any} */ m) => JSON.stringify(m).includes('AskUserQuestion')), { timeoutMs: 3000, what: 'turn card' });
-  link.lines = screen('claude-ask-question.txt');
-  link.state('waiting', 'input needed');
-  await waitFor(() => cards(gw, chatId).some((/** @type {any} */ m) => m.title.startsWith('❓')), { timeoutMs: 3000, what: 'question card' });
-  link.state('busy');
-  const answer = { type: 'user', uuid: 'ans1', isSidechain: false, message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'tq', content: 'answered: One topic group' }] } };
-  appendTranscript(paths, sid, [answer, asstRec('after the answer'), endRec(5000)]);
+  await waitFor(() => turnCards().some((/** @type {any} */ m) => JSON.stringify(m).includes('before the question')), { timeoutMs: 3000, what: 'turn card' });
+  await askOnce(link, gw, chatId, 1);
+  appendTranscript(paths, sid, turn.after);
   await waitFor(() => turnCards().some((/** @type {any} */ m) => m.footer === '✓ 5s'), { timeoutMs: 3000, what: 'turn finished' });
   const all = cards(gw, chatId);
   const first = all.findIndex((/** @type {any} */ m) => m.title.includes('write the script'));
@@ -227,7 +241,27 @@ test('Claude: a turn that goes on after a prompt continues in a new card below t
   assert.doesNotMatch(JSON.stringify(all[first]), /after the answer/);
   assert.match(all[rest].title, /\(continued\)$/);
   assert.doesNotMatch(JSON.stringify(all[rest]), /before the question/);
-  assert.match(JSON.stringify(all[rest]), /answered: One topic group/, 'the question\'s tool and its answer open the new card');
+  assert.match(JSON.stringify(all[rest]), /answered: One topic group/, 'the question and its answer are on the new card');
   assert.match(JSON.stringify(all[rest]), /after the answer/);
   assert.equal(turnCards().length, 2);
+});
+
+test('Claude: a turn that starts with a question, asked in several steps, still continues in one new card below the last prompt card', async (t) => {
+  const sid = 'aaaaaaaa-0000-0000-0000-000000000002';
+  const { gw, link, paths, chatId } = await liveSession(t, { sessionId: sid });
+  const turn = askTurn('ask me two things');
+  appendTranscript(paths, sid, turn.before);
+  const turnCards = () => cards(gw, chatId).filter((/** @type {any} */ m) => m.title.includes('ask me two things'));
+  await waitFor(() => turnCards().length === 1, { timeoutMs: 3000, what: 'turn card' });
+  // A dialog with two questions and a Submit tab: each step is a prompt of its own.
+  for (let n = 1; n <= 3; n++) await askOnce(link, gw, chatId, n);
+  appendTranscript(paths, sid, turn.after);
+  await waitFor(() => turnCards().some((/** @type {any} */ m) => m.footer === '✓ 5s'), { timeoutMs: 3000, what: 'turn finished' });
+  const all = cards(gw, chatId);
+  const qs = all.map((/** @type {any} */ m, i) => (m.title.startsWith('❓') ? i : -1)).filter((i) => i >= 0);
+  const mine = all.map((/** @type {any} */ m, i) => (m.title.includes('ask me two things') ? i : -1)).filter((i) => i >= 0);
+  assert.equal(mine.length, 2, 'one closed card and one new card, not one per prompt');
+  assert.ok(mine[0] < qs[0] && mine[1] > qs[qs.length - 1], 'the new card comes after every prompt card');
+  assert.equal(all[mine[0]].footer, '↓ continued below');
+  assert.match(JSON.stringify(all[mine[1]]), /after the answer/);
 });

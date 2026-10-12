@@ -135,7 +135,7 @@ function nextLineStart(file, start) {
  * @typedef {{info: SessionInfo, link: ControlLink|null, pollTimer: ReturnType<typeof setInterval>|null, state: any,
  *   sessionId: string|null, tail: TranscriptTail|null, assembler: TurnAssembler, sent: Array<{text: string, at: number, messageIds: string[], claimed: boolean}>,
  *   ackNext: string[]|null, acks: Map<number, string[]>,
- *   cards: Map<number, {ids: string[], from: number, title?: string, lastAt: number, timer: ReturnType<typeof setTimeout>|null, chain: Promise<void>}>,
+ *   cards: Map<number, {ids: string[], from: number, cont: boolean, title?: string, lastAt: number, timer: ReturnType<typeof setTimeout>|null, chain: Promise<void>}>,
  *   statusText: string, statusSentText: string|null, statusTimer: ReturnType<typeof setTimeout>|null,
  *   statusWriting: boolean, statusWriteAgain: boolean,
  *   catchingUp: boolean, since: number, discoverAt: number, creatingGroup: boolean, groupRetryAt: number,
@@ -839,7 +839,7 @@ class Connector {
     const g = this.state.groups[r.info.id];
     if (!g || g.removed) return;
     let c = r.cards.get(turn.id);
-    if (!c) { c = { ids: [], from: 0, lastAt: 0, timer: null, chain: Promise.resolve() }; r.cards.set(turn.id, c); }
+    if (!c) { c = { ids: [], from: 0, cont: false, lastAt: 0, timer: null, chain: Promise.resolve() }; r.cards.set(turn.id, c); }
     const card = c;
     const run = () => {
       card.timer = null;
@@ -880,11 +880,11 @@ class Connector {
     if (list.length) this.state.openCards[id] = list; else delete this.state.openCards[id];
   }
 
-  /** @param {string} chatId @param {{ids: string[], from: number, title?: string}} card @param {import('./turns').Turn} turn @param {string} [foot] */
+  /** @param {string} chatId @param {{ids: string[], from: number, cont: boolean, title?: string}} card @param {import('./turns').Turn} turn @param {string} [foot] */
   async _writeTurn(chatId, card, turn, foot) {
     // A continuation card is not sent until it has something to show: an empty "…" right under a prompt card is noise.
-    if (card.from && !card.ids.length && !turn.done && turn.items.length <= card.from) return;
-    const msgs = renderTurn(turn, { from: card.from, foot });
+    if (card.cont && !card.ids.length && !turn.done && turn.items.length <= card.from) return;
+    const msgs = renderTurn(turn, { from: card.from, continued: card.cont, foot });
     if (msgs[0] && msgs[0].kind === 'card') card.title = msgs[0].title;
     for (let i = 0; i < msgs.length; i++) {
       if (i < card.ids.length) {
@@ -1158,17 +1158,15 @@ class Connector {
     const card = turn && r.cards.get(turn.id);
     if (!g || !turn || !card) return Promise.resolve();
     if (card.timer) { clearTimeout(card.timer); card.timer = null; } // the closing write below shows the same items
+    // Even with no items: Claude writes the message that opened the prompt (its tool call, and any text or thinking
+    // before it) only after the prompt is answered, so a turn that starts with a question has nothing yet.
     const upTo = turn.items.length;
     const closed = card.chain.then(async () => {
-      // Nothing to close: the card from the last split has not been sent yet, or nothing came since.
-      if ((card.from && !card.ids.length) || upTo <= card.from) return;
-      const items = turn.items.slice(0, upTo);
-      // The new card starts at the tool the prompt is about (still without a result), so its result — or, for a
-      // question, the answer — shows up there instead of on the closed card.
-      const pending = items.findIndex((i, n) => n >= card.from && i.type === 'tool' && i.result === null);
-      await this._writeTurn(g.chatId, card, { ...turn, items }, '↓ continued below');
+      if (card.cont && !card.ids.length) return; // already split, and the new card has not been sent yet
+      await this._writeTurn(g.chatId, card, { ...turn, items: turn.items.slice(0, upTo) }, '↓ continued below');
       card.ids = [];
-      card.from = pending < 0 ? upTo : pending;
+      card.from = upTo;
+      card.cont = true;
       this._noteOpenCard(r, turn, card);
     }).catch((e) => this.log('card.error', { error: String(e) }));
     card.chain = closed.then(() => gate);
