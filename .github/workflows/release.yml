@@ -1,0 +1,102 @@
+name: release
+
+# Builds the prebuilt install packages (tools/build-release.sh): one per OS and architecture, each carrying the pinned
+# Node and the native addons compiled for it, so installing never compiles anything. Every package is then installed and
+# exercised on a stock runner of its platform (test/e2e/install-e2e.sh against the package) before anything is published.
+#
+#   push a tag vX.Y.Z      -> build, test, and publish a GitHub release with the packages as assets
+#   workflow_dispatch      -> build and test only; the packages are kept as workflow artifacts
+#   push touching packaging -> build and test only, so a packaging change is proven on macOS and Linux before a release
+
+on:
+  push:
+    tags: ['v*']
+    branches: ['**']
+    paths:
+      - install.sh
+      - tools/build-release.sh
+      - test/e2e/install-e2e.sh
+      - package.json
+      - package-lock.json
+      - native/**
+      - addons/feishu/package*.json
+      - .github/workflows/release.yml
+  workflow_dispatch:
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Linux packages are built on glibc 2.28 (the same floor as Node 24 itself), so they run on any distribution
+          # Node 24 runs on; the native addons would otherwise require the build host's newer glibc.
+          - { platform: linux-x64,    runner: ubuntu-latest,    container: 'quay.io/pypa/manylinux_2_28_x86_64' }
+          - { platform: linux-arm64,  runner: ubuntu-24.04-arm, container: 'quay.io/pypa/manylinux_2_28_aarch64' }
+          - { platform: darwin-arm64, runner: macos-latest,     container: '' }
+          - { platform: darwin-x64,   runner: macos-15-intel,   container: '' }
+    runs-on: ${{ matrix.runner }}
+    container: ${{ matrix.container || null }}
+    env:
+      CCS_PKG_COMMIT: ${{ github.sha }}
+      # Node 24's own minimum; addons built on a newer SDK would otherwise refuse to load on older macOS.
+      MACOSX_DEPLOYMENT_TARGET: '13.5'
+    steps:
+      - uses: actions/checkout@v4
+      - name: build the package
+        run: sh tools/build-release.sh dist
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ccs-${{ matrix.platform }}
+          path: |
+            dist/ccs-${{ matrix.platform }}.tar.gz
+            dist/ccs-${{ matrix.platform }}.tar.gz.sha256
+          if-no-files-found: error
+
+  # Installed on a stock runner (no container, no Node setup): what a user's machine looks like.
+  test:
+    needs: build
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { platform: linux-x64,    runner: ubuntu-latest }
+          - { platform: linux-arm64,  runner: ubuntu-24.04-arm }
+          - { platform: darwin-arm64, runner: macos-latest }
+          - { platform: darwin-x64,   runner: macos-15-intel }
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: ccs-${{ matrix.platform }}
+          path: dist
+      - name: install, update and uninstall the package
+        run: CCS_E2E_PACKAGE="$PWD/dist/ccs-${{ matrix.platform }}.tar.gz" sh test/e2e/install-e2e.sh
+
+  publish:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: test
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: the tag matches package.json
+        run: |
+          want="v$(node -p 'require("./package.json").version')"
+          [ "$want" = "$GITHUB_REF_NAME" ] || { echo "tag $GITHUB_REF_NAME does not match package.json version $want"; exit 1; }
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - name: publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          ls -l dist
+          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            gh release upload "$GITHUB_REF_NAME" dist/* --clobber
+          else
+            gh release create "$GITHUB_REF_NAME" dist/* --title "ccs $GITHUB_REF_NAME" --generate-notes
+          fi

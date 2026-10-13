@@ -12,3 +12,6 @@ docs/superpowers/
 # Local debugging artifacts: probe scripts, captured reports, screenshots. Diagnostic material is
 # never published — it is packaged and shared out of band instead.
 docs/debug/
+
+# Release packages built by tools/build-release.sh
+dist/

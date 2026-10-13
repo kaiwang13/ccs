@@ -13,6 +13,7 @@
 #
 #   sh test/e2e/install-e2e.sh                 # test the published main branch
 #   CCS_E2E_REPO=$PWD sh test/e2e/install-e2e.sh   # test this working copy instead
+#   CCS_E2E_PACKAGE=dist/ccs-linux-x64.tar.gz sh test/e2e/install-e2e.sh   # test a release package (no build)
 set -eu
 
 REPO_UNDER_TEST="${CCS_E2E_REPO:-https://github.com/kaiwang13/ccs.git}"
@@ -25,6 +26,8 @@ say()  { printf '\n\033[1m== %s\033[0m\n' "$*"; }
 pass() { ok=$((ok+1));   printf '  \033[32mok\033[0m   %s\n' "$*"; }
 bad()  { fail=$((fail+1)); printf '  \033[31mFAIL\033[0m %s\n' "$*"; }
 cleanup() { rm -rf "$PREFIX"; }
+# macOS has shasum, not sha256sum; the output format is the same.
+if command -v sha256sum >/dev/null 2>&1; then SHA256=sha256sum; else SHA256="shasum -a 256"; fi
 trap cleanup EXIT INT TERM
 
 # Fingerprint of what the installer must never touch: the set of session records, and every intent.json.
@@ -37,8 +40,8 @@ trap cleanup EXIT INT TERM
 fingerprint() { [ -d "$REAL_STATE" ] || { echo "no-state-dir"; return; }
   { find "$REAL_STATE" -mindepth 1 -maxdepth 4 -type d -print 2>/dev/null | sort
     find "$REAL_STATE" -type f ! -name 'state.json' -print0 2>/dev/null | sort -z \
-      | xargs -0 -r sha256sum 2>/dev/null
-  } | sha256sum | cut -d' ' -f1; }
+      | xargs -0 -r $SHA256 2>/dev/null
+  } | $SHA256 | cut -d' ' -f1; }
 
 BEFORE=$(fingerprint)
 say "real registry fingerprint before: ${BEFORE%"${BEFORE#????????}"}…"
@@ -47,8 +50,14 @@ export CCS_HOME="$PREFIX/share"
 export CCS_BIN_DIR="$PREFIX/bin"
 export CCS_STATE_DIR="$PREFIX/state"
 export CCS_RUNTIME_DIR="$PREFIX/run"
-export CCS_REPO="$REPO_UNDER_TEST"
-export CCS_REF="$REF"
+if [ -n "${CCS_E2E_PACKAGE:-}" ]; then
+  # A release package installs without git, npm or a compiler; CCS_REPO must be unset or it selects the source build.
+  unset CCS_REPO
+  export CCS_PACKAGE="$CCS_E2E_PACKAGE"
+else
+  export CCS_REPO="$REPO_UNDER_TEST"
+  export CCS_REF="$REF"
+fi
 WRAPPER="$CCS_BIN_DIR/ccs"
 INSTALLER=${CCS_E2E_INSTALLER:-./install.sh}
 
@@ -70,7 +79,14 @@ if "$WRAPPER" ls --json 2>/dev/null | grep -q '^\[\]$'; then pass "isolated regi
 else bad "isolated install sees sessions — NOT isolated"; "$WRAPPER" ls --json 2>/dev/null | head -5; fi
 
 say "the Feishu add-on stays off unless set up"
-[ ! -d "$CCS_HOME/current/addons/feishu/node_modules" ] && pass "no Feishu dependencies installed without the enabled marker" || bad "Feishu dependencies installed although the add-on was never enabled"
+if [ -n "${CCS_E2E_PACKAGE:-}" ]; then
+  # A package carries the add-on's (pure JS) dependencies so it never needs npm; they stay unused until set up.
+  [ -x "$CCS_HOME/current/runtime/bin/node" ] && pass "package runs on its bundled node" || bad "package has no runtime/bin/node"
+  grep -q 'current/runtime/bin/node' "$WRAPPER" && pass "wrapper runs the bundled node" || bad "wrapper does not run the bundled node"
+  [ -d "$CCS_HOME/current/addons/feishu/node_modules/@larksuite/channel" ] && pass "Feishu dependencies are bundled" || bad "Feishu dependencies missing from the package"
+else
+  [ ! -d "$CCS_HOME/current/addons/feishu/node_modules" ] && pass "no Feishu dependencies installed without the enabled marker" || bad "Feishu dependencies installed although the add-on was never enabled"
+fi
 "$WRAPPER" feishu status >/dev/null 2>&1 && _fs=0 || _fs=$?
 [ "$_fs" -eq 2 ] && pass "ccs feishu status: not set up (exit 2)" || bad "ccs feishu status exited $_fs, expected 2"
 
@@ -93,12 +109,12 @@ say "uninstall keeps session records"
 # Plant a record so the assertion has something to protect — an empty registry proves nothing.
 mkdir -p "$CCS_STATE_DIR/hosts/testhost/sessions/deadbeef"
 printf '{"schema":"ccs.intent/1","id":"deadbeef","nameAtCreate":"keepme"}\n' > "$CCS_STATE_DIR/hosts/testhost/sessions/deadbeef/intent.json"
-RECORD_SUM=$(sha256sum "$CCS_STATE_DIR/hosts/testhost/sessions/deadbeef/intent.json" | cut -d" " -f1)
+RECORD_SUM=$($SHA256 "$CCS_STATE_DIR/hosts/testhost/sessions/deadbeef/intent.json" | cut -d" " -f1)
 if sh "$INSTALLER" uninstall >"$PREFIX/uninstall.log" 2>&1; then pass "uninstall exited 0"; else bad "uninstall failed"; tail -15 "$PREFIX/uninstall.log"; fi
 [ ! -e "$WRAPPER" ] && pass "wrapper removed" || bad "wrapper still present"
 [ ! -d "$CCS_HOME" ] && pass "install root removed" || bad "install root still present"
 if [ -f "$CCS_STATE_DIR/hosts/testhost/sessions/deadbeef/intent.json" ] \
-   && [ "$(sha256sum "$CCS_STATE_DIR/hosts/testhost/sessions/deadbeef/intent.json" | cut -d" " -f1)" = "$RECORD_SUM" ]; then
+   && [ "$($SHA256 "$CCS_STATE_DIR/hosts/testhost/sessions/deadbeef/intent.json" | cut -d" " -f1)" = "$RECORD_SUM" ]; then
   pass "planted session record survives uninstall byte-identical (no --purge)"
 else
   bad "uninstall destroyed or altered a session record without --purge"

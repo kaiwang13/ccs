@@ -16,7 +16,8 @@ phone (RC) ─┘     (emulator,        (owns the pty)
 Unlike `tmux` or `screen`, `ccs` does not own your scrollback. Each client renders into its own terminal,
 so you scroll with your normal mouse wheel, trackpad, and scrollbar — no prefix key, no copy mode.
 
-**Status: v0.5.0.** Adds an optional **Feishu (Lark) add-on**: every session is a topic in one `ccs` Feishu
+**Status: v0.5.1.** Installs from a **prebuilt package** per platform (Linux x64/arm64, macOS arm64/x64) — no
+Node, npm or compiler needed (see [Install](#install)). v0.5.0 added an optional **Feishu (Lark) add-on**: every session is a topic in one `ccs` Feishu
 group (or gets its own group, if you prefer), where you read the conversation as cards, send prompts, answer
 Claude's permission prompts and questions with a tap, interrupt, and wake a stopped session — from the phone or
 desktop app, in sync with the terminal ([`docs/feishu.md`](docs/feishu.md)). It is off unless you run
@@ -75,8 +76,36 @@ that depend on Linux facilities macOS does not have.
 
 ## Install
 
-The repository is private, so install from a clone you are authorised to read (over SSH with a key on your
-GitHub account, or HTTPS with a credential helper such as `gh auth setup-git`):
+### Prebuilt package (recommended)
+
+Each [release](https://github.com/kaiwang13/ccs/releases) has a package per platform — `ccs-linux-x64`,
+`ccs-linux-arm64`, `ccs-darwin-arm64` (Apple silicon), `ccs-darwin-x64` (Intel Mac). A package carries the
+Node it runs on and its native addons already compiled, so installing needs only `sh`, `tar` and `curl` (or
+`wget`): no Node, npm, git or compiler. The Linux packages run on any distribution with glibc 2.28 or newer.
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/kaiwang13/ccs/main/install.sh | sh
+```
+
+That downloads the package for this machine, checks its SHA-256, unpacks it as a release under
+`~/.local/share/ccs/releases/`, points `~/.local/share/ccs/current` at it, and puts a `ccs` wrapper in
+`~/.local/bin`. `CCS_VERSION=v0.5.1` pins a release instead of the latest. Offline, or to inspect it first:
+
+```sh
+tar -xzf ccs-linux-x64.tar.gz          # unpacks to ccs-<version>-linux-x64/
+sh ccs-*-linux-x64/install.sh          # installs that directory; nothing is downloaded
+```
+
+Then:
+
+```bash
+ccs doctor --lite             # fix every FAIL before going further
+```
+
+### From source
+
+Builds the native addons on your machine; needs git, Node 24 (the exact version in `package.json`
+`engines`), npm, make and a C compiler:
 
 ```sh
 git clone git@github.com:kaiwang13/ccs.git ~/src/ccs
@@ -84,16 +113,17 @@ cd ~/src/ccs
 CCS_REPO="$PWD" sh install.sh
 ```
 
-That clones and builds a release under `~/.local/share/ccs/releases/`, points `~/.local/share/ccs/current`
-at it, and puts a `ccs` wrapper in `~/.local/bin`. Then:
-
-```bash
-ccs doctor --lite             # fix every FAIL before going further
-```
+Setting `CCS_REPO` is what selects the source build; the layout and the wrapper are the same.
 
 ### Update
 
-Pull, then install from the clone again:
+A package install updates to the latest release (or `CCS_VERSION`):
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/kaiwang13/ccs/main/install.sh | sh -s update
+```
+
+A source install pulls, then installs from the clone again:
 
 ```sh
 cd ~/src/ccs && git pull
@@ -101,8 +131,9 @@ CCS_REPO="$PWD" sh install.sh update
 ```
 
 **Your sessions survive an update — you never recreate them.** Session records live in
-`~/.local/state/ccs`, outside the install, and are never touched. The update builds the new release
-**completely before anything stops**, so a failed build changes nothing; then it stops the sessions that
+`~/.local/state/ccs`, outside the install, and are never touched. The update builds (or downloads and
+checks) the new release **completely before anything stops**, so a failed build or a broken download
+changes nothing; then it stops the sessions that
 were running, switches the `current` symlink, and starts exactly those again with `--resume`, so each
 conversation continues where it was.
 
@@ -127,8 +158,9 @@ asserts the tree is byte-identical afterwards. It also plants a session record a
 uninstall unchanged.
 
 ```bash
-sh test/e2e/install-e2e.sh                      # against main — needs an authenticated clone (see Install above)
+sh test/e2e/install-e2e.sh                      # against main, built from source
 CCS_E2E_REPO=$PWD sh test/e2e/install-e2e.sh    # against your working copy
+CCS_E2E_PACKAGE=dist/ccs-linux-x64.tar.gz sh test/e2e/install-e2e.sh   # against a release package
 ```
 
 An install is **self-contained**: everything lands under `$HOME`, nothing needs `sudo`, and setting
@@ -138,14 +170,22 @@ stop the sessions of the one you use — which is what makes that test safe to r
 ### Uninstall
 
 ```sh
-sh ~/src/ccs/install.sh uninstall
+sh ~/.local/share/ccs/current/install.sh uninstall
 ```
 
 Stops running sessions and removes the install and the wrapper. **Session records are kept** so a
 reinstall picks them up; add `--purge` to delete them and the config too. Claude's own transcripts in
 `~/.claude/projects` are never touched by any of these commands.
 
-### From a clone instead
+### Building the release packages
+
+`sh tools/build-release.sh` builds the package for the machine it runs on into `dist/` (it downloads the
+pinned Node itself, so only a C/C++ toolchain, make, python3 and curl are needed). The `release` workflow
+(`.github/workflows/release.yml`) builds all four on GitHub — Linux inside `manylinux_2_28` for the glibc
+floor — installs each one on a stock runner of its platform with the e2e test above, and on a `vX.Y.Z` tag
+publishes them as the release's assets.
+
+### Running from a clone without installing
 
 ```bash
 git clone https://github.com/kaiwang13/ccs.git ccs && cd ccs
