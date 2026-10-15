@@ -41,8 +41,8 @@ class FakeHolder extends EventEmitter {
   names() { return this.calls.map((c) => c[0]); }
 }
 
-/** @param {import('node:test').TestContext} t @param {{timers?: object, config?: any, agent?: string, recover?: boolean, initialState?: object|null}} [o] */
-function setup(t, { timers = {}, config = DEFAULTS, stateWriter, agent, recover = false, initialState = null } = {}) {
+/** @param {import('node:test').TestContext} t @param {{timers?: object, config?: any, stateWriter?: Function, agent?: string, recover?: boolean, initialState?: object|null, wallNow?: () => number}} [o] */
+function setup(t, { timers = {}, config = DEFAULTS, stateWriter, agent, recover = false, initialState = null, wallNow } = {}) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ccsu-'));
   t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
   const claudeHome = path.join(dir, 'claude');
@@ -61,7 +61,7 @@ function setup(t, { timers = {}, config = DEFAULTS, stateWriter, agent, recover 
   /** @type {any[]} */
   const events = [];
   const sup = new Supervisor({ spec, config, clock, log, paths, screens: loadScreens('2.1.267'), timers, ...(stateWriter ? { stateWriter } : {}),
-    recover, ...(initialState ? { initialState } : {}),
+    recover, ...(initialState ? { initialState } : {}), ...(wallNow ? { wallNow } : {}),
     startHolder: async (o) => { started.push(o); holders.push(new FakeHolder(o.gen)); },
     connectHolder: async () => holders[holders.length - 1] });
   for (const ev of ['lifecycle', 'notice', 'clientExit', 'clientNotice', 'stopped', 'pty']) sup.on(ev, (v) => events.push([ev, v]));
@@ -141,6 +141,81 @@ test('I1: recover with unreplayed ring bytes seeds lastSessionId/launchedAtMs, s
   assert.equal(st.lastSessionId, 'seed-thread-id', 'the already-known thread id must survive _writeState, not be erased to null on the next write');
   assert.equal(st.launchedAtMs, 555555);
   s.sup.dispose();
+});
+
+test('Codex discovery uses Unix launch time and finds a delayed first prompt without binding old or reviewer threads', async (t) => {
+  const { DatabaseSync } = require('node:sqlite');
+  const { REQUIRED_COLUMNS } = require('../../src/codex/threads');
+  const launchedAt = 1791965347897;
+  const s = setup(t, { agent: 'codex', wallNow: () => launchedAt });
+  t.after(() => s.sup.dispose());
+  s.sup.paths.codexStateDb = path.join(s.dir, 'state_5.sqlite');
+  const db = new DatabaseSync(s.sup.paths.codexStateDb);
+  t.after(() => db.close());
+  db.exec(`CREATE TABLE threads (${REQUIRED_COLUMNS.map((c) => `${c} TEXT`).join(', ')}, source TEXT, thread_source TEXT)`);
+  const insert = db.prepare('INSERT INTO threads (id, cwd, created_at_ms, archived, source, thread_source) VALUES (?, ?, ?, 0, ?, ?)');
+  insert.run('older', s.dir, launchedAt - 16000, 'vscode', 'user');
+  await s.sup.start();
+  await s.tickAndSettle(2000);
+  assert.equal(s.sup.launchedAtMs, launchedAt, 'a process-relative clock would select the older thread');
+  assert.equal(s.sup.lastSessionId, null);
+  const idleMs = 2 * 60 * 60 * 1000;
+  await s.tickAndSettle(idleMs, 30000);
+  assert.equal(s.sup.lastSessionId, null);
+  insert.run('actual', s.dir, launchedAt + idleMs, 'vscode', 'user');
+  insert.run('reviewer', s.dir, launchedAt + idleMs + 100, '{"subagent":{"other":"guardian"}}', 'guardian_review');
+  await s.tickAndSettle(30000, 1000);
+  assert.equal(s.sup.lastSessionId, 'actual');
+  assert.equal(JSON.parse(fs.readFileSync(s.sup.spec.stateFile, 'utf8')).lastSessionId, 'actual');
+  assert.equal(s.sup.t.discovery, null, 'stop polling after the correct thread is known');
+});
+
+test('Codex discovery keeps polling after a long login wait and stops on disposal', async (t) => {
+  const s = setup(t, { agent: 'codex' });
+  t.after(() => s.sup.dispose());
+  await s.sup.start();
+  await s.tickAndSettle(2 * 60 * 60 * 1000, 30000);
+  assert.ok(s.sup.t.discovery, 'a live agent waiting for its first prompt still needs discovery');
+  s.sup.dispose();
+  assert.equal(s.sup.t.discovery, null);
+});
+
+test('Codex login chooser gates input and returns to RUNNING after login', async (t) => {
+  const s = setup(t, { agent: 'codex' });
+  t.after(() => s.sup.dispose());
+  await s.sup.start();
+  s.holders[0].data(RESET(30) + "Welcome to Codex, OpenAI's command-line coding agent\r\n"
+    + '1. Sign in with ChatGPT\r\n2. Sign in with Device Code\r\n3. Provide your own API key\r\nPress enter to continue');
+  await s.tickAndSettle(1000);
+  assert.equal(s.sup.lifecycle, 'RUNNING', 'one redraw is not enough to gate');
+  await s.tickAndSettle(1000);
+  assert.equal(s.sup.setupKind, 'login');
+  assert.ok(s.sup.gates().includes('SETUP'), 'Feishu INPUT must not type prompts into the login chooser');
+  assert.equal(s.holders[0].calls.filter((c) => c[0] === 'write').length, 0, 'never select a login method automatically');
+  s.holders[0].data(RESET(30) + 'Finish signing in via your browser\r\n'
+    + "If the link doesn't open automatically, press c to copy it:\r\nPress esc to cancel");
+  await s.tickAndSettle(2000);
+  assert.ok(s.sup.gates().includes('SETUP'), 'keep gating throughout browser authorization');
+  s.holders[0].data(RESET(30) + 'Ask Codex to do anything');
+  await s.tickAndSettle(1000);
+  assert.equal(s.sup.lifecycle, 'RUNNING', 'Codex has no Claude status file to bring STARTING back to RUNNING');
+  assert.ok(!s.sup.gates().includes('SETUP'));
+});
+
+test('Codex folder trust requires terminal confirmation and never receives automatic Enter', async (t) => {
+  const s = setup(t, { agent: 'codex' });
+  t.after(() => s.sup.dispose());
+  await s.sup.start();
+  s.holders[0].data(RESET(30) + 'Folder access\r\n/work\r\nTrust this folder?\r\n'
+    + '1. Trust and continue\r\n2. Back to Agent Command Center\r\nenter continue · esc back');
+  await s.tickAndSettle(2000);
+  assert.equal(s.sup.setupKind, 'trust');
+  assert.ok(s.sup.gates().includes('SETUP'));
+  assert.equal(s.holders[0].calls.filter((c) => c[0] === 'write').length, 0);
+  s.holders[0].data(RESET(30) + 'Ask Codex to do anything');
+  await s.tickAndSettle(1000);
+  assert.equal(s.sup.lifecycle, 'RUNNING');
+  assert.ok(!s.sup.gates().includes('SETUP'));
 });
 
 test('R11(b): a setup screen gates only after 2 consecutive 1 s scans; it ungates when it leaves the screen', async (t) => {

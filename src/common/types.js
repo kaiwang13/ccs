@@ -8,5 +8,6 @@
 /** @typedef {{id: string, label: string, capabilities: Capabilities,
  *             resolveBin: Function, buildLaunch: Function, writeSettingsFile: Function,
  *             observe: Function, preflight: Function, doctorChecks: Function,
- *             discoverSessionId: Function, extraArgsAllow: Function, findResumeSession: Function}} Agent */
+ *             discoverSessionId: Function, extraArgsAllow: Function, findResumeSession: Function,
+ *             matchSetup?: (screen: string) => 'login'|'trust'|null}} Agent */
 module.exports = {};

@@ -84,14 +84,14 @@ test('I3 regression guard: --agent claude (and the default agent) still rejects 
 });
 
 // I5: `ccs new` used to read ~/.claude.json and print Claude's own trust-dialog message unconditionally,
-// even for a Codex session, which has no trust-dialog concept at all (capabilities.trustGate is false for
-// it). `trustedWork: false` is the same makeCcsEnv fixture the existing Claude-path trust test in
+// even for a Codex session, which does not use Claude's trust record (capabilities.trustGate is false
+// for it). `trustedWork: false` is the same makeCcsEnv fixture the existing Claude-path trust test in
 // test/integration/cli.test.js ('an untrusted cwd is announced and recorded as trustExpected') uses to
 // mark the work dir untrusted in ~/.claude.json.
 test('I5: --agent codex never prints Claude\'s trust-dialog message, even in a directory ~/.claude.json marks untrusted', async (t) => {
   const ctx = makeCcsEnv(t, { trustedWork: false });
   const r = await runCcs(ctx, ['new', 'x-codex-trust', '--agent', 'codex', '--no-attach']);
-  assert.doesNotMatch(r.stderr, /is not trusted by Claude yet/, `codex has no trust-dialog concept; got: ${r.stderr}`);
+  assert.doesNotMatch(r.stderr, /is not trusted by Claude yet/, `codex must not read Claude's trust record; got: ${r.stderr}`);
 });
 
 // M7: `ccs new --agent codex --resume <id>` used to validate every --resume id against Claude's

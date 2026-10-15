@@ -55,9 +55,9 @@ class Supervisor extends EventEmitter {
    *   screens: {onboarding: string[], login: string[], trust: string[], suspendBanner: string, ack: string[][]}, recover?: boolean,
    *   startHolder: (o: {gen: number, argv: string[], cols: number, rows: number}) => Promise<void>,
    *   connectHolder: (sockPath: string) => Promise<import('./holderclient').HolderClient>,
-   *   clientsInfo?: () => object[], timers?: Partial<typeof DEFAULT_TIMERS>}} o
+   *   clientsInfo?: () => object[], timers?: Partial<typeof DEFAULT_TIMERS>, wallNow?: () => number}} o
    */
-  constructor({ spec, config, clock, log, paths, screens, recover = false, startHolder, connectHolder, clientsInfo = () => [], timers = {}, stateWriter = defaultStateWriter, initialState = null }) {
+  constructor({ spec, config, clock, log, paths, screens, recover = false, startHolder, connectHolder, clientsInfo = () => [], timers = {}, stateWriter = defaultStateWriter, initialState = null, wallNow = Date.now }) {
     super();
     this.spec = spec;
     this.stateWriter = stateWriter;
@@ -66,6 +66,8 @@ class Supervisor extends EventEmitter {
     this.pendingState = null;
     this.config = config;
     this.clock = clock;
+    // Codex's database timestamps use Unix time; policy timers still use the monotonic clock.
+    this.wallNow = wallNow;
     this.log = log;
     this.paths = paths;
     this.screens = screens;
@@ -157,7 +159,7 @@ class Supervisor extends EventEmitter {
   async start() {
     if (!this.recover) {
       this.gen = 1;
-      this.launchedAtMs = this.clock.now();
+      this.launchedAtMs = this.wallNow();
       await this.startHolder({ gen: this.gen, argv: this.spec.claude.argv, cols: this.spec.pty.cols, rows: this.spec.pty.rows });
     }
     const hc = await this._connect(this.timers.holderConnectMs);
@@ -368,7 +370,6 @@ class Supervisor extends EventEmitter {
     const agent = getAgent(this.spec.agent);
     if (!shouldDiscover(agent, this.lastSessionId)) return;
     const delay = nextDiscoveryDelayMs(attempt);
-    if (delay === null) { if (this.log) this.log.info('discovery.gave_up', { attempts: attempt }); return; }
     this.t.discovery = this.clock.setTimeout(() => {
       this.t.discovery = null;
       if (this.exitHandled) return;
@@ -419,8 +420,9 @@ class Supervisor extends EventEmitter {
   /** Setup detection (spec §3.10, R11): PTY screen rows only, 2 consecutive matching scans, weak login strings excluded, no login gate while busy. */
   _scan() {
     if (!['STARTING', 'STARTING_SLOW', 'RUNNING', 'SETUP_GATED', 'BLOCKED'].includes(this.lifecycle)) return;
+    const agent = getAgent(this.spec.agent);
     /** @type {'trust'|'login'|'onboarding'|'ack'|null} */
-    let kind = matchSetup(this.screenText(), this.gateScreens);
+    let kind = agent.matchSetup ? agent.matchSetup(this.screenText()) : matchSetup(this.screenText(), this.gateScreens);
     if (kind === 'login' && this.lifecycle === 'RUNNING' && this.observed && this.observed.status === 'busy') kind = null;
     // An acknowledgement notice is not a setup screen: it wants one Enter and carries no decision,
     // so confirm it rather than gating the session. Leaving it up stranded attached terminals (the
@@ -448,7 +450,7 @@ class Supervisor extends EventEmitter {
       }
     } else if (this.lifecycle === 'SETUP_GATED') {
       this.setupKind = null;
-      this._setLifecycle(this.observed ? 'RUNNING' : 'STARTING');
+      this._setLifecycle(this.observed || !agent.capabilities.liveStatus ? 'RUNNING' : 'STARTING');
     }
   }
 
@@ -521,7 +523,7 @@ class Supervisor extends EventEmitter {
     const lockFile = this.paths.holderLock(this.spec.ccsId);
     for (let i = 0; i < 100 && isLocked(lockFile); i++) await sleep(this.clock, 50);   // the old holder (and so the old claude) is gone
     this.gen += 1;
-    this.launchedAtMs = this.clock.now();
+    this.launchedAtMs = this.wallNow();
     await this.startHolder({ gen: this.gen, argv, cols: this.pty.cols, rows: this.pty.rows });
     const hc = await this._connect(this.timers.holderConnectMs);
     this.observed = null;

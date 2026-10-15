@@ -49,24 +49,26 @@ function checkThreadSchema(paths) {
 }
 
 /**
- * The newest non-archived thread created in `cwd` at or after `createdAfterMs`.
+ * The sole non-archived user thread created in `cwd` at or after `createdAfterMs`.
  *
- * ccs launched the process with a cwd it chose and knows when, so this correlation is exact: other
- * Codex sessions have different cwds, and the time bound separates two ccs sessions sharing one
- * directory. Returns null when nothing matches — a WRONG id would make `ccs restart` resume somebody
- * else's conversation, which is far worse than an honest blank.
+ * Exclude subagents/reviewers when the database exposes their source. More than one candidate is
+ * ambiguous (another terminal can share the cwd); never guess which conversation to resume.
  * @param {any} paths @param {{cwd: string, createdAfterMs: number}} a @returns {Thread|null}
  */
 function findThreadByCwd(paths, { cwd, createdAfterMs }) {
+  if (!Number.isFinite(createdAfterMs) || createdAfterMs < 0) return null;
   const db = open(paths);
   if (!db) return null;
   try {
-    const row = db.prepare(
+    const cols = db.prepare('PRAGMA table_info(threads)').all().map((c) => String(c.name));
+    const userOnly = cols.includes('thread_source') ? " AND COALESCE(thread_source, 'user') = 'user'" : '';
+    const interactiveOnly = cols.includes('source') ? " AND source IN ('cli', 'vscode')" : '';
+    const rows = db.prepare(
       `SELECT ${REQUIRED_COLUMNS.join(', ')} FROM threads
-       WHERE cwd = ? AND CAST(created_at_ms AS INTEGER) >= ? AND CAST(archived AS INTEGER) = 0
-       ORDER BY CAST(created_at_ms AS INTEGER) DESC LIMIT 1`,
-    ).get(cwd, createdAfterMs);
-    return row ? toThread(row) : null;
+       WHERE cwd = ? AND CAST(created_at_ms AS INTEGER) >= ? AND CAST(archived AS INTEGER) = 0${userOnly}${interactiveOnly}
+       ORDER BY CAST(created_at_ms AS INTEGER) DESC LIMIT 2`,
+    ).all(cwd, createdAfterMs);
+    return rows.length === 1 ? toThread(rows[0]) : null;
   } catch { return null; } finally { try { db.close(); } catch { /* already gone */ } }
 }
 

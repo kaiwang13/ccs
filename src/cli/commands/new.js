@@ -102,8 +102,8 @@ async function run(argv, ctx) {
   }
 
   // Trust is read, never written (spec §4.14): an untrusted directory means Claude will show its trust
-  // dialog, which only an --allow-setup client may answer. Codex has no equivalent gate to check
-  // (capabilities.trustGate is false for it), so `trusted` is unconditionally true and none of this applies.
+  // dialog, which only an --allow-setup client may answer. Codex does not use this Claude trust record
+  // (capabilities.trustGate is false for it); its setup screens are detected by the supervisor at runtime.
   const trustGated = getAgent(agent).capabilities.trustGate;
   let claudeJson = null;
   if (trustGated) {

@@ -1,6 +1,6 @@
 'use strict';
 // The discovery poll is a small, self-contained policy: only agents that cannot be told their id poll,
-// it stops once found, and it gives up after a bound rather than polling a dead session forever.
+// it stops once found, and backs off while waiting for a live session's first prompt.
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const { shouldDiscover, nextDiscoveryDelayMs } = require('../../src/sessiond/discovery.js');
@@ -13,8 +13,9 @@ test('only agents that cannot be assigned an id discover one', () => {
     'claude is told its id — it must never poll');
 });
 
-test('the poll backs off and gives up rather than running forever', () => {
+test('the poll backs off to 30 seconds and still discovers a delayed first prompt', () => {
   assert.equal(nextDiscoveryDelayMs(0), 2000);
   assert.ok(nextDiscoveryDelayMs(5) > nextDiscoveryDelayMs(0), 'must back off');
-  assert.equal(nextDiscoveryDelayMs(100), null, 'must give up: a session with no first turn never gets an id');
+  assert.equal(nextDiscoveryDelayMs(100), 30000);
+  assert.equal(nextDiscoveryDelayMs(10000), 30000, 'an idle or login-gated session may get its first prompt much later');
 });
