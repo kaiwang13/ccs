@@ -35,7 +35,7 @@ test('a missing database degrades to a reported error, never a throw', () => {
   assert.ok(r.error, 'must explain why rather than throwing');
 });
 
-test('findThreadByCwd correlates on cwd and the launch time, newest first', (t) => {
+test('findThreadByCwd correlates on cwd and the launch time', (t) => {
   const paths = db(t, [
     { id: 'old', cwd: '/w/a', created_at_ms: '1000', updated_at_ms: '1500', name: 'older', title: 't1', cli_version: '0.155.0', archived: '0' },
     { id: 'new', cwd: '/w/a', created_at_ms: '3000', updated_at_ms: '3500', name: 'newer', title: 't2', cli_version: '0.155.0', archived: '0' },
@@ -45,6 +45,39 @@ test('findThreadByCwd correlates on cwd and the launch time, newest first', (t) 
   assert.equal(got.id, 'new', 'the thread created after launch in OUR cwd, not an older one or another directory');
   assert.equal(got.name, 'newer');
   assert.equal(got.updatedAtMs, 3500);
+});
+
+test('multiple matching user threads are ambiguous and must not be assigned to a session', (t) => {
+  const paths = db(t, [
+    { id: 'first', cwd: '/w/a', created_at_ms: '3000', archived: '0' },
+    { id: 'second', cwd: '/w/a', created_at_ms: '3100', archived: '0' },
+  ]);
+  assert.equal(findThreadByCwd(paths, { cwd: '/w/a', createdAfterMs: 2000 }), null);
+});
+
+test('source metadata excludes reviewer, subagent and noninteractive threads', (t) => {
+  const paths = db(t, [
+    { id: 'user', cwd: '/w/a', created_at_ms: '3000', archived: '0' },
+    { id: 'guardian', cwd: '/w/a', created_at_ms: '3100', archived: '0' },
+    { id: 'worker', cwd: '/w/a', created_at_ms: '3200', archived: '0' },
+    { id: 'exec', cwd: '/w/a', created_at_ms: '3300', archived: '0' },
+  ]);
+  const d = new DatabaseSync(paths.codexStateDb);
+  d.exec("ALTER TABLE threads ADD COLUMN thread_source TEXT; ALTER TABLE threads ADD COLUMN source TEXT;");
+  const set = d.prepare('UPDATE threads SET source = ?, thread_source = ? WHERE id = ?');
+  set.run('vscode', 'user', 'user');
+  set.run('{"subagent":{"other":"guardian"}}', 'guardian_review', 'guardian');
+  set.run('{"subagent":"worker"}', 'user', 'worker');
+  set.run('exec', 'user', 'exec');
+  d.close();
+  assert.equal(findThreadByCwd(paths, { cwd: '/w/a', createdAfterMs: 2000 }).id, 'user');
+});
+
+test('an unknown launch time cannot select another conversation', (t) => {
+  const paths = db(t, [{ id: 'x', cwd: '/w/a', created_at_ms: '3000', archived: '0' }]);
+  for (const createdAfterMs of [undefined, NaN, Infinity, -1]) {
+    assert.equal(findThreadByCwd(paths, { cwd: '/w/a', createdAfterMs }), null);
+  }
 });
 
 test('findThreadByCwd returns null when nothing matches rather than guessing', (t) => {

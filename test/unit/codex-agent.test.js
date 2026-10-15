@@ -88,6 +88,13 @@ test('claude does not use discovery — it is told its id at launch', () => {
   assert.equal(require('../../src/agents/claude.js').discoverSessionId({}), null);
 });
 
+test('Codex setup matching ignores partial login mentions and Claude notices', () => {
+  for (const text of ['Sign in with ChatGPT', 'Press enter to continue', 'Select login method', 'Trust this folder?',
+    "We're changing auto mode which isn't compatible with this update"]) {
+    assert.equal(codex.matchSetup(text), null);
+  }
+});
+
 test('resumeRequested: true resumes the exact validated thread id from intent.initialSessionId', () => {
   const l = codex.buildLaunch(ctx({ intent: { resumeRequested: true, initialSessionId: '01a0ba74-15de-7763-9852-1b5466afc64c' }, state: null }));
   assert.deepEqual(l.argv, ['/opt/codex/0.155.0/bin/codex', 'resume', '01a0ba74-15de-7763-9852-1b5466afc64c', '-C', '/w/proj']);

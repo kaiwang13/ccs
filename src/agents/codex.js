@@ -25,7 +25,7 @@ const capabilities = {
   assignableSessionId: false, // no --session-id equivalent; the id is discovered after launch
   nameInArgv: false,          // no -n NAME: the ccs name stays local to the registry
   remoteControl: 'daemon',    // `codex remote-control start` is a daemon, not a per-session flag (spec §9)
-  trustGate: false,           // Codex has no equivalent trust-dialog concept ccs can read or gate on
+  trustGate: false,           // no Claude trust record to preflight; runtime setup is detected below
 };
 
 /**
@@ -81,12 +81,23 @@ module.exports = {
    *  observation entirely when capabilities.liveStatus is false (see Task 7); `ccs ls` derives activity
    *  from the thread's updated_at_ms at render time instead. */
   observe: () => null,
+  // Match the setup screens seen in Codex 0.159.2.
+  matchSetup: (screen) => {
+    const text = screen.replace(/\s+/g, ' ');
+    if (['Folder access', 'Trust this folder?', '1. Trust and continue', '2. Back to Agent Command Center',
+      'enter continue', 'esc back'].every((s) => text.includes(s))) return 'trust';
+    const loginScreens = [
+      ["Welcome to Codex, OpenAI's command-line coding agent", '1. Sign in with ChatGPT',
+        '2. Sign in with Device Code', '3. Provide your own API key', 'Press enter to continue'],
+      ['Finish signing in via your browser', "If the link doesn't open automatically, press c to copy it:", 'Press esc to cancel'],
+    ];
+    return loginScreens.some((needles) => needles.every((s) => text.includes(s))) ? 'login' : null;
+  },
   preflight: (ctx) => require('../codex/preflight.js').runCodexPreflight(ctx),
   doctorChecks: (paths, config) => require('../codex/doctor.js').codexChecks(paths, config),
-  /** Codex mints its thread id on the first turn. Correlate on the cwd ccs chose and the time it
-   *  launched: other Codex sessions have different cwds, and the time bound separates two ccs sessions
-   *  sharing one directory. Returns null until the thread exists — a wrong id would make `ccs restart`
-   *  resume somebody else's conversation.
+  /** Codex mints its thread id on the first turn. Match a single user thread in the launch cwd,
+   *  using the Unix launch timestamp. Missing or ambiguous candidates return null — a wrong id
+   *  would make `ccs restart` resume somebody else's conversation.
    *  @param {{paths: any, cwd: string, launchedAtMs: number}} a */
   discoverSessionId: ({ paths, cwd, launchedAtMs }) => {
     const t = require('../codex/threads.js').findThreadByCwd(paths, { cwd, createdAfterMs: launchedAtMs });

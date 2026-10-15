@@ -82,6 +82,12 @@ was running. Its log: `ccs feishu status` prints the path.
   cannot reach Feishu (often a proxy that blocks it). Find a proxy that can (`ccs proxy check http://HOST:PORT`
   tests one) and set it: `ccs proxy feishu http://HOST:PORT`.
 - **Nothing arrives in groups:** check the long-connection subscription and `im:message.group_msg`.
+- **Codex stays silent:** use **Screen** to check whether it is waiting for authentication or folder trust, then
+  resolve that setup at a terminal. A custom provider may use its own credentials without a ChatGPT login;
+  restart a stale process after changing its provider configuration. Session-id discovery keeps retrying while
+  Codex is alive, including after a delayed first prompt.
+  It matches user threads created after the session's launch; ambiguous threads in the same directory remain
+  unlinked. Start with `ccs new NAME --agent codex --resume THREAD_ID` when choosing an existing conversation.
 - **"this session runs an older ccs":** restart that session (`ccs restart NAME`) after updating ccs.
 
 ## Live smoke checklist (release gate)
