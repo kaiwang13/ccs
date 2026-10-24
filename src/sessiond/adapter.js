@@ -148,13 +148,13 @@ class ClientAdapter {
   /** @param {Buffer} buf */
   _raw(buf) { if (this.phase !== 'PAUSED') this._enqueue(buf); }
 
-  /** Sends BYE and tells the owner to close. @param {string} reason @param {boolean} autoRejoin @param {string} [text] */
-  drop(reason, autoRejoin, text = '') {
+  /** Sends BYE and tells the owner to close. @param {string} reason @param {boolean} autoRejoin @param {string} [text] @param {object} [extra] more BYE fields */
+  drop(reason, autoRejoin, text = '', extra = {}) {
     if (this.closed) return;
     this.closed = true;
     if (this.noticeTimer !== null) { this.clock.clearTimeout(this.noticeTimer); this.noticeTimer = null; }
     this.pendingLive = [];
-    this.sendFrame(T.CONTROL, { t: 'BYE', reason, autoRejoin, text });
+    this.sendFrame(T.CONTROL, { t: 'BYE', reason, autoRejoin, text, ...extra });
     this.onDrop(reason, autoRejoin);
   }
 

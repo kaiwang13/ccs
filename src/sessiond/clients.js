@@ -8,7 +8,7 @@ const { buildJoinBytes, sendSnapshot, joinGeometry } = require('./snapshot');
 /**
  * @typedef {{id: string, fsock: import('../common/proto').FramedSocket, sock: import('node:net').Socket, hello: any, label: string,
  *   adapter: ClientAdapter, flags: {shrink: boolean, allowSetup: boolean}, lastPongAt: number, pingSeq: number, pingTimer: any,
- *   closed: boolean, lastInputAt: number, joining: boolean}} Client
+ *   closed: boolean, lastInputAt: number, joining: boolean, attachedAt: number}} Client
  */
 
 /**
@@ -66,13 +66,51 @@ class ClientRegistry extends EventEmitter {
   }
 
   /**
+   * The attached clients as `ccs clients` shows them. Ages are relative (ms) because the clock is monotonic;
+   * `idleMs` is null for a client that has never typed.
+   */
+  listing() {
+    const now = this.clock.now();
+    return this.clients.map((c) => ({ id: c.id, label: c.label, tty: typeof c.hello.tty === 'string' ? c.hello.tty : null,
+      pid: Number.isInteger(c.hello.pid) && c.hello.pid > 0 ? c.hello.pid : null, termProgram: typeof c.hello.termProgram === 'string' ? c.hello.termProgram : null,
+      cols: c.adapter.cols, rows: c.adapter.rows, phase: c.adapter.phase, stalled: c.adapter.stalled, unresponsive: c.adapter.unresponsive,
+      attachedMs: now - c.attachedAt, idleMs: c.lastInputAt > 0 ? now - c.lastInputAt : null }));
+  }
+
+  /**
+   * Detaches the named clients (BYE KICKED, no auto-rejoin), or with `allExcept` every client not named. The session
+   * itself is untouched. Ids that are not attached are reported back rather than failing the others.
+   * @param {{clients?: string[], allExcept?: string[], by?: string}} o
+   * @returns {{kicked: Array<{id: string, label: string}>, unknown: string[]}}
+   */
+  kick({ clients, allExcept, by = '' }) {
+    const who = by ? `detached by ${by}` : 'detached by ccs kick';
+    let targets;
+    /** @type {string[]} */
+    let unknown = [];
+    if (allExcept) {
+      targets = this.clients.filter((c) => !allExcept.includes(c.id));
+    } else {
+      const ids = clients || [];
+      targets = this.clients.filter((c) => ids.includes(c.id));
+      unknown = ids.filter((id) => !targets.some((c) => c.id === id));
+    }
+    for (const c of targets) {
+      this.log.info('client.kicked', { client: c.id, label: c.label, by });
+      // `text` is for attach clients that predate KICKED (they print it after "ended (kicked)"); current ones use `by`.
+      this.bye(c, 'KICKED', false, `${who} — the session keeps running; 'ccs attach ${this.sup.name}' to rejoin`, { by });
+    }
+    return { kicked: targets.map((c) => ({ id: c.id, label: c.label })), unknown };
+  }
+
+  /**
    * Registers a validated HELLO{role:'attach'} and starts its join.
    * @param {import('../common/proto').FramedSocket} fsock @param {import('node:net').Socket} sock @param {any} hello @param {string} id @returns {Client}
    */
   add(fsock, sock, hello, id) {
     const flags = { shrink: !!(hello.flags && hello.flags.shrink), allowSetup: !!(hello.flags && hello.flags.allowSetup) };
     /** @type {Client} */
-    const c = /** @type {any} */ ({ id, fsock, sock, hello, label: String(hello.label || id), flags, lastPongAt: this.clock.now(), pingSeq: 0, pingTimer: null, closed: false, lastInputAt: 0, joining: false });
+    const c = /** @type {any} */ ({ id, fsock, sock, hello, label: String(hello.label || id), flags, lastPongAt: this.clock.now(), pingSeq: 0, pingTimer: null, closed: false, lastInputAt: 0, joining: false, attachedAt: this.clock.now() });
     c.adapter = new ClientAdapter({ id, cols: hello.cols, rows: hello.rows, flags, label: c.label, config: this.config, tracker: this.sup.tracker, clock: this.clock,
       send: (type, payload) => { fsock.send(type, payload); }, writableLength: () => fsock.writableLength,
       onDrop: (reason) => { this.log.info('client.bye', { client: id, reason }); this._close(c); } });
@@ -220,8 +258,8 @@ class ClientRegistry extends EventEmitter {
     }, pingMs);
   }
 
-  /** @param {Client} c @param {string} reason @param {boolean} autoRejoin @param {string} text */
-  bye(c, reason, autoRejoin, text) { if (!c.closed) c.adapter.drop(reason, autoRejoin, text); }
+  /** @param {Client} c @param {string} reason @param {boolean} autoRejoin @param {string} text @param {object} [extra] */
+  bye(c, reason, autoRejoin, text, extra) { if (!c.closed) c.adapter.drop(reason, autoRejoin, text, extra); }
 
   /** @param {Client} c */
   _close(c) {

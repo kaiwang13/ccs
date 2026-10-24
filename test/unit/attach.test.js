@@ -53,6 +53,8 @@ test('detachLine variants', () => {
   assert.match(A.detachLine({ kind: 'detached', name: 'x', others: 0, at }), /detached from x 09:05 · still running · ccs a x/);
   assert.match(A.detachLine({ kind: 'detached', name: 'x', others: 2, at }), /\(2 other clients\)/);
   assert.match(A.detachLine({ kind: 'client-exit', name: 'x', others: 0, at }), /you ran \/exit/);
+  assert.match(A.detachLine({ kind: 'kicked', name: 'x', others: 0, at, reason: 'ssh pts/2' }), /detached from x 09:05 by ssh pts\/2 · still running · ccs a x/);
+  assert.match(A.detachLine({ kind: 'kicked', name: 'x', others: 0, at }), /detached from x 09:05 by ccs kick · still running/);
   assert.match(A.detachLine({ kind: 'lost', name: 'x', others: 0, at }), /lost connection to x/);
   assert.match(A.detachLine({ kind: 'ended', name: 'x', others: 0, at, reason: 'session ending' }), /x ended 09:05 \(session ending\)/);
 });

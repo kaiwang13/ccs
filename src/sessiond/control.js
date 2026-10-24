@@ -34,8 +34,8 @@ function inputBytes(args) {
 
 /**
  * ctl.sock server (spec §5.2, M1 message set). HELLO → WELCOME or REFUSE{PROTO|STOPPING|BLOCKED|NESTED|BELOW_FLOOR|TOO_SHORT};
- * role "attach" joins through the ClientRegistry; role "control" gets STATE pushes and REQ{STATUS|PEEK|STOP|INPUT} → RES and
- * never counts in arbitration. RESTART, RENAME, KICK and SIGCONT are M2/M3 (answered UNSUPPORTED).
+ * role "attach" joins through the ClientRegistry; role "control" gets STATE pushes and REQ{STATUS|PEEK|STOP|INPUT|CLIENTS|KICK} → RES
+ * and never counts in arbitration. RESTART, RENAME and SIGCONT are M2/M3 (answered UNSUPPORTED).
  */
 class ControlServer {
   /**
@@ -176,9 +176,29 @@ class ControlServer {
         return { ok: true, data: { lifecycle: this.sup.lifecycle } };
       case 'INPUT':
         return this._input(conn, m.args);
+      case 'CLIENTS':
+        return { ok: true, data: { clients: this.registry.listing() } };
+      case 'KICK':
+        return this._kick(m.args);
       default:
         return { ok: false, error: 'UNSUPPORTED' };
     }
+  }
+
+  /**
+   * KICK{clients: [id…]} detaches those clients; KICK{allExcept: [id…]} detaches every other one. `by` names who asked,
+   * for the kicked terminal's detach line.
+   * @param {any} args @returns {{ok: boolean, data?: any, error?: string}}
+   */
+  _kick(args) {
+    const ids = (/** @type {any} */ v) => Array.isArray(v) && v.length <= 256 && v.every((x) => typeof x === 'string' && x.length <= 32);
+    if (!args || typeof args !== 'object') return { ok: false, error: 'BAD_ARGS' };
+    const hasClients = args.clients !== undefined;
+    const hasExcept = args.allExcept !== undefined;
+    if (hasClients === hasExcept || (hasClients && (!ids(args.clients) || args.clients.length === 0)) || (hasExcept && !ids(args.allExcept))) return { ok: false, error: 'BAD_ARGS' };
+    // Printed on the kicked terminal: never let it carry escape sequences.
+    const by = typeof args.by === 'string' ? args.by.replace(/[\x00-\x1f\x7f-\x9f]/g, '').slice(0, 64) : '';
+    return { ok: true, data: this.registry.kick(hasClients ? { clients: args.clients, by } : { allExcept: args.allExcept, by }) };
   }
 
   /**

@@ -7,7 +7,7 @@ agent's full rendering in its own native scrollback. Remote Control is on by def
 [`../README.md`](../README.md).
 
 M1 ships: `ccs`, `ccs new`, `ccs attach`/`ccs a`, `ccs ls [--json]`, `ccs stop`, `ccs restart`, `ccs rm`,
-`ccs doctor --lite [--accept-config]`, and a minimal picker. Not yet: `ccs start`, `logs`, `kick`, `rename`,
+`ccs doctor --lite [--accept-config]`, and a minimal picker; later, `ccs clients` and `ccs kick`. Not yet: `ccs start`, `logs`, `rename`,
 `install` (releases + cron), reconcile, full doctor, the shim (M2/M3).
 
 A later, separate piece of work added Codex CLI as a second hostable agent on the exact same commands

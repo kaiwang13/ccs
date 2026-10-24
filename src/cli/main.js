@@ -12,6 +12,8 @@ const USAGE = `usage:
   ccs new [NAME] [--cwd DIR] [--no-attach] [--allow-setup] [--resume SESSION_ID] [--name-from-cwd] [--agent AGENT] [--proxy URL|none] [-- --model opus …]
   ccs attach|a [NAME] [--shrink] [--allow-setup]
   ccs ls [--json]
+  ccs clients [NAME] [--json]           the terminals attached to a session
+  ccs kick [NAME] CLIENT…|--others      detach those terminals, or all but yours (the session keeps running)
   ccs stop NAME|--all
   ccs restart NAME
   ccs rm NAME
@@ -21,7 +23,7 @@ const USAGE = `usage:
 keys while attached: Ctrl+Z or Ctrl+\\ detaches (the session keeps running)
 `;
 
-const LATER = new Set(['start', 'logs', 'kick', 'rename', 'install', 'reconcile', 'shim', 'peek']);
+const LATER = new Set(['start', 'logs', 'rename', 'install', 'reconcile', 'shim', 'peek']);
 
 /**
  * @param {{env: Record<string, string|undefined>, out: any, err: any, stdin: any}} io
@@ -62,6 +64,8 @@ async function main(argv, io = {}) {
       case 'new': return await require('./commands/new.js').run(rest, ctx);
       case 'attach': case 'a': return await require('./commands/attach.js').run(rest, ctx);
       case 'ls': case 'list': return await require('./commands/ls.js').run(rest, ctx);
+      case 'clients': return await require('./commands/clients.js').run(rest, ctx);
+      case 'kick': return await require('./commands/kick.js').run(rest, ctx);
       case 'stop': return await require('./commands/stop.js').run(rest, ctx);
       case 'restart': return await require('./commands/restart.js').run(rest, ctx);
       case 'rm': return await require('./commands/rm.js').run(rest, ctx);

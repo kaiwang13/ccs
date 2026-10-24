@@ -78,6 +78,11 @@ test('control role: STATUS, PEEK, UNSUPPORTED, STATE pushes; never counted by th
   assert.ok(peek.data.lines.length <= 4 && peek.data.lines.some((/** @type {string} */ l) => /❯/.test(l)));
   const un = await k.request('RENAME');
   assert.deepEqual([un.ok, un.error], [false, 'UNSUPPORTED']);
+  for (const args of [{}, { clients: [] }, { clients: 'c1' }, { clients: [1] }, { clients: ['c1'], allExcept: [] }, { allExcept: 'c1' }]) {
+    const r = await k.request('KICK', args);
+    assert.deepEqual([r.ok, r.error], [false, 'BAD_ARGS'], JSON.stringify(args));
+  }
+  assert.equal(a.bye, null, 'a rejected KICK detaches nobody');
   await waitFor(() => e.s.supervisor.pty.cols === 100, { timeoutMs: 3000, what: 'pty follows the attach client only' });
   await k.waitForState((s) => s.pty.cols === 100, 3000);
 });

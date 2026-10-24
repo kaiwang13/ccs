@@ -67,7 +67,7 @@ function detachBytes({ rows, alt, kittyDepth }) {
 }
 
 /**
- * @param {{kind: 'detached'|'client-exit'|'ended'|'lost'|'gave-up', name: string, others: number, at: Date, reason?: string}} a
+ * @param {{kind: 'detached'|'client-exit'|'kicked'|'ended'|'lost'|'gave-up', name: string, others: number, at: Date, reason?: string}} a
  */
 function detachLine({ kind, name, others, at, reason }) {
   const t = hhmm(at);
@@ -75,6 +75,8 @@ function detachLine({ kind, name, others, at, reason }) {
   if (kind === 'detached') {
     const who = others > 0 ? ` (${others} other client${others === 1 ? '' : 's'})` : '';
     text = `── ccs · detached from ${name} ${t} · still running${who} · ccs a ${name} ──`;
+  } else if (kind === 'kicked') {
+    text = `── ccs · detached from ${name} ${t} by ${reason || 'ccs kick'} · still running · ccs a ${name} ──`;
   } else if (kind === 'client-exit') {
     text = `── ccs · detached from ${name} ${t} · you ran /exit; the session keeps running · ccs a ${name} ──`;
   } else if (kind === 'ended') {
@@ -366,6 +368,7 @@ class AttachClient {
     const reason = String(msg.reason || '');
     this.dropSocket();
     if (reason === 'CLIENT_EXIT') { this.finish(0, 'client-exit', null, msg.text || null); return; }
+    if (reason === 'KICKED') { this.finish(0, 'kicked', typeof msg.by === 'string' && msg.by ? msg.by : null); return; }
     if (reason === 'BELOW_FLOOR') {
       this.restoreModes();
       this.onRefusedSize('BELOW_FLOOR', msg.need || { cols: this.config.size.floorCols, rows: this.config.size.floorRows });
@@ -456,7 +459,7 @@ class AttachClient {
 
   /**
    * @param {number} code
-   * @param {'detached'|'client-exit'|'ended'|'lost'|'gave-up'} kind
+   * @param {'detached'|'client-exit'|'kicked'|'ended'|'lost'|'gave-up'} kind
    * @param {string|null} reason
    * @param {string|null} [text]
    */

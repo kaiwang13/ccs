@@ -230,6 +230,8 @@ picker of your sessions.
 | `ccs new [NAME] [--cwd DIR] [--no-attach] [--agent claude\|codex] [--resume ID] [-- --model opus]` | Create a session and attach. `--agent` defaults to `claude` (or `config.defaultAgent`) |
 | `ccs a\|attach [NAME] [--shrink] [--allow-setup]` | Attach; starts a stopped session first |
 | `ccs ls [--json]` | List sessions — a `TYPE` column shows `claude` or `codex` |
+| `ccs clients [NAME] [--json]` | The terminals attached to a session: id, terminal, size, how long attached, last typed. Without NAME: the session you are inside, or every running one |
+| `ccs kick [NAME] CLIENT…\|--others` | Detach those terminals (or, with `--others`, every one but yours). The session keeps running; a kicked terminal does not reconnect |
 | `ccs stop NAME\|--all` | Stop cleanly — `/exit` when idle, then SIGTERM. `claude` is never force-killed |
 | `ccs restart NAME` | Stop and start again with `--resume`; clears `FAILED`/`BLOCKED`/`EXITED` |
 | `ccs rm NAME` | Remove a stopped session. **Claude's transcript is kept** |
@@ -244,6 +246,12 @@ editor-area terminal over a narrow side panel, or attach the small one with `ccs
 account can read `claude -n NAME` from `/proc/<pid>/cmdline`. The default name is therefore an opaque
 `ccs-<id6>`; passing a readable name prints a one-line reminder. Names are `a-z 0-9 . _ -`, up to 40
 characters.
+
+**Seeing and detaching other terminals.** `ccs clients NAME` lists who is attached (like tmux's
+`list-clients`); `ccs kick NAME c3` detaches one of them. To detach everyone but yourself, type
+`! ccs kick --others` at the agent's prompt: run from inside the session, ccs knows your terminal — it is the
+one that just typed the command — and NAME can be left out. From another terminal there is no client of yours
+to keep, so there you name the clients to detach.
 
 **`/exit` detaches, it does not stop.** Typing `/exit` or `/quit` disconnects only your terminal; anyone
 else stays attached. Use `ccs stop NAME` to end a session.
@@ -441,7 +449,7 @@ that depends on what the real binary writes needs a real binary.
 
 ## Limitations
 
-Not built yet (planned for later milestones): `ccs start`, `logs`, `kick`, `rename`, `install` with
+Not built yet (planned for later milestones): `ccs start`, `logs`, `rename`, `install` with
 immutable releases and cron reconcile, the full `doctor`, and the shell shim. `ccs` currently runs straight
 from a clone.
 

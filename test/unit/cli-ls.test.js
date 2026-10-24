@@ -236,3 +236,24 @@ test('I4: blockedHint renders Codex\'s {thread, heldBy} SECOND_WRITER detail hon
   const claudeText = blockedHint('cl1', { code: 'SECOND_WRITER', detail: { pid: 51234, tty: '/dev/pts/12' } });
   assert.match(claudeText, /claude pid 51234 \(\/dev\/pts\/12\) already runs this conversation/);
 });
+
+test('ccs clients: table marks your client and the unusual states; selfClient picks the latest typist', () => {
+  const { renderClients, selfClient } = require('../../src/cli/commands/clients.js');
+  const base = { cols: 120, rows: 40, phase: 'LIVE', stalled: false, unresponsive: false, pid: 4242 };
+  const clients = [
+    { ...base, id: 'c1', label: 'ssh pts/1', attachedMs: 7200000, idleMs: 65000 },
+    { ...base, id: 'c2', label: 'vscode pts/12', attachedMs: 30000, idleMs: 2000 },
+    { ...base, id: 'c3', label: 'ssh pts/3', attachedMs: 5000, idleMs: null, phase: 'PAUSED', pid: null },
+  ];
+  assert.equal(selfClient(clients).id, 'c2');
+  assert.equal(selfClient([{ ...clients[2] }]), null);
+  assert.equal(renderClients({ name: 'demo', clients, selfId: 'c2' }), [
+    'demo · 3 clients',
+    '  ID  TERMINAL       SIZE    ATTACHED  TYPED   PID',
+    '  c1  ssh pts/1      120x40  2h        1m ago  4242',
+    '  c2  vscode pts/12  120x40  30s       2s ago  4242  (you)',
+    '  c3  ssh pts/3      120x40  5s        never   –     paused (too small)',
+    '',
+  ].join('\n'));
+  assert.equal(renderClients({ name: 'demo', clients: [] }), 'demo · no clients attached\n');
+});
