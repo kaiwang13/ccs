@@ -35,6 +35,12 @@ test('a new session launches with -C cwd and no session id', () => {
   assert.equal(l.version, '0.155.0');
 });
 
+test('config.env.timezone reaches the Codex env as TZ', () => {
+  assert.equal('TZ' in codex.buildLaunch(ctx()).env, false, 'no timezone configured: no TZ invented');
+  const l = codex.buildLaunch({ ...ctx(), config: { ...CONFIG, env: { ...CONFIG.env, timezone: 'America/Los_Angeles' } } });
+  assert.equal(l.env.TZ, 'America/Los_Angeles');
+});
+
 test('a known thread id resumes it', () => {
   const l = codex.buildLaunch(ctx({ state: { lastSessionId: '01a0ba74-15de-7763-9852-1b5466afc64c' } }));
   assert.deepEqual(l.argv, ['/opt/codex/0.155.0/bin/codex', 'resume', '01a0ba74-15de-7763-9852-1b5466afc64c', '-C', '/w/proj']);

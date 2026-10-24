@@ -69,6 +69,7 @@ test('buildLaunch: new session argv, resume argv, resumeArgv template, env profi
   assert.equal(n.env.TERM_PROGRAM, 'vscode');
   assert.equal(n.env.CLAUDECODE, undefined);
   assert.equal(n.env.XDG_RUNTIME_DIR, `${s.paths.runtimeDir}/run`);
+  assert.equal(n.env.TZ, 'America/Los_Angeles', 'config.env.timezone default');
   const state = { lastSessionId: '612eda4a-0000-0000-0000-000000000002', lastName: 'renamed', appliedNameGen: 0 };
   const r = L.buildLaunch({ intent: intent(), state, paths: s.paths, config: DEFAULTS, claudeSettings: null, transcriptExists: true, bin });
   assert.deepEqual(r.argv.slice(0, 7), ['/bin/claude-x', '--resume', '612eda4a-0000-0000-0000-000000000002', '-n', 'renamed', '--remote-control', 'renamed']);

@@ -48,7 +48,9 @@ const DEFAULTS = deepFreeze({
     extraArgsAllow: ['--model', '--sandbox', '--ask-for-approval', '--add-dir', '--profile', '--search'],
   },
   defaultAgent: 'claude',
-  env: { passthrough: [], sshAuthSock: null },
+  // timezone: the TZ every hosted agent runs in, so all sessions agree on "now" whichever shell created
+  // them. An IANA zone name (default: Palo Alto's), or null to keep the TZ captured from that shell.
+  env: { passthrough: [], sshAuthSock: null, timezone: 'America/Los_Angeles' },
   // src/common/proxy.js: a URL, 'none', or null (keep the shell's). `ccs proxy` edits these.
   proxy: { session: null, feishu: null, noProxy: null },
   size: {
@@ -91,6 +93,17 @@ const arrayOf = (item, min = 0) => (/** @type {unknown} */ v) => Array.isArray(v
 const nonEmptyString = (/** @type {unknown} */ v) => typeof v === 'string' && v.length > 0;
 const MS_HOUR = 3600000;
 
+/**
+ * An IANA zone name the runtime knows ('America/Los_Angeles', 'UTC', 'Etc/GMT+8'). Every part of an IANA
+ * name starts with a capital letter; the shape check enforces it because Intl accepts any case, while the C
+ * library looks the name up as a case-sensitive file and silently runs a miss as UTC.
+ * @param {unknown} v
+ */
+function isTimeZone(v) {
+  if (typeof v !== 'string' || !/^[A-Z][A-Za-z0-9_+-]*(\/[A-Z][A-Za-z0-9_+-]*)*$/.test(v)) return false;
+  try { new Intl.DateTimeFormat('en-US', { timeZone: v }); return true; } catch { return false; }
+}
+
 /** @type {Record<string, (v: unknown) => boolean>} */
 const LEAVES = {
   'schema': oneOf('ccs.config/1'),
@@ -109,6 +122,7 @@ const LEAVES = {
   'defaultAgent': (v) => typeof v === 'string' && require('../agents/index.js').KNOWN_AGENTS.includes(v),
   'env.passthrough': arrayOf((v) => typeof v === 'string' && /^[A-Za-z_*][A-Za-z0-9_*]*$/.test(v)),
   'env.sshAuthSock': (v) => v === null || (typeof v === 'string' && v.startsWith('/')),
+  'env.timezone': (v) => v === null || isTimeZone(v),
   'proxy.session': isProxySetting,
   // The Feishu SDK speaks only http(s) proxies.
   'proxy.feishu': (v) => v === null || v === 'none' || (isProxyUrl(v) && /^https?:/.test(v)),

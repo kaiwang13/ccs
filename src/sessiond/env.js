@@ -6,7 +6,8 @@
  * 1. captureIntentEnv(): at `ccs new`, snapshot an ALLOWLIST of the invoking shell's
  *    variables (cron has no proxy variables or nvm, so they must be captured once).
  * 2. buildEnv(): start from {} + that snapshot, remove everything on the DENY list (which
- *    wins over the snapshot and over passthrough), then apply the fixed profile LAST.
+ *    wins over the snapshot and over passthrough), set TZ to config.env.timezone when one is
+ *    configured, then apply the fixed profile LAST.
  *
  * Never set: CLAUDE_CONFIG_DIR, CLAUDE_CODE_SESSION_KIND, CLAUDE_CODE_FORCE_SYNC_OUTPUT,
  * FORCE_HYPERLINK=1. buildEnv() asserts that as an invariant.
@@ -72,11 +73,12 @@ function captureIntentEnv(env, { passthrough = [] } = {}) {
 /**
  * @param {Record<string, string>} intentEnv the captured snapshot (intent.json env)
  * @param {{xwe: string[], ccsId: string, runtimeDir: string, sshAuthSock?: string|null,
- *          proxy?: string|null, noProxy?: string|null}} opts
+ *          timezone?: string|null, proxy?: string|null, noProxy?: string|null}} opts
+ *   timezone: config.env.timezone; null keeps the snapshot's TZ.
  *   proxy/noProxy: the resolved setting (src/common/proxy.js); null keeps the snapshot's proxy variables.
  * @returns {Record<string, string>}
  */
-function buildEnv(intentEnv, { xwe, ccsId, runtimeDir, sshAuthSock = null, proxy = null, noProxy = null }) {
+function buildEnv(intentEnv, { xwe, ccsId, runtimeDir, sshAuthSock = null, timezone = null, proxy = null, noProxy = null }) {
   const xweSet = new Set(xwe);
   /** @type {Record<string, string>} */
   const env = {};
@@ -86,6 +88,7 @@ function buildEnv(intentEnv, { xwe, ccsId, runtimeDir, sshAuthSock = null, proxy
     env[name] = name === 'PATH' ? cleanPath(value) : value;
   }
   if (typeof sshAuthSock === 'string' && sshAuthSock !== '') env.SSH_AUTH_SOCK = sshAuthSock;
+  if (typeof timezone === 'string' && timezone !== '') env.TZ = timezone;
   applyProxyEnv(env, proxy, noProxy);
   Object.assign(env, {
     TERM: 'xterm-256color',

@@ -111,3 +111,20 @@ test('every DEFAULTS leaf passes its own validator (no default is "invalid")', (
   assert.deepEqual(seen, []);
   assert.deepEqual(cfg, DEFAULTS);
 });
+
+test('env.timezone defaults to Palo Alto; null and IANA names load; anything the C library would read as UTC falls back', (t) => {
+  assert.equal(DEFAULTS.env.timezone, 'America/Los_Angeles');
+  const f = path.join(tmpdir(t), 'c.json');
+  for (const tz of [null, 'UTC', 'Asia/Shanghai', 'Etc/GMT+8', 'America/Argentina/Buenos_Aires', 'US/Pacific']) {
+    fs.writeFileSync(f, JSON.stringify({ env: { timezone: tz } }));
+    const seen = [];
+    assert.equal(loadConfig(f, (k) => seen.push(k)).env.timezone, tz, String(tz));
+    assert.deepEqual(seen, [], String(tz));
+  }
+  for (const tz of ['america/los_angeles', 'Nowhere/City', '+05:00', '', 'PDT -7', 5, true]) {
+    fs.writeFileSync(f, JSON.stringify({ env: { timezone: tz } }));
+    const seen = [];
+    assert.equal(loadConfig(f, (k) => seen.push(k)).env.timezone, 'America/Los_Angeles', String(tz));
+    assert.deepEqual(seen, ['env.timezone'], String(tz));
+  }
+});

@@ -160,7 +160,7 @@ function buildLaunch({ intent, state, paths, config, claudeSettings, transcriptE
   const resumeArgv = [b.path, '--resume', '{sessionId}', ...tail];
   // loadXwe falls back to the newest recorded list for a version without its own file (plan 01).
   const { proxy, noProxy } = resolveSessionProxy(intent, config);
-  const env = buildEnv(intent.env || {}, { xwe: loadXwe(b.version), ccsId: intent.ccsId, runtimeDir: paths.runtimeDir, sshAuthSock: (config.env && config.env.sshAuthSock) || null, proxy, noProxy });
+  const env = buildEnv(intent.env || {}, { xwe: loadXwe(b.version), ccsId: intent.ccsId, runtimeDir: paths.runtimeDir, sshAuthSock: (config.env && config.env.sshAuthSock) || null, timezone: (config.env && config.env.timezone) || null, proxy, noProxy });
   return { argv, resumeArgv, env, cwd: intent.cwd, settingsFile, version: b.version, theme: resolveTheme(settings, config), name, mode: exists ? 'resume' : 'new', sessionId };
 }
 

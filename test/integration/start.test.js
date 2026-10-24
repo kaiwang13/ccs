@@ -38,7 +38,7 @@ test('buildSessionSpec: new-session argv, pinned settings file, default pty size
 test('sessiond --start runs preflight, starts claude, serves ctl.sock, and a duplicate --start exits 3', async (t) => {
   const ctx = makeCcsEnv(t);
   const reg = createRegistry(ctx.paths);
-  const rec = await reg.create({ name: 'start-test', cwd: ctx.work, env: { PATH: process.env.PATH, HOME: ctx.home } });
+  const rec = await reg.create({ name: 'start-test', cwd: ctx.work, env: { PATH: process.env.PATH, HOME: ctx.home, TZ: 'Asia/Shanghai' } });
   const first = spawnSessiond(ctx, ['--start', rec.id, '--batch', 'b1']);
   await waitFor(() => probeSocket(ctx.paths.ctlSock(rec.id), 200), 20000, 'ctl.sock');
   const second = spawnSessiond(ctx, ['--start', rec.id]);
@@ -53,6 +53,7 @@ test('sessiond --start runs preflight, starts claude, serves ctl.sock, and a dup
   assert.deepEqual(rec2.argv.slice(0, 2), ['--session-id', rec.intent.initialSessionId]);
   assert.equal(rec2.env.CCS_ID, rec.id);
   assert.equal(rec2.env.CCS_RUNTIME_DIR, undefined, 'CCS_* test overrides never reach claude');
+  assert.equal(rec2.env.TZ, 'America/Los_Angeles', 'config.env.timezone (default) replaces the shell TZ');
   assert.equal(fs.readdirSync(ctx.paths.backupsDir).length, 1);
   await controlRequest(ctx.paths.ctlSock(rec.id), 'STOP', {}, { timeoutMs: 3000 });
   assert.equal((await first.exited).code, 0);

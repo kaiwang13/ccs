@@ -54,7 +54,7 @@ function buildLaunch({ intent, state, paths, config, bin }) {
   return {
     argv: sessionId ? [b.path, 'resume', sessionId, ...tail] : [b.path, ...tail],
     resumeArgv: [b.path, 'resume', '{sessionId}', ...tail],
-    env: buildEnv(intent.env || {}, { xwe: [], ccsId: intent.ccsId, runtimeDir: paths.runtimeDir, sshAuthSock: (config.env && config.env.sshAuthSock) || null, proxy, noProxy }),
+    env: buildEnv(intent.env || {}, { xwe: [], ccsId: intent.ccsId, runtimeDir: paths.runtimeDir, sshAuthSock: (config.env && config.env.sshAuthSock) || null, timezone: (config.env && config.env.timezone) || null, proxy, noProxy }),
     cwd,
     name: intent.nameAtCreate,
     mode: sessionId ? 'resume' : 'new',

@@ -365,6 +365,21 @@ Optional, at `~/.config/ccs/config.json` (override with `CCS_CONFIG`):
 CA-certificate variables are forwarded to `claude` by default. The environment is **snapshotted when the session
 is created** and replayed on every restart.
 
+### Time zone
+
+Every session runs in one time zone, so `claude`, `codex` and the commands they run agree on the date and time
+whichever shell created the session. The default is Palo Alto's, `America/Los_Angeles`; to change it, set an IANA
+zone name in `config.json`:
+
+```json
+{ "env": { "timezone": "Asia/Shanghai" } }
+```
+
+`null` turns this off: each session then keeps the `TZ` of the shell that ran `ccs new` (and with no `TZ` there,
+the host's zone). A name that is not a known IANA zone, or is in the wrong case (`america/los_angeles`, which the C
+library would silently run as UTC), is reported and the default is used. The setting is read at every start, so a
+running session picks up a change at `ccs restart NAME`.
+
 ### Proxy
 
 Without any proxy setting a session keeps the proxy variables of the shell that ran `ccs new`. To choose it

@@ -92,3 +92,11 @@ test('PATH cleaning removes IDE/debugger entries and empty segments only', () =>
   const intent = captureIntentEnv({ PATH: '/a::/x/.vscode-server/bin/remote-cli:/b/debugpy/scripts:/c/remote-cli:/usr/bin' });
   assert.equal(intent.PATH, '/a:/usr/bin');
 });
+
+test('a configured timezone replaces the snapshot TZ; null keeps the snapshot', () => {
+  const env = buildEnv({ TZ: 'Asia/Shanghai', HOME: '/home/u' }, { xwe, ccsId: 'i', runtimeDir: '/tmp/r', timezone: 'America/Los_Angeles' });
+  assert.equal(env.TZ, 'America/Los_Angeles');
+  assert.equal(buildEnv({ HOME: '/home/u' }, { xwe, ccsId: 'i', runtimeDir: '/tmp/r', timezone: 'America/Los_Angeles' }).TZ, 'America/Los_Angeles', 'set even when the shell had none');
+  assert.equal(buildEnv({ TZ: 'Asia/Shanghai' }, { xwe, ccsId: 'i', runtimeDir: '/tmp/r', timezone: null }).TZ, 'Asia/Shanghai');
+  assert.equal('TZ' in buildEnv({ HOME: '/home/u' }, { xwe, ccsId: 'i', runtimeDir: '/tmp/r' }), false);
+});
