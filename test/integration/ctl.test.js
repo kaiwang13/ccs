@@ -4,6 +4,7 @@ const assert = require('node:assert/strict');
 const net = require('node:net');
 const { spawn } = require('node:child_process');
 const { T, FramedSocket } = require('nmux/internal/wire/proto');
+const { encodeFrame } = require('nmux/internal/wire/framing');
 const { startTestSession } = require('../helpers/session');
 const { connectVirtualClient } = require('../helpers/vclient');
 const { waitFor } = require('../helpers/waitfor');
@@ -149,8 +150,8 @@ test('INPUT sent before SNAPSHOT_END is not accepted; the client queues it until
   const raw = new FramedSocket(sock);
   t.after(() => raw.destroy());
   await new Promise((r) => sock.once('connect', r));
-  raw.sendControl({ t: 'HELLO', proto: 1, role: 'attach', cols: 120, rows: 40, cursorRow: 1, focus: true, tty: 't', pid: 0, label: 'early', termProgram: 't', flags: {} });
-  raw.send(T.INPUT, Buffer.from('early-bytes\r'));
+  // One write, so the input is certain to arrive before the join can have finished.
+  sock.write(Buffer.concat([encodeFrame(T.CONTROL, { t: 'HELLO', proto: 1, role: 'attach', cols: 120, rows: 40, cursorRow: 1, focus: true, tty: 't', pid: 0, label: 'early', termProgram: 't', flags: {} }), encodeFrame(T.INPUT, Buffer.from('early-bytes\r'))]));
   await new Promise((r) => setTimeout(r, 1500));
   assert.equal(e.record().lines.includes('early-bytes'), false);
   a.send('late\r');
