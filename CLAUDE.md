@@ -3,12 +3,20 @@
 ## ccs sits on nmux
 
 The session host is a separate project, `nmux`, in `../nmux`. It knows nothing about agents and must stay that way: a
-feature that needs to know what a session is running belongs here, in `AgentController` (`src/agents/controller.js`), which
-uses only the session's public calls. `node_modules/nmux` links to that checkout, so a change there takes effect here
-without an install, and both test suites have to pass.
+feature that needs to know what a session is running belongs here, in `AgentController` (`src/agents/controller.js`). That
+runs in `ccsd` (`src/ccsd/`), one process per user, and reaches a session only through `HostedSession` and the SDK.
+
+ccs imports `nmux/sdk` and nmux's pure utilities and nothing else; `test/unit/nmux-boundary.test.js` enforces that. Tests may
+use `nmux/internal/*`. What has to happen on every keystroke cannot wait for ccsd, so it is declared in `hostSpec`
+(`src/sessiond/agentsession.js`) and enforced by the host. `ccsd` must stay optional: if it is away, a session keeps running.
+
+ccs depends on the packed release in `vendor/`, so that a clone needs nothing beside it. While working on both, `npm run
+nmux:link` points `node_modules/nmux` at the checkout, so a change there takes effect here. When nmux changes, `npm run
+nmux:vendor` makes a new package, and both test suites have to pass against it.
 
 ccs's words, file formats and wire fields are its own. The host speaks through tables ccs replaces
-(`src/sessiond/messages.js`, `src/cli/attach.js`), and `state.json` and `STATUS` are shaped by the controller.
+(`src/sessiond/messages.js`, `src/cli/attach.js`), what it publishes appears in `STATUS` and `STATE` beside the host's own
+fields, and `state.json` is written by the controller.
 
 ## Platform code lives in one place
 

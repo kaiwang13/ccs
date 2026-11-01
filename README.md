@@ -8,9 +8,11 @@ through Remote Control (Claude sessions only — see [Hosting Codex CLI sessions
 
 ```
 terminal A ─┐
-terminal B ─┼─▶ ccs-sessiond ─▶ ccs-holder ─▶ claude | codex   (one process, one conversation)
+terminal B ─┼─▶ session server ─▶ holder ─▶ claude | codex   (one process, one conversation)
 phone (RC) ─┘     (emulator,        (owns the pty)
-                 per-client view)
+                 per-client view)         ▲
+                        ▲                 │  both are nmux, and run with or without ccsd
+                       ccsd  (one per user: knows what an agent is)
 ```
 
 Unlike `tmux` or `screen`, `ccs` does not own your scrollback. Each client renders into its own terminal,
@@ -338,18 +340,27 @@ Feishu app. See [docs/feishu.md](docs/feishu.md).
 
 ## How it works
 
-Each session is a pair of processes hosting one agent (`claude` or `codex`), chosen through a small agent
-adapter (`src/agents/`) so the two never share code paths. The holder and sessiond below are the session host, a
-separate project called `nmux`, which knows nothing about agents; `AgentController` (`src/agents/controller.js`) adds
-everything that does:
+Each session hosts one agent (`claude` or `codex`), chosen through a small agent adapter (`src/agents/`) so the two never
+share code paths. Hosting is a separate project, `nmux`, which knows nothing about agents and which ccs reaches only through
+its SDK. Everything that knows what an agent is lives in `ccsd`:
 
-- **`ccs-holder`** owns the agent's pty and nothing else. It never touches NFS, drains output
-  unconditionally, and answers terminal queries, so the agent can never block on a slow or absent client.
-- **`ccs-sessiond`** is restartable. It runs a headless terminal emulator over the output stream and keeps
-  a per-client view, so a joining client receives a **snapshot of the current screen** rather than a replay.
+- **The holder** (one per session, `nmux`) owns the agent's pty and nothing else. It never touches NFS and answers terminal
+  queries. It takes backpressure from the server, and drains anyway if the server goes quiet, so a slow or absent client can
+  never block the agent.
+- **The server** (one per session, `nmux`) is restartable. It runs a headless terminal emulator over the output stream and
+  keeps a per-client view, so a joining client receives a **snapshot of the current screen** rather than a replay.
+- **`ccsd`** (one per user, `src/ccsd/`) runs an `AgentController` for every session: when an agent has really started, whether
+  a setup screen needs a person, whether it has suspended, what `/exit` means, how to resume it. What must happen on every
+  keystroke, such as the Ctrl+C guard, is declared in the session spec and enforced by the host instead.
 
-Clients talk to `sessiond` over AF_UNIX sockets — there are **no TCP listeners anywhere**. Session state
-lives in `~/.local/state/ccs/`, runtime sockets in `/tmp/ccs-<uid>/` (0700, never on NFS).
+`ccsd` is what ccs adds, not what a session depends on. If it dies, sessions keep running and stay attachable; the first server
+to notice starts it again and it picks every session up. There is no service to install, and it leaves once idle.
+
+Starting a session is a short-lived process rather than part of `ccsd`, because preflight reads a home that may be a hanging
+NFS mount, and that must not be able to stall every other session.
+
+Clients talk to the server over AF_UNIX sockets — there are **no TCP listeners anywhere**. Session state lives in
+`~/.local/state/ccs/`, runtime sockets in `/tmp/ccs-<uid>/` (0700, never on NFS).
 
 Crashed sessions are restored automatically; neither agent is ever sent `SIGKILL`, and a test enforces that
 the string appears nowhere in the source.

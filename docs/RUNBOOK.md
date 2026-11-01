@@ -167,7 +167,8 @@ batch or every 6 h).
 |---|---|
 | `/tmp/ccs-1018/` | Runtime root (local disk, 0700, verified on every use): `s/<id>/{ctl.sock,pty.sock,*.lock,settings.json}`, `locks/`, `run/` (Claude's messaging sockets), `log/<id>/{sessiond,holder}.log` |
 | `~/.local/state/ccs/hosts/<machine id>/sessions/<id>/intent.json` | What the CLI asked for (desired state, cwd, args, env snapshot) |
-| `~/.local/state/ccs/hosts/<machine id>/sessions/<id>/state.json` | What that session's daemon reports |
+| `~/.local/state/ccs/hosts/<machine id>/sessions/<id>/state.json` | What ccsd records about that session |
+| `/tmp/ccs-1018/log/ccsd/ccsd.log` | What ccsd did, one per user: sessions adopted and lost, and failed calls |
 | `~/.config/ccs/config.json` | Optional configuration (spec §10.5); invalid values fall back to defaults |
 | `~/.codex/state_5.sqlite` | Codex's own thread database — read-only, never written by ccs (`src/codex/threads.js`) |
 
