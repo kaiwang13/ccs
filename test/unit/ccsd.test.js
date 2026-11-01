@@ -103,3 +103,62 @@ test('a session ccsd cannot make sense of is left alone, and the others are not 
   lock.release();
   fs.rmSync(dir, { recursive: true, force: true });
 });
+
+test('a write under way is the last one, once it has been let go', async () => {
+  const { h, c, writes, holdWrites, release } = hosted();
+  c.record = { n: 1 };
+  holdWrites();
+  h.saveState(true);
+  await settled();
+  c.record = { n: 2 };
+  h.saveState(true);
+  h.dispose();
+  release();
+  await settled();
+  await settled();
+  assert.deepEqual(writes.map((w) => w.n), [1]);
+});
+
+/** @param {import('node:test').TestContext} t @param {any} state @param {any} [own] the record the session kept itself */
+function endedSession(t, state, own) {
+  const fs = require('node:fs');
+  const os = require('node:os');
+  const path = require('node:path');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ccsd-'));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  if (own) fs.writeFileSync(path.join(dir, 'state.json'), JSON.stringify(own));
+  const paths = { sessionDir: () => dir, sessiondLock: () => path.join(dir, 'sessiond.lock'), holderLock: () => path.join(dir, 'holder.lock') };
+  /** @type {any[]} */
+  const written = [];
+  return { paths, written, registry: { readState: async () => state, writeState: async (/** @type {string} */ _id, /** @type {any} */ st) => { written.push(st); } } };
+}
+
+test('a session that went with nobody to record it is recorded from what it kept itself', async (t) => {
+  const { settleRecord } = require('../../src/ccsd/record');
+  const lastExit = { code: 0, signal: null, cause: 'stopped' };
+  const e = endedSession(t, { lifecycle: 'RUNNING', lastSessionId: 'kept', restarts: { attributed: 2 } }, { lifecycle: 'STOPPED', restarts: { lastExit } });
+  await settleRecord(e.paths, e.registry, 'abc');
+  assert.equal(e.written[0].lifecycle, 'STOPPED');
+  assert.equal(e.written[0].lastSessionId, 'kept');
+  assert.deepEqual(e.written[0].restarts, { attributed: 2, lastExit });
+});
+
+test('with no record of its own it is at least not shown as running', async (t) => {
+  const { settleRecord } = require('../../src/ccsd/record');
+  const e = endedSession(t, { lifecycle: 'RUNNING' });
+  await settleRecord(e.paths, e.registry, 'abc');
+  assert.equal(e.written[0].lifecycle, 'EXITED');
+});
+
+test('a record that is already final, or a session still running, is left alone', async (t) => {
+  const { settleRecord } = require('../../src/ccsd/record');
+  const { tryLock } = require('nmux/platform/locks');
+  const final = endedSession(t, { lifecycle: 'BLOCKED' }, { lifecycle: 'STOPPED' });
+  await settleRecord(final.paths, final.registry, 'abc');
+  assert.deepEqual(final.written, []);
+  const alive = endedSession(t, { lifecycle: 'RUNNING' }, { lifecycle: 'STOPPED' });
+  const lock = tryLock(alive.paths.holderLock());
+  await settleRecord(alive.paths, alive.registry, 'abc');
+  lock.release();
+  assert.deepEqual(alive.written, []);
+});
