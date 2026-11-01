@@ -8,6 +8,7 @@ const { Pipeline } = require('nmux/server/output/pipeline');
 const { Emulator } = require('nmux/server/output/emulator');
 const { ClientAdapter } = require('nmux/server/output/adapter');
 const { buildJoinBytes } = require('nmux/server/output/snapshot');
+const { CCS_MESSAGES } = require('../../src/sessiond/messages.js');
 const { DEFAULTS } = require('../../src/common/config');
 const { createFakeClock } = require('nmux/base/clock');
 const { T } = require('nmux/wire/proto');
@@ -50,7 +51,7 @@ test('G4 spike-flows/run: non-ground cut points are refused and the deferred sna
   const tryTake = async (end) => {
     if (last && last.endOffset === end && last.groundAfter && pipeline.quiescent) {
       await emulator.tail;
-      snaps.push({ outIdx: outs.length, bytes: buildJoinBytes({ emulator, tracker, name: 'g4', brand: 'ccs', client: { rows: 40, cols: 120, cursorRow: 1 }, historyLimit: 'all' }) });
+      snaps.push({ outIdx: outs.length, bytes: buildJoinBytes({ emulator, tracker, banner: (n) => CCS_MESSAGES.joinBanner('g4', n), client: { rows: 40, cols: 120, cursorRow: 1 }, historyLimit: 'all' }) });
       return true;
     }
     return false;

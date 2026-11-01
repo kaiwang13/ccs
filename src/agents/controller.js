@@ -38,6 +38,8 @@ function needsAttention(o) {
  */
 function agentInputPolicy({ exitGuard, exitIntent, allowSetup }) {
   return {
+    detachKeys: ['Z', 'Q'],
+    forwardFocus: () => false,
     gateEffect(gate, client) {
       if (gate === 'COOKED') return 'filter';
       if (gate === 'SETUP' && allowSetup(client)) return 'open';
@@ -312,6 +314,12 @@ class AgentController extends Controller {
   }
 
   get respawnDelayMs() { return this.config.restart.attributedExitDelayMs; }
+
+  /** A session stays when its agent exits: `ccs restart` brings it back, and clients keep their place. */
+  get staysAfterExit() { return true; }
+
+  /** ccs answers for its sessions: their names, restarts and input all go through what it knows about agents. */
+  get acceptsHostOps() { return false; }
 
   onRespawned() {
     this.observed = null;

@@ -24,7 +24,7 @@ test('connectHolder resolves with hello; events are held until attach(); data of
   await waitFor(() => /❯/.test(bytes), { what: 'prompt' });
   assert.equal(contiguous, true);
   assert.ok(lflags.length >= 1);
-  assert.deepEqual(Object.keys(lflags.at(-1)).sort(), ['echo', 'fgIsChild', 'icanon', 'isig']);
+  assert.deepEqual(Object.keys(lflags.at(-1)).sort(), ['echo', 'fg', 'fgIsChild', 'icanon', 'isig']);
 });
 
 test('write() returns a watch id only with watch:true; consumed(watchId) follows; resize → resized; pong', { timeout: 60000 }, async (t) => {

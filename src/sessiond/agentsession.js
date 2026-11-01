@@ -12,9 +12,9 @@ function hostSpec(spec) {
     nestEnv: 'CCS_ID', holderEnv: { CCS_RUNTIME_DIR: spec.runtimeDir } };
 }
 
-/** The config file's names for what the host calls otherwise. @param {any} config */
+/** What the host needs that ccs does not offer as a setting, under the host's names. @param {any} config */
 function hostConfig(config) {
-  return { ...config, notices: { bellOnAttention: config.notices.bellOnNeedsYou } };
+  return { ...config, notices: { bellOnAttention: config.notices.bellOnNeedsYou }, stream: { repaint: true } };
 }
 
 /**

@@ -88,13 +88,16 @@ function fileBornMs(file) {
 /** @param {number} ms */
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
+/** A timer can fire this far short of the wall-clock time it was set for, and no send finishes in less. */
+const TIMER_SLACK_MS = 5;
+
 /**
  * Runs `fn` and settles as it does, or rejects once `deadline` passes. Past the deadline `fn` is not started at all.
  * @template T @param {() => Promise<T>} fn @param {number} deadline @returns {Promise<T>}
  */
 function byDeadline(fn, deadline) {
   const left = deadline - Date.now();
-  if (left <= 0) return Promise.reject(new Error('out of time'));
+  if (left <= TIMER_SLACK_MS) return Promise.reject(new Error('out of time'));
   return new Promise((resolve, reject) => {
     const tm = setTimeout(() => reject(new Error('out of time')), left);
     fn().then(resolve, reject).finally(() => clearTimeout(tm));

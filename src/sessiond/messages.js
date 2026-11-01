@@ -1,7 +1,7 @@
 'use strict';
 // @ts-check
 /** What the host says, in ccs's words. */
-const { DEFAULT_MESSAGES } = require('nmux/server/messages');
+const { DEFAULT_MESSAGES, amount } = require('nmux/server/messages');
 
 const CCS_MESSAGES = Object.freeze({
   ...DEFAULT_MESSAGES,
@@ -20,6 +20,9 @@ const CCS_MESSAGES = Object.freeze({
   belowFloor: (/** @type {string} */ name, /** @type {number} */ cols, /** @type {number} */ rows, /** @type {number} */ floor, /** @type {number} */ hardMin) => `this terminal is ${cols}x${rows} — below the ${floor}-column floor for shared sessions (a narrower terminal reflows Claude for every attached client); widen it · ccs attach ${name} --shrink (min ${hardMin} cols) · or use the Claude app: '${name}' is available via Remote Control`,
   inputDropped: 'input dropped — Claude is not reading',
   escHoldExpired: 'Esc was not read by Claude in time; later keys were sent anyway',
+  joinBanner: (/** @type {string} */ name, /** @type {number} */ lines) => `── ccs · ${name} · ${lines} lines of history ──`,
+  skippedOutput: (/** @type {number} */ bytes) => `── ccs · skipped ${amount(bytes)} of output ──`,
+  lostOutput: (/** @type {number} */ bytes) => `── ccs · lost ${amount(bytes)} of output ──`,
 });
 
 module.exports = { CCS_MESSAGES };

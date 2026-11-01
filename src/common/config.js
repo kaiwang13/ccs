@@ -54,9 +54,11 @@ const DEFAULTS = deepFreeze({
   env: { passthrough: [], sshAuthSock: null, timezone: 'America/Los_Angeles' },
   // src/common/proxy.js: a URL, 'none', or null (keep the shell's). `ccs proxy` edits these.
   proxy: { session: null, feishu: null, noProxy: null },
-  size: { ...HOST.size },
+  // Claude's UI does not survive a narrow terminal or a resize storm, and a shared session should not jump about.
+  size: { ...HOST.size, floorCols: 50, hardMinCols: 40, floorRows: 15, maxCols: 240, maxRows: 150,
+    shrinkDebounceMs: 100, shrinkMaxWaitMs: 400, growDebounceMs: 2000, growMinCols: 4, growMinRows: 2 },
   snapshot: { ...HOST.snapshot },
-  clients: { ...HOST.clients },
+  clients: { ...HOST.clients, dropMs: 60000 },
   input: { ...HOST.input, exitGuardMarginMs: 1000 },
   restart: {
     onUnplannedExit: true, cleanExitCountdownSec: 5, backoffSec: [2, 10, 30, 60, 120], maxUnplanned: 5, windowMin: 15,

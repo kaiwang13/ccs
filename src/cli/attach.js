@@ -58,7 +58,12 @@ const CCS_TEXT = {
   refuseNested: (id) => `ccs: refusing to attach from inside a ccs-hosted session (CCS_ID=${id}) — that would nest one session inside another; detach first (Ctrl+Z)`,
   detachLine,
   floorMessage,
+  help: host.DEFAULT_TEXT.help,
+  whoIsAttached: host.DEFAULT_TEXT.whoIsAttached,
 };
+
+/** Agents take every other key, so there is no leader: these two detach at once. */
+const CCS_KEYS = { direct: { 'C-z': 'detach', 'C-\\': 'detach' } };
 
 /** @param {{stdin: any, stdout: any, env: Record<string, string|undefined>}} io */
 const attachPrecheck = (io) => host.attachPrecheck(io, CCS_TEXT);
@@ -70,7 +75,7 @@ const attachPrecheck = (io) => host.attachPrecheck(io, CCS_TEXT);
  * @returns {Promise<number>}
  */
 function attach({ paths, id, name, flags = {}, io = {} }) {
-  return host.attach({ sockPath: paths.ctlSock(id), name, config: loadConfig(paths.configFile), flags, text: CCS_TEXT, io });
+  return host.attach({ sockPath: paths.ctlSock(id), name, config: loadConfig(paths.configFile), flags, text: CCS_TEXT, keys: CCS_KEYS, io });
 }
 
-module.exports = { attach, attachPrecheck, detachLine, floorMessage, CCS_TEXT };
+module.exports = { attach, attachPrecheck, detachLine, floorMessage, CCS_TEXT, CCS_KEYS };

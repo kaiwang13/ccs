@@ -33,6 +33,7 @@ class FakeHolder extends EventEmitter {
   release() { this.calls.push(['release']); }
   queryReply(id, b) { this.calls.push(['queryReply', id, b ? b.toString() : null]); }
   ping() {}
+  ack() {}
   pause() { this.calls.push(['pause']); }
   resume() { this.calls.push(['resume']); }
   close() { this.calls.push(['close']); }

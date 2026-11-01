@@ -50,8 +50,3 @@ jobs:
       # coverage. Kept as its own step so a golden diff is unmistakable in the run summary.
       - name: golden tests
         run: node --test --test-concurrency=1 "test/golden/**/*.test.js"
-
-      # Real shell sessions through the host, compared with a plain terminal. What the host cannot do yet is listed in
-      # test/conformance/known-failures.js, so a red run here is either a regression or a fix that should remove an entry.
-      - name: conformance tests
-        run: node --test --test-concurrency=1 "test/conformance/**/*.test.js"

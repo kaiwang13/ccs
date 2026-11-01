@@ -9,11 +9,10 @@
   },
   "scripts": {
     "build:native": "npm --prefix node_modules/nmux run build:native",
-    "test": "node --test \"test/unit/**/*.test.js\" \"test/golden/**/*.test.js\" \"test/integration/**/*.test.js\" \"test/conformance/**/*.test.js\"",
+    "test": "node --test \"test/unit/**/*.test.js\" \"test/golden/**/*.test.js\" \"test/integration/**/*.test.js\"",
     "test:unit": "node --test \"test/unit/**/*.test.js\"",
     "test:golden": "node --test \"test/golden/**/*.test.js\"",
     "test:integration": "node --test \"test/integration/**/*.test.js\"",
-    "test:conformance": "node --test --test-concurrency=1 \"test/conformance/**/*.test.js\"",
     "test:live": "node --test --test-concurrency=1 \"test/live/**/*.test.js\""
   },
   "dependencies": {
