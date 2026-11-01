@@ -6,6 +6,7 @@
  * or Feishu splits events between them at random (spec §2).
  */
 const fs = require('node:fs');
+const http = require('node:http');
 const path = require('node:path');
 const { resolvePaths } = require('../../src/common/paths.js');
 const { createRegistry } = require('../../src/common/registry.js');
@@ -74,6 +75,10 @@ async function main({ env = process.env } = {}) {
     delete sessionEnv.CCS_FEISHU_SDK;
     const proxy = effectiveProxy(cfg, loadCcsConfig(paths.configFile));
     if (proxy) applyProxy(process.env, proxy); // the SDK reads process.env
+    // The SDK's keepalive reconnects only after a bare fetch() of Feishu succeeds, and fetch ignores these variables
+    // unless told otherwise. On a host that reaches Feishu only through the proxy that probe fails for ever: a dropped
+    // connection never came back, however healthy the proxy was. A value Node cannot parse must not stop the connector.
+    try { http.setGlobalProxyFromEnv(); } catch (e) { say('proxy.fetch_error', { error: oneLine(e) }); }
     say('proxy', { proxy: proxy || 'shell' });
     const appSecret = readSecret(paths, 'appSecret');
     writeStatus({ appId: cfg.appId });
@@ -136,7 +141,9 @@ async function main({ env = process.env } = {}) {
 }
 
 if (require.main === module) {
-  main().then((code) => { process.exitCode = code; }, (e) => { process.stderr.write(`ccs-feishu: ${oneLine(e)}\n`); process.exitCode = 1; });
+  // Exit now, not when the event loop drains: a Feishu call that was given up on is still pending, and it would keep a
+  // daemon alive that has already released its lock.
+  main().then((code) => { process.exit(code); }, (e) => { process.stderr.write(`ccs-feishu: ${oneLine(e)}\n`); process.exit(1); });
 }
 
 module.exports = { main };

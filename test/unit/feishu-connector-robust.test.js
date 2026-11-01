@@ -243,6 +243,67 @@ test('a pre-acquired lock is used instead of taking a second one', async (t) => 
   assert.ok(acquireLock(paths), 'stop() released the lock it was given');
 });
 
+test('stop() gives up on a job that never settles: it names the job, saves, and still releases the lock', async (t) => {
+  const paths = tmpPaths(t);
+  const { acquireLock } = require('../../addons/feishu/lib/state.js');
+  const lock = /** @type {any} */ (acquireLock(paths));
+  /** @type {any[]} */
+  const logs = [];
+  const conn = mkConn({ gateway: new FakeGateway(), paths, registry: new FakeRegistry(), lock, stopWaitMs: 100, log: (/** @type {string} */ ev, /** @type {any} */ f) => logs.push({ ev, ...f }) });
+  await conn.start();
+  conn._track(new Promise(() => {}));
+  await conn.stop();
+  const stuck = logs.find((l) => l.ev === 'stop.stuck');
+  assert.ok(stuck, JSON.stringify(logs));
+  assert.equal(stuck.what, 'jobs');
+  assert.match(stuck.jobs[0].at, /feishu-connector-robust/, 'the log says who started it');
+  assert.equal(typeof stuck.jobs[0].ageS, 'number');
+  assert.ok(acquireLock(paths), 'stop() released the lock');
+});
+
+test('a final answer that stop() has no time left for is kept for the next start, neither sent nor lost', async (t) => {
+  const paths = tmpPaths(t);
+  const registry = new FakeRegistry();
+  const sid = '67676767-6767-6767-6767-676767676767';
+  registry.set(mkRec('s1', { sessionId: sid }));
+  const gw = new FakeGateway();
+  const conn = mkConn({ gateway: gw, paths, registry, retryBaseMs: 60000, stopWaitMs: 100 });
+  await conn.start();
+  await waitFor(() => gw.chatByName('ccs · s1') !== null, { timeoutMs: 3000, what: 'group' });
+  const chatId = /** @type {string} */ (gw.chatByName('ccs · s1'));
+  appendTranscript(paths, sid, [userRec('go'), asstRec('partial')]);
+  await waitFor(() => cards(gw, chatId).some((/** @type {any} */ m) => m.title.includes('go')), { timeoutMs: 3000, what: 'open card' });
+  gw.failNext('update', 1);
+  gw.failNext('send', 1);
+  appendTranscript(paths, sid, [asstRec('FINAL ANSWER'), endRec(1000)]);
+  await waitFor(() => conn.retries.length === 1, { timeoutMs: 3000, what: 'final write queued for retry' });
+  conn._track(new Promise(() => {})); // uses up the whole deadline
+  await conn.stop();
+  assert.match(loadState(paths).pendingFinals[0].text, /FINAL ANSWER/);
+  assert.equal(gw.messages(chatId).some((/** @type {any} */ m) => m.kind === 'text' && m.text.includes('FINAL ANSWER')), false, 'sending it past the deadline would post it twice');
+});
+
+test('stop() gives up on a final answer whose send never settles, and keeps it for the next start', async (t) => {
+  const paths = tmpPaths(t);
+  const registry = new FakeRegistry();
+  const sid = '68686868-6868-6868-6868-686868686868';
+  registry.set(mkRec('s1', { sessionId: sid }));
+  const gw = new FakeGateway();
+  const conn = mkConn({ gateway: gw, paths, registry, retryBaseMs: 60000, stopWaitMs: 100 });
+  await conn.start();
+  await waitFor(() => gw.chatByName('ccs · s1') !== null, { timeoutMs: 3000, what: 'group' });
+  const chatId = /** @type {string} */ (gw.chatByName('ccs · s1'));
+  appendTranscript(paths, sid, [userRec('go'), asstRec('partial')]);
+  await waitFor(() => cards(gw, chatId).some((/** @type {any} */ m) => m.title.includes('go')), { timeoutMs: 3000, what: 'open card' });
+  gw.failNext('update', 1);
+  gw.failNext('send', 1);
+  appendTranscript(paths, sid, [asstRec('FINAL ANSWER'), endRec(1000)]);
+  await waitFor(() => conn.retries.length === 1, { timeoutMs: 3000, what: 'final write queued for retry' });
+  gw.send = () => new Promise(() => {});
+  await conn.stop();
+  assert.match(loadState(paths).pendingFinals[0].text, /FINAL ANSWER/);
+});
+
 test('a "(removed)" group left by an older version is deleted', async (t) => {
   const paths = tmpPaths(t);
   const gw = new FakeGateway();

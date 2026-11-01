@@ -94,8 +94,8 @@ async function start(ctx, f) {
   return 1;
 }
 
-/** M6: the daemon's own shutdown can take ~30 s when Feishu is unreachable (stop()'s drain makes one plain-text
- *  attempt per owed final, each up to the 30 s httpTimeoutMs). `waitMs` defaults to 60 s so that case still gets
+/** M6: the daemon's own shutdown can take up to 45 s when Feishu is unreachable (the connector's 40 s stopWaitMs for
+ *  its drain and owed finals, then the gateway's 5 s closeTimeoutMs). `waitMs` defaults to 60 s so that case still gets
  *  reported as a clean stop instead of a false "did not stop"; a test passes a short one.
  *  @param {any} ctx @param {ReturnType<typeof feishuFiles>} f @param {number} [waitMs] @returns {Promise<number>} */
 async function stop(ctx, f, waitMs = 60000) {

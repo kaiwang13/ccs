@@ -65,7 +65,7 @@ Use one Feishu app per host: two hosts on one app split its messages between the
 |---|---|
 | `ccs feishu setup [--app-id ID] [--tenant feishu\|lark] [--proxy URL\|none]` | bind an app (again); a re-run keeps the saved proxy unless `--proxy` is given |
 | `ccs feishu start` | start the connector in the background (idempotent) |
-| `ccs feishu stop` | stop it (SIGTERM, then wait) |
+| `ccs feishu stop` | stop it (SIGTERM, then wait up to 60 s; it gives up on stuck work after about 45 s, logs it as `stop.stuck`, and sends any final answers it could not post at the next start) |
 | `ccs feishu status` | running, connection, app, proxy, linked sessions, last error, log path |
 | `ccs proxy feishu URL\|none\|shell` | the connector's proxy; then `ccs feishu stop && ccs feishu start` |
 | `ccs feishu disable [--purge]` | stop and turn off; `--purge` also deletes local credentials and state (Feishu groups of live sessions are left alone) |

@@ -88,6 +88,24 @@ function fileBornMs(file) {
 /** @param {number} ms */
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
+/**
+ * Runs `fn` and settles as it does, or rejects once `deadline` passes. Past the deadline `fn` is not started at all.
+ * @template T @param {() => Promise<T>} fn @param {number} deadline @returns {Promise<T>}
+ */
+function byDeadline(fn, deadline) {
+  const left = deadline - Date.now();
+  if (left <= 0) return Promise.reject(new Error('out of time'));
+  return new Promise((resolve, reject) => {
+    const tm = setTimeout(() => reject(new Error('out of time')), left);
+    fn().then(resolve, reject).finally(() => clearTimeout(tm));
+  });
+}
+
+/** Where a background job was started: the caller of `_track`, as its stack frame reads. */
+function jobSite() {
+  return (new Error().stack || '').split('\n')[3]?.trim().replace(/^at /, '') || '?';
+}
+
 /** Lifecycles in which sessiond refuses INPUT (as EXITED) only because its agent is not running yet. */
 const STARTING_LIFECYCLES = new Set(['STARTING', 'STARTING_SLOW', 'RECOVERING']);
 
@@ -149,11 +167,11 @@ class Connector {
    * @param {{gateway: Gateway, paths: any, registry: any, env: Record<string, string|undefined>, tailMs?: number, pollMs?: number,
    *   updateMs?: number, statusMs?: number, linkWaitMs?: number, startWaitMs?: number, log?: (event: string, fields?: object) => void,
    *   lock?: {release(): void}|null, linkFactory?: (o: {sockPath: string, label: string}) => any, retryBaseMs?: number, ownerRefreshMs?: number, syncMs?: number,
-   *   keepTurns?: number, layout?: 'topic'|'groups'}} o
+   *   keepTurns?: number, layout?: 'topic'|'groups', stopWaitMs?: number}} o
    */
   constructor({ gateway, paths, registry, env, tailMs = 500, pollMs = 5000, updateMs = 1000, statusMs = 5000, linkWaitMs = 10000, startWaitMs = 30000,
     log = () => {}, lock = null, linkFactory = (/** @type {any} */ o) => new ControlLink(o), retryBaseMs = 1000, ownerRefreshMs = 30 * 60 * 1000, syncMs = 5 * 60 * 1000,
-    keepTurns = 50, layout = 'groups' }) {
+    keepTurns = 50, layout = 'groups', stopWaitMs = 40000 }) {
     this.gw = wrapGateway(gateway);
     this.paths = paths;
     this.registry = registry;
@@ -173,6 +191,7 @@ class Connector {
     this.ownerAt = 0;
     this.syncMs = syncMs;
     this.layout = layout;
+    this.stopWaitMs = stopWaitMs;
     /** @type {Promise<string>|null} */
     this.hubPromise = null;
     /** @type {Promise<void>|null} */
@@ -205,8 +224,8 @@ class Connector {
     this.tailTimer = null;
     /** @type {ReturnType<typeof setTimeout>|null} */
     this.saveTimer = null;
-    /** @type {Set<Promise<any>>} background work, awaited by stop() */
-    this.jobs = new Set();
+    /** @type {Map<Promise<any>, {at: string, since: number}>} background work, awaited by stop() */
+    this.jobs = new Map();
     /** @type {ReturnType<typeof setTimeout>|null} */
     this.overviewTimer = null;
     this.index = new SessionIndex({ registry, paths, pollMs: 2000 });
@@ -297,9 +316,21 @@ class Connector {
     if (this.tailTimer) { clearInterval(this.tailTimer); this.tailTimer = null; }
     if (this.overviewTimer) { clearTimeout(this.overviewTimer); this.overviewTimer = null; }
     if (this.saveTimer) { clearTimeout(this.saveTimer); this.saveTimer = null; }
-    await this.router.flushAll();
+    // One deadline for all the waiting below, short of the 60 s `ccs feishu stop` allows. A job that never settles must
+    // not keep the lock: `ccs feishu start` would then find the connector "already running" and do nothing, while it
+    // has stopped working for good. What is cut off is logged, with where it was started and how long it has been
+    // running; a final answer not delivered in time goes to pendingFinals for the next start.
+    const deadline = Date.now() + this.stopWaitMs;
+    /** @param {string} what @param {() => Promise<any>} fn @param {() => object} detail */
+    const drain = async (what, fn, detail) => {
+      try { await byDeadline(fn, deadline); } catch (e) { this.log('stop.stuck', { what, error: String(e), ...detail() }); }
+    };
+    await drain('router', () => this.router.flushAll(), () => ({ inflight: this.router.inflight.size }));
     this.router.dispose();
-    while (this.jobs.size) await Promise.all([...this.jobs]);
+    await drain('jobs', async () => { while (this.jobs.size) await Promise.all([...this.jobs.keys()]); }, () => {
+      const now = Date.now();
+      return { count: this.jobs.size, jobs: [...this.jobs.values()].slice(0, 20).map((j) => ({ at: j.at, ageS: Math.round((now - j.since) / 1000) })) };
+    });
     for (const r of this.rt.values()) this._stopRuntime(r);
     // A final answer still owed (spec §9) gets one last, untracked attempt as plain text. A job whose attempt
     // lands has its open-card record cleared (the same as a recovered _retryFinal); one that still fails is
@@ -311,7 +342,7 @@ class Connector {
       try {
         const text = turnText(job.turn);
         try {
-          await this.gw.send(job.chatId, { kind: 'text', text });
+          await byDeadline(() => this.gw.send(job.chatId, { kind: 'text', text }), deadline);
           this._clearOpenCard(job.id, job.turn.id);
         } catch (e) {
           this.log('final.lost', { id: job.id, error: String(e) });
@@ -325,7 +356,7 @@ class Connector {
   }
 
   /** @param {Promise<any>} p */
-  _track(p) { const j = p.catch((e) => this.log('job.error', { error: String(e) })); this.jobs.add(j); j.finally(() => this.jobs.delete(j)); }
+  _track(p) { const j = p.catch((e) => this.log('job.error', { error: String(e) })); this.jobs.set(j, { at: jobSite(), since: Date.now() }); j.finally(() => this.jobs.delete(j)); }
 
   // ---- linking ------------------------------------------------------------------------------------------------------
 

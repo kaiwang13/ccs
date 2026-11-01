@@ -61,10 +61,10 @@ class FeishuGateway extends EventEmitter {
   /**
    * @param {{appId: string, appSecret: string, tenant?: 'feishu'|'lark', reactions?: {OK: string, ERROR: string},
    *   createChannel?: (opts: any) => any, log?: (event: string, fields?: object) => void, ratePerSec?: number, retryBaseMs?: number,
-   *   statusPollMs?: number}} o
+   *   statusPollMs?: number, callTimeoutMs?: number, closeTimeoutMs?: number}} o
    */
   constructor({ appId, appSecret, tenant = 'feishu', reactions = DEFAULT_REACTIONS, createChannel, log = () => {}, ratePerSec = 5, retryBaseMs = 1000,
-    statusPollMs = 5000 }) {
+    statusPollMs = 5000, callTimeoutMs = 100000, closeTimeoutMs = 5000 }) {
     super();
     this.appId = appId;
     this.appSecret = appSecret;
@@ -75,6 +75,8 @@ class FeishuGateway extends EventEmitter {
     this.ratePerSec = ratePerSec;
     this.retryBaseMs = retryBaseMs;
     this.statusPollMs = statusPollMs;
+    this.callTimeoutMs = callTimeoutMs; // above the SDK's own worst case: ch.send makes three attempts of up to 30 s
+    this.closeTimeoutMs = closeTimeoutMs;
     /** @type {any} */
     this.ch = null;
     /** @type {number[]} start times of recent calls, for the limiter */
@@ -138,7 +140,7 @@ class FeishuGateway extends EventEmitter {
   async close() {
     if (this.statusTimer) { clearInterval(this.statusTimer); this.statusTimer = null; }
     if (!this.ch) return;
-    try { await this.ch.disconnect(); } catch (e) { this.log('gateway.close_error', { error: String(e) }); }
+    try { await this._bounded(() => this.ch.disconnect(), this.closeTimeoutMs); } catch (e) { this.log('gateway.close_error', { error: String(e) }); }
     this.up = false;
   }
 
@@ -156,11 +158,24 @@ class FeishuGateway extends EventEmitter {
     return next;
   }
 
+  /**
+   * `httpTimeoutMs` only starts once the proxy has answered CONNECT: through a proxy that accepted the connection and
+   * then went quiet a call would never settle, stalling every card chained behind it. This is the wall clock around it.
+   * The call itself cannot be cancelled and stays pending until the proxy lets go of it.
+   * @template T @param {() => Promise<T>} fn @param {number} ms @returns {Promise<T>}
+   */
+  _bounded(fn, ms) {
+    return new Promise((resolve, reject) => {
+      const tm = setTimeout(() => reject(new Error(`Feishu gave no answer within ${ms} ms`)), ms);
+      Promise.resolve().then(fn).then(resolve, reject).finally(() => clearTimeout(tm));
+    });
+  }
+
   /** Rate-limited call; a 'rate_limited' rejection is retried up to 3 times (base, 2×, 4×). @template T @param {() => Promise<T>} fn @returns {Promise<T>} */
   async _call(fn) {
     for (let attempt = 0; ; attempt++) {
       await this._slot();
-      try { return await fn(); } catch (e) {
+      try { return await this._bounded(fn, this.callTimeoutMs); } catch (e) {
         if (/** @type {any} */ (e).code !== 'rate_limited' || attempt >= 3) throw e;
         await sleep(this.retryBaseMs * 2 ** attempt);
       }

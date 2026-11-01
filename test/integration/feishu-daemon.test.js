@@ -5,6 +5,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const cp = require('node:child_process');
 const fs = require('node:fs');
+const http = require('node:http');
 const path = require('node:path');
 const { makeCcsEnv, REPO } = require('../helpers/ccsenv.js');
 const { waitFor } = require('../helpers/waitfor.js');
@@ -59,6 +60,34 @@ test('the daemon locks, connects, reports its status, and stops cleanly on SIGTE
   assert.equal(await d.exited, 0);
   assert.equal(isLocked(feishuPaths(ctx.paths).lock), false);
   assert.equal(status(ctx).connected, false);
+});
+
+test('a bare fetch goes through the Feishu proxy, because the SDK decides to reconnect from one', { timeout: 30000 }, async (t) => {
+  /** @type {string[]} */
+  const asked = [];
+  const proxy = http.createServer((req, res) => { asked.push(String(req.url)); res.writeHead(404); res.end(); });
+  proxy.on('connect', (req, sock) => { asked.push(String(req.url)); sock.end('HTTP/1.1 502 Bad Gateway\r\n\r\n'); });
+  await new Promise((r) => proxy.listen(0, '127.0.0.1', () => r(undefined)));
+  t.after(() => proxy.close());
+  const ctx = setUp(t, { FAKE_LARK_PROBE: 'http://feishu.invalid/' });
+  for (const k of ['NO_PROXY', 'no_proxy']) delete ctx.env[k];
+  saveConfig(ctx.paths, { appId: 'cli_daemon', tenant: 'feishu', proxy: `http://127.0.0.1:${/** @type {any} */ (proxy.address()).port}` });
+  const d = spawnDaemon(ctx);
+  t.after(() => { try { d.child.kill('SIGTERM'); } catch { /* gone */ } });
+  await waitFor(() => status(ctx)?.connected === true, { timeoutMs: 15000, what: 'connected status' });
+  assert.ok(asked.some((u) => u.includes('feishu.invalid')), `the proxy was asked for: ${asked.join(' ') || 'nothing'}`);
+  d.child.kill('SIGTERM');
+  assert.equal(await d.exited, 0);
+});
+
+test('a disconnect that never settles cannot keep a stopping daemon alive', { timeout: 30000 }, async (t) => {
+  const ctx = setUp(t, { FAKE_LARK_DISCONNECT: 'hang' });
+  const d = spawnDaemon(ctx);
+  t.after(() => { try { d.child.kill('SIGTERM'); } catch { /* gone */ } });
+  await waitFor(() => status(ctx)?.connected === true, { timeoutMs: 15000, what: 'connected status' });
+  d.child.kill('SIGTERM');
+  assert.equal(await d.exited, 0);
+  assert.equal(isLocked(feishuPaths(ctx.paths).lock), false);
 });
 
 test('a second daemon exits 3 without ever creating a channel or connecting (Review Focus 2)', { timeout: 30000 }, async (t) => {

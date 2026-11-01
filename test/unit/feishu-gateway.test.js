@@ -234,6 +234,25 @@ test('connect() passes the quiet logger to createChannel, wired to this.log (M3)
   assert.doesNotMatch(JSON.stringify(logs), /SUPER_SECRET/);
 });
 
+test('a call that never settles is given up on, and the calls after it still run (a proxy that never answers CONNECT)', async () => {
+  const { gw, ch } = mk({ callTimeoutMs: 30 });
+  await gw.connect();
+  const send = ch().send;
+  // What an axios call does through a wedged proxy: its timeout only starts once the proxy has answered.
+  ch().send = () => new Promise(() => {});
+  await assert.rejects(gw.send('oc_1', { kind: 'text', text: 'x' }), /no answer within 30 ms/);
+  ch().send = send;
+  assert.ok(await gw.send('oc_1', { kind: 'text', text: 'y' }));
+});
+
+test('close() gives up on a disconnect that never settles', async () => {
+  const { gw, ch, logs } = mk({ closeTimeoutMs: 30 });
+  await gw.connect();
+  ch().disconnect = () => new Promise(() => {});
+  await gw.close();
+  assert.ok(logs.some((l) => l.ev === 'gateway.close_error'), JSON.stringify(logs));
+});
+
 test('close disconnects; loadSdk honours CCS_FEISHU_SDK', async () => {
   const { gw, ch } = mk();
   await gw.connect();

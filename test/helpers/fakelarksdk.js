@@ -9,6 +9,8 @@
  *   FAKE_LARK_VERIFY   'fail' → getAppInfo() rejects (bad credentials)
  *   FAKE_LARK_OWNER_FAIL_ONCE  '1' → the first getAppInfo() call on this channel rejects with a transient error;
  *                      every later call (a retry, or the periodic owner refresh) succeeds normally
+ *   FAKE_LARK_PROBE    a URL connect() fetch()es with a bare fetch, as the real SDK's keepalive probes Feishu
+ *   FAKE_LARK_DISCONNECT  'hang' → disconnect() never settles and leaves a timer holding the event loop open
  *   FAKE_LARK_OWNER    owner open_id (default ou_owner)
  *   FAKE_LARK_SCOPES   comma list of scopes the app reports as granted (default none)
  *   FAKE_LARK_TENANT   tenant_brand registerApp reports (default feishu)
@@ -45,6 +47,7 @@ function createLarkChannel(opts) {
   const connect = ch.connect.bind(ch);
   ch.connect = async () => {
     log('connect');
+    if (process.env.FAKE_LARK_PROBE) await fetch(process.env.FAKE_LARK_PROBE, { method: 'HEAD' }).catch(() => {});
     if (process.env.FAKE_LARK_CONNECT === 'fail') throw larkError('not_connected');
     if (process.env.FAKE_LARK_CONNECT === 'slowfail') { await sleep(1500); throw larkError('not_connected'); }
     return connect();
@@ -59,7 +62,11 @@ function createLarkChannel(opts) {
   };
   for (const m of ['send', 'updateCard', 'createChat', 'addReaction', 'disconnect']) {
     const orig = /** @type {any} */ (ch)[m];
-    /** @type {any} */ (ch)[m] = async (/** @type {any[]} */ ...a) => { log(m); return orig.apply(ch, a); };
+    /** @type {any} */ (ch)[m] = async (/** @type {any[]} */ ...a) => {
+      log(m);
+      if (m === 'disconnect' && process.env.FAKE_LARK_DISCONNECT === 'hang') { setInterval(() => {}, 1000); return new Promise(() => {}); }
+      return orig.apply(ch, a);
+    };
   }
   return ch;
 }
