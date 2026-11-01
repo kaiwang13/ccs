@@ -72,7 +72,7 @@ say "staging $NAME (commit $COMMIT)"
 ( cd "$REPO_DIR" && tar -cf - \
     --exclude=node_modules --exclude=build --exclude='*.log' \
     --exclude=docs/superpowers --exclude=docs/debug --exclude=tools/local-ci.sh \
-    bin src addons tools docs \
+    bin src addons tools docs vendor \
     package.json package-lock.json install.sh README.md LICENSE ) | ( cd "$STAGE" && tar -xf - )
 
 say "installing production dependencies (node-pty and ttyctl are built for Node $NODE_VERSION)"

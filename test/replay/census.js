@@ -7,8 +7,8 @@
  */
 const fs = require('node:fs');
 const path = require('node:path');
-const { Tracker } = require('nmux/server/output/tracker');
-const { Pipeline } = require('nmux/server/output/pipeline');
+const { Tracker } = require('nmux/internal/server/output/tracker');
+const { Pipeline } = require('nmux/internal/server/output/pipeline');
 const { createFakeClock } = require('nmux/base/clock');
 
 const CAPTURES = path.join(__dirname, '..', 'golden', 'captures');

@@ -9,18 +9,18 @@
  */
 const { Terminal } = require('@xterm/headless');
 const { Unicode11Addon } = require('@xterm/addon-unicode11');
-const { Tracker } = require('nmux/server/output/tracker');
-const { Pipeline } = require('nmux/server/output/pipeline');
-const { Emulator } = require('nmux/server/output/emulator');
-const { ClientAdapter } = require('nmux/server/output/adapter');
-const { buildJoinBytes } = require('nmux/server/output/snapshot');
-const { messagesFrom } = require('nmux/server/messages');
+const { Tracker } = require('nmux/internal/server/output/tracker');
+const { Pipeline } = require('nmux/internal/server/output/pipeline');
+const { Emulator } = require('nmux/internal/server/output/emulator');
+const { ClientAdapter } = require('nmux/internal/server/output/adapter');
+const { buildJoinBytes } = require('nmux/internal/server/output/snapshot');
+const { messagesFrom } = require('nmux/internal/server/messages');
 const { CCS_MESSAGES } = require('../../src/sessiond/messages.js');
 
 const MESSAGES = messagesFrom(CCS_MESSAGES);
 const { DEFAULTS } = require('../../src/common/config');
 const { createFakeClock } = require('nmux/base/clock');
-const { T } = require('nmux/wire/proto');
+const { T } = require('nmux/internal/wire/proto');
 const { bufferLines } = require('./judge');
 const { loadCapture, loadFlowCapture, CAPTURES } = require('./census');
 

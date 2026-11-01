@@ -12,6 +12,7 @@ const { isLocked } = require('nmux/platform/locks');
 const { AgentController } = require('../agents/controller.js');
 const { loadScreens } = require('../claude/screens.js');
 const { HostedSession } = require('./hosted.js');
+const { CCSD_MAIN } = require('../sessiond/agentsession.js');
 
 const SCAN_MS = 300;
 const IDLE_EXIT_MS = 60000;
@@ -39,6 +40,7 @@ class Ccsd {
     this.timer = null;
     this.idleSince = clock.now();
     this.closed = false;
+    this.startedAt = Date.now();
   }
 
   start() { this._scan(); }
@@ -70,6 +72,7 @@ class Ccsd {
     const host = this._specOf(id);
     if (!host || !host.agentSpec || !this._running(id)) return;                        // a session from before ccsd has its own controller
     if (this.ended.get(id) === host.createdAt) return;
+    if (this._newerRelease(host)) { this.log.info('ccsd.superseded', { id }); this.onIdle(); return; }
     const spec = host.agentSpec;
     const log = this.log.child ? this.log.child({ session: id }) : this.log;
     /** @type {any} */
@@ -84,6 +87,16 @@ class Ccsd {
       if (st && st.restarts && st.restarts.attributed) controller.attributed = st.restarts.attributed;
     }, () => {}).finally(() => { if (!hosted.disposed) hosted.open(); });
     this.log.info('session.adopted', { id });
+  }
+
+  /**
+   * A session an update started, while this ccsd is still running the release before. It leaves: everything keeps running, and
+   * that session's server starts the new one, which takes every session on from here.
+   * @param {any} host
+   */
+  _newerRelease(host) {
+    const command = host.managed && host.managed.command;
+    return !!command && command.argv[1] !== CCSD_MAIN && Date.parse(host.createdAt) > this.startedAt;
   }
 
   /** @param {string} id @param {object} doc */

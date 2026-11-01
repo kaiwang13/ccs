@@ -20,10 +20,10 @@
  */
 const os = require('node:os');
 const path = require('node:path');
-const { sessionLayout, segment } = require('nmux/wire/layout');
+const { sessionLayout, segment } = require('nmux/sdk');
 
 /**
- * @typedef {import('nmux/wire/layout').Layout & {
+ * @typedef {import('nmux/sdk').Layout & {
  *   hostname: string, settingsFile(id: string): string,
  *   locksDir: string, startLock: string, registryLock: string, reconcileLock: string,
  *   runDir: string, cliLog: string,

@@ -9,7 +9,7 @@ const { parseArgs, UsageError } = require('../args.js');
 const { resolveTarget } = require('../resolve.js');
 const { recordName } = require('../../common/registry.js');
 const { isLive, stopAndWait, stopTimeoutMs, startAndWait } = require('../lifecycle.js');
-const { queryTermColors } = require('nmux/client/termcolors');
+const { queryTermColors } = require('nmux/sdk');
 const { reportStartFailure } = require('./attach.js');
 
 /** @param {string[]} argv @param {any} ctx */

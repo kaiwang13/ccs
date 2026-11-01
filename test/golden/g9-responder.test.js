@@ -6,7 +6,7 @@ const path = require('node:path');
 const { Terminal } = require('xterm-cursor');
 const { Lexer } = require('nmux/vt/lexer');
 const { ModeState } = require('nmux/vt/modes');
-const { Responder } = require('nmux/holder/responder');
+const { Responder } = require('nmux/internal/holder/responder');
 const { createFakeClock } = require('nmux/base/clock');
 const CAPTURES = path.join(__dirname, 'captures');
 

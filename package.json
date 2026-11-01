@@ -13,10 +13,12 @@
     "test:unit": "node --test \"test/unit/**/*.test.js\"",
     "test:golden": "node --test \"test/golden/**/*.test.js\"",
     "test:integration": "node --test \"test/integration/**/*.test.js\"",
-    "test:live": "node --test --test-concurrency=1 \"test/live/**/*.test.js\""
+    "test:live": "node --test --test-concurrency=1 \"test/live/**/*.test.js\"",
+    "nmux:vendor": "npm pack ../nmux --pack-destination vendor --silent && npm install --silent --no-audit --no-fund",
+    "nmux:link": "rm -rf node_modules/nmux && ln -s ../../nmux node_modules/nmux"
   },
   "dependencies": {
-    "nmux": "file:../nmux",
+    "nmux": "file:vendor/nmux-0.2.0.tgz",
     "node-pty": "1.1.0"
   },
   "devDependencies": {

@@ -4,7 +4,7 @@ const net = require('node:net');
 const { EventEmitter } = require('node:events');
 const { Terminal } = require('@xterm/headless');
 const { Unicode11Addon } = require('@xterm/addon-unicode11');
-const { T, CTL_PROTO, FramedSocket } = require('nmux/wire/proto');
+const { T, CTL_PROTO, FramedSocket } = require('nmux/internal/wire/proto');
 
 /**
  * Programmatic attach client (contract §6.21): speaks ctl.sock like `ccs attach`, renders OUTPUT into an

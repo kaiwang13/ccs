@@ -2,10 +2,10 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const { SerializeAddon } = require('@xterm/addon-serialize');
-const { Ring } = require('nmux/holder/ring');
-const { Tracker } = require('nmux/server/output/tracker');
-const { Pipeline } = require('nmux/server/output/pipeline');
-const { Emulator } = require('nmux/server/output/emulator');
+const { Ring } = require('nmux/internal/holder/ring');
+const { Tracker } = require('nmux/internal/server/output/tracker');
+const { Pipeline } = require('nmux/internal/server/output/pipeline');
+const { Emulator } = require('nmux/internal/server/output/emulator');
 const { createFakeClock } = require('nmux/base/clock');
 const { loadCapture } = require('../replay/census');
 

@@ -8,7 +8,7 @@ const cp = require('child_process');
 const { createRegistry } = require('../../src/common/registry.js');
 const { procStart, machineId } = require('../../src/common/procinfo.js');
 const { isLocked } = require('nmux/platform/locks');
-const { probeSocket } = require('nmux/wire/ctlclient');
+const { probeSocket } = require('nmux/internal/wire/ctlclient');
 const { closeNfsWorker } = require('../../src/common/nfsworker.js');
 const { makeCcsEnv, waitFor, spawnSessiond, envPids, writeNodeWrapper, REPO } = require('../helpers/ccsenv.js');
 

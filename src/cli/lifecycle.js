@@ -12,7 +12,7 @@ const cp = require('child_process');
 const crypto = require('crypto');
 const path = require('path');
 const { isLocked } = require('nmux/platform/locks');
-const { controlRequest, probeSocket } = require('nmux/wire/ctlclient');
+const { controlRequest, probeSocket } = require('nmux/sdk');
 
 const SESSIOND_MAIN = path.join(__dirname, '..', 'sessiond', 'main.js');
 const sleep = (/** @type {number} */ ms) => new Promise((r) => setTimeout(r, ms));

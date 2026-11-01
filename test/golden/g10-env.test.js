@@ -3,11 +3,11 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
-const { Tracker } = require('nmux/server/output/tracker');
-const { Pipeline } = require('nmux/server/output/pipeline');
-const { Emulator } = require('nmux/server/output/emulator');
-const { buildJoinBytes } = require('nmux/server/output/snapshot');
-const { messagesFrom } = require('nmux/server/messages');
+const { Tracker } = require('nmux/internal/server/output/tracker');
+const { Pipeline } = require('nmux/internal/server/output/pipeline');
+const { Emulator } = require('nmux/internal/server/output/emulator');
+const { buildJoinBytes } = require('nmux/internal/server/output/snapshot');
+const { messagesFrom } = require('nmux/internal/server/messages');
 const { CCS_MESSAGES } = require('../../src/sessiond/messages.js');
 
 const MESSAGES = messagesFrom(CCS_MESSAGES);

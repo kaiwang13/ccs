@@ -3,7 +3,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const net = require('node:net');
 const { spawn } = require('node:child_process');
-const { T, FramedSocket } = require('nmux/wire/proto');
+const { T, FramedSocket } = require('nmux/internal/wire/proto');
 const { startTestSession } = require('../helpers/session');
 const { connectVirtualClient } = require('../helpers/vclient');
 const { waitFor } = require('../helpers/waitfor');
@@ -130,7 +130,7 @@ test('a below-floor RESIZE followed immediately by an above-floor RESIZE, while 
 test('the holder spec carries sessiondCmd = the argv that started the server, with --recover appended once', { timeout: 60000 }, async (t) => {
   const e = await startTestSession(t);
   const holderSpec = JSON.parse(require('node:fs').readFileSync(e.s.paths.holderSpec('sess01', 1), 'utf8'));
-  assert.deepEqual(holderSpec.sessiondCmd, [process.execPath, require.resolve('nmux/server/run'), '--spec', e.specFile, '--recover']);
+  assert.deepEqual(holderSpec.sessiondCmd, [process.execPath, require.resolve('nmux/internal/server/run'), '--spec', e.specFile, '--recover']);
 });
 
 test('DETACH ends the client with BYE USER', { timeout: 60000 }, async (t) => {

@@ -8,7 +8,7 @@ const { resolvePaths } = require('../../src/common/paths.js');
 const { readEnviron, listProcesses } = require('../../src/common/procinfo.js');
 const { withDescendants } = require('./processes.js');
 const { isLocked } = require('nmux/platform/locks');
-const { controlRequest } = require('nmux/wire/ctlclient');
+const { controlRequest } = require('nmux/internal/wire/ctlclient');
 const { claudeJsonFixture } = require('./claudejson.js');
 
 const REPO = path.resolve(__dirname, '../..');

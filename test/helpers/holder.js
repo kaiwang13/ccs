@@ -7,7 +7,7 @@ const { makeTempRoot } = require('./tmp');
 const { makeSessionSpec, ROOT, NODE } = require('./spawn');
 const { waitFor } = require('./waitfor');
 
-const HOLDER = require.resolve('nmux/holder/main');
+const HOLDER = require.resolve('nmux/internal/holder/main');
 
 /**
  * Starts a real holder running the fake claude, without any sessiond (sessiondCmd is empty unless given).

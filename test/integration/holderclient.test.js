@@ -1,7 +1,7 @@
 'use strict';
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { connectHolder } = require('nmux/server/session/holderclient');
+const { connectHolder } = require('nmux/internal/server/session/holderclient');
 const { startHolder } = require('../helpers/holder');
 const { readRecord } = require('../helpers/spawn');
 const { waitFor, onceEvent, sleep } = require('../helpers/waitfor');

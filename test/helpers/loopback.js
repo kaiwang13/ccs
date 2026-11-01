@@ -6,9 +6,9 @@
  * raises, and the calls a HostedSession makes. Tests only: nothing else may reach inside the host.
  */
 const fs = require('node:fs');
-const { Session } = require('nmux/server/session/session');
-const { RemoteController } = require('nmux/server/session/remote');
-const { messagesFrom } = require('nmux/server/messages');
+const { Session } = require('nmux/internal/server/session/session');
+const { RemoteController } = require('nmux/internal/server/session/remote');
+const { messagesFrom } = require('nmux/internal/server/messages');
 const { AgentController } = require('../../src/agents/controller');
 const { hostConfig } = require('../../src/sessiond/agentsession');
 const { CCS_MESSAGES } = require('../../src/sessiond/messages');

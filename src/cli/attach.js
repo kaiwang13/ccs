@@ -50,7 +50,7 @@ function floorMessage({ code, cols, rows, need, name, shrink, hardMinCols }) {
   return lines.map((l) => `${l}\r\n`).join('');
 }
 
-/** @type {import('nmux/client/text').ClientText} */
+/** @type {import('nmux/sdk').ClientText} */
 const CCS_TEXT = {
   brand: 'ccs',
   nestEnv: 'CCS_ID',

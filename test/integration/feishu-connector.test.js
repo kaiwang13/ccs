@@ -8,7 +8,7 @@ const { makeCcsEnv, runCcs } = require('../helpers/ccsenv.js');
 const { waitFor } = require('../helpers/waitfor.js');
 const { createRegistry } = require('../../src/common/registry.js');
 const { closeNfsWorker } = require('../../src/common/nfsworker.js');
-const { controlRequest } = require('nmux/wire/ctlclient');
+const { controlRequest } = require('nmux/internal/wire/ctlclient');
 const { Connector } = require('../../addons/feishu/lib/connector.js');
 const { FakeGateway } = require('../helpers/fakefeishu.js');
 

@@ -8,7 +8,7 @@ const { makeTempRoot } = require('../helpers/tmp');
 const { waitFor } = require('../helpers/waitfor');
 
 const ROOT = path.resolve(__dirname, '..', '..');
-const HOLDER = require.resolve('nmux/holder/main');
+const HOLDER = require.resolve('nmux/internal/holder/main');
 const FAKECODEX = path.join(ROOT, 'test', 'fake', 'fakecodex');
 const NODE = process.execPath;
 
