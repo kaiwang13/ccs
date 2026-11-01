@@ -1,0 +1,3 @@
+#!/bin/sh
+# Stands in for the agent binary, so the host under test runs whatever the session directory says to run.
+exec "$PWD/.hosted"

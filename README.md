@@ -418,10 +418,11 @@ shows both.
 ## Tests
 
 ```bash
-npm test                  # unit + golden + integration (707)
+npm test                  # every suite below
 npm run test:unit
 npm run test:golden       # terminal-emulator differential tests
 npm run test:integration
+npm run test:conformance  # real shell sessions through the host, compared with a plain terminal
 ```
 
 No test starts a real `claude` or touches your real `~/.claude*`, `~/.local/state/ccs` or `~/.config/ccs`.
