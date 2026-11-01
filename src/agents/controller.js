@@ -90,8 +90,11 @@ class AgentController {
   bind(session) { this.session = session; }
 
   // ---------------------------------------------------------------------------------------------------- the holder
-  /** @param {{suspended?: boolean}} [o] suspended: the session was left that way by a controller before this one */
-  onHolder({ suspended = false } = {}) {
+  /**
+   * @param {{suspended?: boolean, tty?: any}} [o] suspended: the session was left that way by a controller before this one.
+   *   tty: how its terminal stands, known at once when arriving at a running session, so no gate is dropped to be put back.
+   */
+  onHolder({ suspended = false, tty = null } = {}) {
     const s = this.session;
     if (this.suspendNet) this.suspendNet.dispose();
     this.suspendNet = new SuspendNet({ clock: this.clock, tracker: s, name: s.name,
@@ -104,6 +107,7 @@ class AgentController {
       this._syncGates();
     });
     if (suspended) this.suspendNet.assumeSuspended();
+    if (tty) this.suspendNet.onLflag(tty);
     this._publish();
     this._syncGates();
   }
@@ -317,6 +321,7 @@ class AgentController {
     if (this.stopping || s.lifecycle === 'STOPPED') return;
     const line = e.lastLine;
     if (this.config.restart.detectExitIntent && line && EXIT_LINE.test(line.text) && e.code === 0 && !e.signal) {
+      if (this.t.respawn !== null) return;                                              // told again: this one is in hand
       this.attributed += 1;
       this.exitCause = 'client-exit';
       s.leave(line.client);
@@ -324,6 +329,7 @@ class AgentController {
       this.t.respawn = this.clock.setTimeout(() => { this.t.respawn = null; s.respawn(this.respawnArgv()); }, this.config.restart.attributedExitDelayMs);
       return;
     }
+    this.exitCause = null;
     s.notify('warn', 'CLAUDE_EXITED', `claude exited (code ${e.code ?? e.signal ?? 'unknown'}) — run: ccs restart ${s.name}`);
   }
 
@@ -338,7 +344,6 @@ class AgentController {
     this.setupCandidate = null;
     this.setupHits = 0;
     this.ackedNotices = new Set();
-    this.exitCause = null;
     this._publish({ attention: false });
     this._syncGates();
   }

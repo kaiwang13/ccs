@@ -4,6 +4,7 @@ const assert = require('node:assert/strict');
 const fs = require('fs');
 const path = require('path');
 const { runCodexPreflight } = require('../../src/codex/preflight.js');
+const { tryLock } = require('nmux/platform/locks');
 
 const BIN = { path: '/opt/codex/bin/codex', version: '0.155.0', tested: true, source: 'install' };
 
@@ -12,7 +13,8 @@ function env(t) {
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));
   fs.mkdirSync(path.join(root, 'locks'), { recursive: true });
   return {
-    paths: { startLock: path.join(root, 'locks', 'start.lock'), codexStateDb: path.join(root, 'nonexistent.sqlite') },
+    paths: { startLock: path.join(root, 'locks', 'start.lock'), codexStateDb: path.join(root, 'nonexistent.sqlite'),
+      sessiondLock: (id) => path.join(root, 'locks', `${id}.sessiond`), holderLock: (id) => path.join(root, 'locks', `${id}.holder`) },
     config: { codex: { testedVersions: ['0.155.0'] }, registry: { nfsTimeoutMs: 5000 } },
   };
 }
@@ -56,8 +58,18 @@ test('the start lock is genuinely held: a second preflight cannot take it while 
 // `registry` in the preflight ctx, so two ccs sessions could resume and write to the same Codex thread
 // simultaneously. These tests exercise the check directly with a registry stub, the way startspec now
 // wires it (ctx.registry).
+test('a session that went with nobody to close its record holds no thread', async (t) => {
+  const { paths, config } = env(t);
+  const registry = { list: async () => [{ id: 'other0001', state: { lastSessionId: 'thread-xyz', lifecycle: 'RUNNING' } }] };
+  const pf = await runCodexPreflight({ paths, config, ccsId: 'aaaa1111', bin: BIN, sessionId: 'thread-xyz', registry });
+  assert.equal(pf.ok, true);
+  pf.release();
+});
+
 test('SECOND_WRITER: another live ccs session already holds this Codex thread', async (t) => {
   const { paths, config } = env(t);
+  const running = tryLock(paths.holderLock('other0001'));
+  t.after(() => running.release());
   const registry = { list: async () => [
     { id: 'other0001', state: { lastSessionId: 'thread-xyz', lifecycle: 'RUNNING' } },
   ] };

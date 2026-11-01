@@ -162,3 +162,61 @@ test('a record that is already final, or a session still running, is left alone'
   lock.release();
   assert.deepEqual(alive.written, []);
 });
+
+test('ccsd coming back sees to the record of a session that went while it was away, once', async (t) => {
+  const fs = require('node:fs');
+  const path = require('node:path');
+  const e = endedSession(t, { lifecycle: 'RUNNING' });
+  fs.writeFileSync(path.join(e.paths.sessionDir(), 'session.json'), JSON.stringify({ createdAt: 'x', agentSpec: {} }));
+  const d = new Ccsd({ paths: e.paths, config: {}, registry: e.registry, log: LOG });
+  d._adopt('abc');
+  await settled();
+  d._adopt('abc');
+  await settled();
+  assert.equal(e.written.length, 1);
+  assert.equal(e.written[0].lifecycle, 'EXITED');
+  assert.equal(d.sessions.size, 0);
+});
+
+test('arriving at a session with a cooked terminal, the gate on it never comes down', async () => {
+  const { AgentController } = require('../../src/agents/controller');
+  /** @type {any[]} */
+  const gates = [];
+  const session = { name: 's', lifecycle: 'RUNNING', exited: false, child: null, publish() {}, gate: (/** @type {string} */ name, /** @type {any} */ g) => gates.push([name, g.effect]) };
+  const c = Object.create(AgentController.prototype);
+  Object.assign(c, { session, clock: createFakeClock(), gatesSet: { COOKED: 'left by the last controller' }, suspendNet: null, setupKind: null, screens: { suspendBanner: 'stopped' }, observed: null, lastSessionId: null, lastBridgeSessionId: null });
+  c.onHolder({ tty: { icanon: true, isig: true, echo: true, fgIsChild: true, fg: 1 } });
+  c.suspendNet.dispose();
+  assert.deepEqual(gates.filter(([, effect]) => effect === null), []);
+});
+
+test('an exit told twice is one exit', () => {
+  const { AgentController } = require('../../src/agents/controller');
+  const clock = createFakeClock();
+  /** @type {string[]} */
+  const calls = [];
+  const c = Object.create(AgentController.prototype);
+  const session = { name: 's', lifecycle: 'EXITED', leave: () => calls.push('leave'), saveState() {}, respawn: () => calls.push('respawn') };
+  Object.assign(c, { session, clock, stopping: false, attributed: 0, exitCause: null, t: { respawn: null }, config: { restart: { detectExitIntent: true, attributedExitDelayMs: 100 } }, onChildExit() {}, respawnArgv: () => ['x'] });
+  const exit = { code: 0, signal: null, lastLine: { client: 'c1', text: '/exit' } };
+  c.onExit(exit);
+  c.onExit(exit);
+  clock.tick(100);
+  assert.deepEqual(calls, ['leave', 'respawn']);
+  assert.equal(c.attributed, 1);
+});
+
+test('the record goes on saying why the last program ended once the next is running, until another ends', () => {
+  const { AgentController } = require('../../src/agents/controller');
+  const c = Object.create(AgentController.prototype);
+  const session = { name: 's', lifecycle: 'RUNNING', leave() {}, saveState() {}, notify() {}, respawn() {}, publish() {}, gate() {}, child: null };
+  Object.assign(c, { session, clock: createFakeClock(), stopping: false, attributed: 0, exitCause: null, t: { respawn: null }, gatesSet: {}, suspendNet: null, setupKind: null, observed: null, lastSessionId: null, lastBridgeSessionId: null,
+    config: { restart: { detectExitIntent: true, attributedExitDelayMs: 100 } }, onChildExit() {}, respawnArgv: () => ['x'] });
+  const cause = () => c.persisted({ id: 'a', restarts: { lastExit: { code: 0, cause: 'unexpected' } } }).restarts.lastExit.cause;
+  c.onExit({ code: 0, signal: null, lastLine: { client: 'c1', text: '/exit' } });
+  c.onRespawned();
+  assert.equal(cause(), 'client-exit');
+  c.onExit({ code: 1, signal: null, lastLine: null });
+  assert.equal(cause(), 'unexpected');
+});
+

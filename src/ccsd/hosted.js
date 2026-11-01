@@ -60,8 +60,8 @@ class HostedSession {
     this.launchedAtMs = s.launchedAtMs;
     c.stopping = s.lifecycle === 'STOPPING';
     c.gatesSet = Object.fromEntries((s.gates || []).map((/** @type {string} */ g) => [g, 'left by the last controller']));
-    if (s.holder) { this.child = s.holder.child; c.onHolder({ suspended: s.lifecycle === 'SUSPENDED' }); c.onAttached(); } else c._syncGates();
-    if (s.tty) { this.alt = !!s.tty.alt; c.onLflag(s.tty); }
+    if (s.tty) this.alt = !!s.tty.alt;
+    if (s.holder) { this.child = s.holder.child; c.onHolder({ suspended: s.lifecycle === 'SUSPENDED', tty: s.tty }); c.onAttached(); } else c._syncGates();
     if (s.exit) { this.exited = true; c.onExit(s.exit); }
   }
 

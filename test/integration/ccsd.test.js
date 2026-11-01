@@ -12,6 +12,7 @@ const { controlRequest } = require('nmux/sdk');
 const { makeCcsEnv, runCcs, waitFor } = require('../helpers/ccsenv.js');
 const { connectVirtualClient } = require('../helpers/vclient');
 const { startTestSession } = require('../helpers/session');
+const { createRegistry } = require('../../src/common/registry.js');
 const { closeNfsWorker } = require('../../src/common/nfsworker.js');
 const { listProcesses, readEnviron } = require('../../src/common/procinfo.js');
 const { isLocked } = require('nmux/platform/locks');
@@ -124,6 +125,16 @@ test('gates an old ccsd left up are put right by the next one', { timeout: 60000
   await e.replaceController();
   await waitFor(async () => (await e.gates()).length === 0, 5000, 'nothing wanted to stay up');
   await waitFor(async () => (await e.status()).lifecycle === 'RUNNING', 5000, 'the agent is running again, and the new ccsd can see that');
+});
+
+test('a stop of a session that went with nobody to say so puts its record right', { timeout: 30000 }, async (t) => {
+  const ctx = makeCcsEnv(t);
+  const registry = createRegistry(ctx.paths);
+  const rec = await registry.create({ name: 'dead', cwd: ctx.paths.runtimeDir, claudeArgs: [], env: {}, trustExpected: true });
+  await registry.writeState(rec.id, { lifecycle: 'RUNNING', lastSessionId: 'kept' });
+  assert.match((await runCcs(ctx, ['stop', 'dead'])).stdout, /is not running/);
+  const state = await registry.readState(rec.id);
+  assert.deepEqual([state.lifecycle, state.lastSessionId], ['EXITED', 'kept']);
 });
 
 test('a session stopped straight after starting can start again at once, while the first start is still spacing out others', { timeout: 60000 }, async (t) => {

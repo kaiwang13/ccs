@@ -11,6 +11,7 @@
  */
 const { acquireStartLock } = require('../claude/preflight.js');
 const { checkThreadSchema } = require('./threads.js');
+const { isLocked } = require('nmux/platform/locks');
 
 const realSleep = (/** @type {number} */ ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -45,7 +46,9 @@ async function runCodexPreflight(ctx) {
   // a second ccs session resuming the same conversation would give one thread two writers.
   if (ctx.sessionId && ctx.registry) {
     const rows = await ctx.registry.list().catch(() => []);
-    const clash = rows.find((r) => r.id !== ctx.ccsId && r.state && r.state.lastSessionId === ctx.sessionId && r.state.lifecycle && !['STOPPED', 'EXITED', 'FAILED'].includes(r.state.lifecycle));
+    // A record can outlive its session, if nobody was there to close it: what counts is that something is still running.
+    const running = (/** @type {string} */ id) => isLocked(paths.sessiondLock(id)) || isLocked(paths.holderLock(id));
+    const clash = rows.find((r) => r.id !== ctx.ccsId && r.state && r.state.lastSessionId === ctx.sessionId && r.state.lifecycle && !['STOPPED', 'EXITED', 'FAILED'].includes(r.state.lifecycle) && running(r.id));
     if (clash) return block('SECOND_WRITER', { thread: ctx.sessionId, heldBy: clash.id });
   }
 

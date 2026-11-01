@@ -40,6 +40,8 @@ class Ccsd {
     this.ended = new Map();
     /** Sessions it could not take on, by when each was created. @type {Set<string>} */
     this.refused = new Set();
+    /** Sessions that had gone when it looked, whose records have been seen to. @type {Set<string>} */
+    this.settled = new Set();
     /** @type {any} */
     this.timer = null;
     this.idleSince = clock.now();
@@ -74,7 +76,9 @@ class Ccsd {
   /** @param {string} id */
   _adopt(id) {
     const host = this._specOf(id);
-    if (!host || !host.agentSpec || !this._running(id)) return;                        // a session from before ccsd has its own controller
+    if (!host || !host.agentSpec) return;                                              // a session from before ccsd has its own controller
+    if (!this._running(id)) { this._settle(id); return; }
+    this.settled.delete(id);
     if (this.ended.get(id) === host.createdAt || this.refused.has(host.createdAt)) return;
     if (this._newerRelease(host)) { this.log.info('ccsd.superseded', { id }); this.onIdle(); return; }
     const spec = host.agentSpec;
@@ -113,6 +117,13 @@ class Ccsd {
   async _write(id, doc) {
     const prev = (await this.registry.readState(id)) || {};
     await this.registry.writeState(id, { ...prev, ...doc });
+  }
+
+  /** It went while this ccsd was not there to see. @param {string} id */
+  _settle(id) {
+    if (this.settled.has(id)) return;
+    this.settled.add(id);
+    settleRecord(this.paths, this.registry, id).catch((e) => this.log.warn('session.settle_failed', { id, error: String(e && e.message) }));
   }
 
   /** It ended with nobody to tell us: there is no server left and no program to look after. @param {string} id @param {HostedSession} hosted */

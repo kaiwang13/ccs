@@ -5,6 +5,7 @@ const { parseArgs, UsageError } = require('../args.js');
 const { resolveTarget } = require('../resolve.js');
 const { recordName } = require('../../common/registry.js');
 const { isLive, stopAndWait, stopTimeoutMs } = require('../lifecycle.js');
+const { settleRecord } = require('../../ccsd/record.js');
 
 /** @param {string[]} argv @param {any} ctx */
 async function run(argv, ctx) {
@@ -24,6 +25,7 @@ async function run(argv, ctx) {
     const name = recordName(rec);
     if (!isLive(ctx.paths, rec.id)) {
       if (rec.intent.desired !== 'stopped') await ctx.registry.updateIntent(rec.id, (i) => { i.desired = 'stopped'; });
+      await settleRecord(ctx.paths, ctx.registry, rec.id).catch(() => {});
       if (!flags['--all']) ctx.out.write(`ccs: '${name}' is not running\n`);
       continue;
     }

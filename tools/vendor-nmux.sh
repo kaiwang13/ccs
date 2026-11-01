@@ -6,10 +6,10 @@ REPO_DIR=$(cd "$(dirname "$0")/.." && pwd)
 NMUX_DIR="$REPO_DIR/../nmux"
 VERSION=$(node -p "require('$NMUX_DIR/package.json').version")
 FILE="nmux-$VERSION.tgz"
-[ ! -e "$REPO_DIR/vendor/$FILE" ] || { echo "vendor/$FILE already exists: bump the version in nmux first" >&2; exit 1; }
+[ ! -e "$REPO_DIR/vendor/$FILE" ] || { echo "vendor/$FILE already exists: bump the version in nmux first (or, if the last run failed in npm install, just run npm install)" >&2; exit 1; }
 cd "$REPO_DIR"
-rm -f vendor/nmux-*.tgz
 ( cd "$NMUX_DIR" && npm pack --silent --pack-destination "$REPO_DIR/vendor" >/dev/null )
+find vendor -name 'nmux-*.tgz' ! -name "$FILE" -exec rm -f {} +
 rm -rf node_modules/nmux
 npm pkg set "dependencies.nmux=file:vendor/$FILE"
 npm install --silent --no-audit --no-fund

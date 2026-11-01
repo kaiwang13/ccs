@@ -172,6 +172,25 @@ test('CLOSE_MASTER ends claude (EIO/SIGHUP); EXIT is sent; RELEASE ends the hold
   assert.equal(await h.exited, 0);
 });
 
+test('a holder that was frozen does not take the time it lost for its server going silent', { timeout: 30000 }, async (t) => {
+  const h = await startHolder(t, { timers: { pingMs: 200, pongTimeoutMs: 2000 } });
+  const c = await rawConn(h.sock);
+  t.after(() => c.close());
+  let answering = true;
+  const answers = setInterval(() => { for (const m of c.controls.splice(0)) if (m.t === 'PING' && answering) c.send({ t: 'PONG', seq: m.seq }); }, 20);
+  t.after(() => clearInterval(answers));
+  await sleep(500);
+  answering = false;                                                             // an answer waiting for it would be read first
+  process.kill(/** @type {number} */ (h.child.pid), 'SIGSTOP');
+  t.after(() => { try { process.kill(/** @type {number} */ (h.child.pid), 'SIGCONT'); } catch { /* gone */ } });
+  await sleep(3000);
+  process.kill(/** @type {number} */ (h.child.pid), 'SIGCONT');
+  answering = true;
+  await sleep(1000);
+  assert.equal(c.closed, false);
+  assert.doesNotMatch(fs.readFileSync(h.logFile, 'utf8'), /sessiond\.pong_timeout/);
+});
+
 test('finish() closes pty.sock synchronously: connections raced in right after RELEASE are refused, never given a full H_HELLO handshake then dropped', { timeout: 60000 }, async (t) => {
   const h = await startHolder(t);
   const c = await rawConn(h.sock);
