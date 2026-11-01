@@ -7,6 +7,7 @@ const { ensureRuntime } = require('nmux/platform/runtime');
 const { resolvePaths } = require('../common/paths.js');
 const { loadConfig } = require('../common/config.js');
 const { createRegistry } = require('../common/registry.js');
+const { closeNfsWorker } = require('../common/nfsworker.js');
 const { Ccsd } = require('./daemon.js');
 
 /** @param {any} paths */
@@ -31,6 +32,7 @@ async function main() {
     daemon.start();
   });
   log.info('ccsd.exit', {});
+  closeNfsWorker();
   lock.release();
   return 0;
 }
