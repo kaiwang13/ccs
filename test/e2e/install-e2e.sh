@@ -73,6 +73,10 @@ grep -qE '^[^#]*\b(sudo|doas)\b' "$INSTALLER" && bad "installer invokes sudo/doa
 outside=$(find "$CCS_HOME" -maxdepth 0 2>/dev/null | wc -l)
 [ "$outside" -eq 1 ] && pass "install root created inside the prefix" || bad "install root missing"
 
+say "nmux comes with it"
+[ -x "$CCS_BIN_DIR/nmux" ] && pass "wrapper is executable at \$CCS_BIN_DIR/nmux" || bad "no nmux wrapper"
+"$CCS_BIN_DIR/nmux" --version >/dev/null 2>&1 && pass "nmux runs from the install" || bad "nmux does not run"
+
 say "the installed ccs runs and is pointed at its own registry"
 if "$WRAPPER" ls >"$PREFIX/ls.log" 2>&1; then pass "ccs ls exits 0"; else bad "ccs ls failed"; tail -5 "$PREFIX/ls.log"; fi
 if "$WRAPPER" ls --json 2>/dev/null | grep -q '^\[\]$'; then pass "isolated registry is empty (cannot see your sessions)"
@@ -112,6 +116,7 @@ printf '{"schema":"ccs.intent/1","id":"deadbeef","nameAtCreate":"keepme"}\n' > "
 RECORD_SUM=$($SHA256 "$CCS_STATE_DIR/hosts/testhost/sessions/deadbeef/intent.json" | cut -d" " -f1)
 if sh "$INSTALLER" uninstall >"$PREFIX/uninstall.log" 2>&1; then pass "uninstall exited 0"; else bad "uninstall failed"; tail -15 "$PREFIX/uninstall.log"; fi
 [ ! -e "$WRAPPER" ] && pass "wrapper removed" || bad "wrapper still present"
+[ ! -e "$CCS_BIN_DIR/nmux" ] && pass "nmux wrapper removed" || bad "nmux wrapper still present"
 [ ! -d "$CCS_HOME" ] && pass "install root removed" || bad "install root still present"
 if [ -f "$CCS_STATE_DIR/hosts/testhost/sessions/deadbeef/intent.json" ] \
    && [ "$($SHA256 "$CCS_STATE_DIR/hosts/testhost/sessions/deadbeef/intent.json" | cut -d" " -f1)" = "$RECORD_SUM" ]; then

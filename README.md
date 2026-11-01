@@ -15,6 +15,9 @@ phone (RC) ─┘     (emulator,        (owns the pty)
                        ccsd  (one per user: knows what an agent is)
 ```
 
+Installing ccs also puts `nmux` on your PATH: the session host ccs runs on, as a command of its own for shells and any other
+program. `nmux help` says what it does.
+
 Unlike `tmux` or `screen`, `ccs` does not own your scrollback. Each client renders into its own terminal,
 so you scroll with your normal mouse wheel, trackpad, and scrollbar — no prefix key, no copy mode.
 
