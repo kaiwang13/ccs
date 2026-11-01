@@ -8,7 +8,7 @@
 const { parseArgs, UsageError } = require('../args.js');
 const { resolveTarget } = require('../resolve.js');
 const { recordName } = require('../../common/registry.js');
-const { controlRequest } = require('../../common/ctlclient.js');
+const { controlRequest } = require('nmux/wire/ctlclient');
 const { isLive } = require('../lifecycle.js');
 const { formatAge } = require('../ls.js');
 

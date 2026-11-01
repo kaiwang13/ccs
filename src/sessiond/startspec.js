@@ -14,16 +14,16 @@ const fs = require('fs');
 const path = require('path');
 const { resolvePaths } = require('../common/paths.js');
 const { loadConfig } = require('../common/config.js');
-const { createLogger } = require('../common/log.js');
-const { tryLock, isLocked } = require('../common/locks.js');
-const { ensureRuntime } = require('../common/runtime.js');
+const { createLogger } = require('nmux/base/log');
+const { tryLock, isLocked } = require('nmux/platform/locks');
+const { ensureRuntime } = require('nmux/platform/runtime');
 const { bootId, procStart } = require('../common/procinfo.js');
 const { runNfsOp } = require('../common/nfsworker.js');
 const { createRegistry } = require('../common/registry.js');
-const { controlRequest } = require('../common/ctlclient.js');
+const { controlRequest } = require('nmux/wire/ctlclient');
 const { validateSessionSpec } = require('./spec.js');
 const { getAgent } = require('../agents/index.js');
-const { LaunchError } = require('./launcher.js');
+const { LaunchError } = require('../claude/launcher.js');
 
 const ID_RE = /^[0-9a-f]{8}$/;
 const SETTLED = new Set(['RUNNING', 'SETUP_GATED', 'SUSPENDED', 'BLOCKED', 'FAILED', 'EXITED', 'STOPPING', 'STOPPED', 'STOP_STUCK']);
@@ -145,7 +145,7 @@ async function startMain(argv, env = process.env, deps = {}) {
   const paths = resolvePaths(env);
   ensureRuntime(paths);
   fs.mkdirSync(paths.sessionDir(id), { recursive: true, mode: 0o700 });
-  const log = createLogger({ file: paths.logFile(id, 'sessiond'), comp: 'sessiond', ccsId: id });
+  const log = createLogger({ file: paths.logFile(id, 'sessiond'), comp: 'sessiond', session: id });
   const config = loadConfig(paths.configFile, (key) => log.warn('config.invalid', { key }));
 
   // One launcher per session id at a time. A second `--start` (two `ccs attach` racing) exits 3 before

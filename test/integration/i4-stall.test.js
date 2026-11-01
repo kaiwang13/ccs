@@ -31,7 +31,7 @@ test('I4: a SIGSTOPped client is excluded (≤ stallMs + ping) and dropped (≤ 
   await a.waitForText(/❯/, 5000);
   const c = childClient(e.tmp, e.sockPath, ['100', '30', 'C']);
   await waitFor(() => c.msgs.some((m) => m.type === 'live'), { timeoutMs: 5000, what: 'child client live' });
-  await waitFor(() => e.s.supervisor.pty.cols === 100, { timeoutMs: 3000, what: 'the child sets the width' });
+  await waitFor(() => e.s.session.pty.cols === 100, { timeoutMs: 3000, what: 'the child sets the width' });
   const rss0 = process.memoryUsage().rss;
   const stoppedAt = Date.now();
   process.kill(/** @type {number} */ (c.child.pid), 'SIGSTOP');
@@ -40,7 +40,7 @@ test('I4: a SIGSTOPped client is excluded (≤ stallMs + ping) and dropped (≤ 
   await waitFor(() => e.s.registry.clients.some((x) => x.label === 'C' && x.adapter.stalled), { timeoutMs: 6000, what: 'C stalled' });
   const stalledAfter = Date.now() - stoppedAt;
   assert.ok(stalledAfter <= 3000 + 1000 + 1500, `stalled after ${stalledAfter} ms`);
-  await waitFor(() => e.s.supervisor.pty.cols === 120, { timeoutMs: 3000, what: 'C no longer limits the width' });
+  await waitFor(() => e.s.session.pty.cols === 120, { timeoutMs: 3000, what: 'C no longer limits the width' });
   assert.ok(a.notices.some((n) => n.code === 'CLIENT_STALLED'));
   const t1 = Date.now();
   a.send('still here\r');

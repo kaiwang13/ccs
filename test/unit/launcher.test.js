@@ -5,7 +5,7 @@ const fs = require('fs');
 const path = require('path');
 const { resolvePaths } = require('../../src/common/paths.js');
 const { DEFAULTS } = require('../../src/common/config.js');
-const L = require('../../src/sessiond/launcher.js');
+const L = require('../../src/claude/launcher.js');
 
 function setup(t, extraEnv = {}) {
   // realpath: macOS's /tmp is a symlink to /private/tmp, and resolveClaudeBin realpaths the binary it

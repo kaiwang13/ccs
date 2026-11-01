@@ -6,7 +6,7 @@
  */
 const fs = require('node:fs');
 const path = require('node:path');
-const { writeAtomic } = require('../../../src/common/atomic.js');
+const { writeAtomic } = require('nmux/base/atomic');
 
 const CONFIG_SCHEMA = 'ccs.feishu-config/1';
 

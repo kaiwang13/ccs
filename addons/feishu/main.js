@@ -10,8 +10,8 @@ const http = require('node:http');
 const path = require('node:path');
 const { resolvePaths } = require('../../src/common/paths.js');
 const { createRegistry } = require('../../src/common/registry.js');
-const { createLogger } = require('../../src/common/log.js');
-const { writeAtomic } = require('../../src/common/atomic.js');
+const { createLogger } = require('nmux/base/log');
+const { writeAtomic } = require('nmux/base/atomic');
 const { procStart } = require('../../src/common/procinfo.js');
 const { closeNfsWorker } = require('../../src/common/nfsworker.js');
 const { acquireLock } = require('./lib/state.js');
@@ -28,7 +28,7 @@ const oneLine = (e) => String((e && e.message) || e).split('\n')[0];
 async function main({ env = process.env } = {}) {
   const paths = resolvePaths(env);
   const fp = feishuPaths(paths);
-  const log = createLogger({ file: fp.log, comp: 'feishu', ccsId: null });
+  const log = createLogger({ file: fp.log, comp: 'feishu' });
   const say = (/** @type {string} */ ev, /** @type {object} */ f = {}) => log.info(ev, f);
 
   const held = acquireLock(paths);

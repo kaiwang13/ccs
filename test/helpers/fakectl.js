@@ -3,8 +3,8 @@
 // tests of reconnect, BYE handling and notices (no sessiond, no claude).
 const fs = require('fs');
 const net = require('net');
-const { FramedSocket, T } = require('../../src/common/proto.js');
-const { onControl } = require('../../src/common/ctlclient.js');
+const { FramedSocket, T } = require('nmux/wire/proto');
+const { onControl } = require('nmux/wire/ctlclient');
 
 /**
  * @param {string} sockPath

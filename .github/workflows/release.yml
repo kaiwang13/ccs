@@ -18,7 +18,6 @@ on:
       - test/e2e/install-e2e.sh
       - package.json
       - package-lock.json
-      - native/**
       - addons/feishu/package*.json
       - .github/workflows/release.yml
   workflow_dispatch:

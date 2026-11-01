@@ -4,8 +4,8 @@ const { EventEmitter } = require('node:events');
 
 /**
  * SuspendNet and the cooked-mode gate (spec §3.8, H2.6, refinement R1). Inputs: the holder's LFLAG{icanon, isig, echo,
- * fgIsClaude} (pushed on change from a 250 ms poll), output text, and tracker.alt. A suspend is CONFIRMED only when
- * Claude itself owns the terminal (fgIsClaude), raw mode was seen before, ICANON is on again, the screen is not alt
+ * fgIsChild} (pushed on change from a 250 ms poll), output text, and tracker.alt. A suspend is CONFIRMED only when
+ * Claude itself owns the terminal (fgIsChild), raw mode was seen before, ICANON is on again, the screen is not alt
  * (alt means an editor handoff), and the "has been suspended" banner appeared: then exactly one SIGCONT. Cooked mode
  * without the banner never gets a signal, only a notice after 3 s. A child owning the terminal (an editor, !sh) resets
  * everything and never gates.
@@ -24,7 +24,7 @@ class SuspendNet extends EventEmitter {
     this.notice = notice;
     this.name = name;
     this.bannerRe = bannerRe;
-    /** @type {{icanon: boolean, isig: boolean, echo: boolean, fgIsClaude: boolean}|null} */
+    /** @type {{icanon: boolean, isig: boolean, echo: boolean, fgIsChild: boolean}|null} */
     this.lflag = null;
     this.rawSeen = false;
     this.bannerSeen = false;
@@ -41,7 +41,7 @@ class SuspendNet extends EventEmitter {
     return 'OPEN';
   }
 
-  /** @param {{icanon: boolean, isig: boolean, echo: boolean, fgIsClaude: boolean}} l */
+  /** @param {{icanon: boolean, isig: boolean, echo: boolean, fgIsChild: boolean}} l */
   onLflag(l) {
     this.lflag = l;
     if (!l.icanon) {
@@ -67,7 +67,7 @@ class SuspendNet extends EventEmitter {
   _evaluate() {
     const l = this.lflag;
     if (!l) return;
-    if (!l.fgIsClaude) {
+    if (!l.fgIsChild) {
       this.rawSeen = false;
       this._clear('unconfirmedTimer');
       this._clear('stuckTimer');
@@ -90,7 +90,7 @@ class SuspendNet extends EventEmitter {
       this.unconfirmedTimer = this.clock.setTimeout(() => {
         this.unconfirmedTimer = null;
         const x = this.lflag;
-        if (x && x.icanon && x.fgIsClaude && this.rawSeen && !this.tracker.alt && !this.bannerSeen) {
+        if (x && x.icanon && x.fgIsChild && this.rawSeen && !this.tracker.alt && !this.bannerSeen) {
           this.notice('COOKED_UNCONFIRMED', `terminal in cooked mode; signal keys blocked. If Claude is frozen: ccs restart ${this.name}`, 'warn');
         }
       }, 3000);

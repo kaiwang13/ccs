@@ -142,7 +142,7 @@ install_package() {
     # A package downloaded by a browser carries the quarantine attribute, which would stop the bundled node.
     Darwin) xattr -dr com.apple.quarantine "$_tmp" 2>/dev/null || true ;;
   esac
-  ( cd "$_tmp" && runtime/bin/node -e 'require("./src/common/native.js"); require("node-pty")' ) \
+  ( cd "$_tmp" && runtime/bin/node -e 'if (require("fs").existsSync("src/common/native.js")) require("./src/common/native.js"); else require("nmux/platform/native"); require("node-pty")' ) \
     || { rm -rf "$_tmp"; die "the package does not run on this machine (native addons failed to load)"; }
   _dir="$ROOT/releases/v$(release_field version "$_tmp")-$(release_field commit "$_tmp")"
   if [ -d "$_dir" ]; then rm -rf "$_tmp"; say "already installed: $(basename "$_dir")"; RELEASE="$_dir"; return 0; fi
@@ -188,7 +188,7 @@ build_release() {
   ( cd "$_tmp" && npm ci --silent --no-audit --no-fund )
   say "building native addon…"
   ( cd "$_tmp" && npm run --silent build:native )
-  [ -f "$_tmp/native/ttyctl/build/Release/ttyctl.node" ] || die "native build produced no addon"
+  [ -f "$_tmp/node_modules/nmux/native/ttyctl/build/Release/ttyctl.node" ] || [ -f "$_tmp/native/ttyctl/build/Release/ttyctl.node" ] || die "native build produced no addon"
   feishu_deps "$_tmp"
   mv "$_tmp" "$_dir"
   RELEASE="$_dir"

@@ -17,7 +17,7 @@ const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
 const { runNfsOp, NfsTimeoutError } = require('../common/nfsworker.js');
-const { tryLock } = require('../common/locks.js');
+const { tryLock } = require('nmux/platform/locks');
 const procinfo = require('../common/procinfo.js');
 const { isSameProcess, machineId, parsePidDomain, readEnviron, readArgv, listPids } = procinfo;
 

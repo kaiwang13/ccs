@@ -22,8 +22,8 @@
 const crypto = require('crypto');
 const path = require('path');
 const { runNfsOp } = require('./nfsworker.js');
-const { tryLock } = require('./locks.js');
-const { ensureRuntime } = require('./runtime.js');
+const { tryLock } = require('nmux/platform/locks');
+const { ensureRuntime } = require('nmux/platform/runtime');
 const { machineId } = require('./procinfo.js');
 const { DEFAULT_AGENT, KNOWN_AGENTS, formatUnknownAgent } = require('../agents/index.js');
 

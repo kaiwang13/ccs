@@ -27,13 +27,13 @@ async function startTestSession(t, { fakeArgs = [], config = {}, supervisorTimer
   const spec = makeSessionSpec(tmp, { fakeArgs, extraEnv, pty, configFile, stateFile: path.join(tmp.root, 'state.json') });
   const specFile = path.join(tmp.root, 'spec-in.json');
   fs.writeFileSync(specFile, JSON.stringify(spec), { mode: 0o600 });
-  const s = await startSession(spec, { supervisorTimers, holderTimers: holderTimers ?? { noConnMs: 600000 },
+  const s = await startSession(spec, { timers: supervisorTimers, holderTimers: holderTimers ?? { noConnMs: 600000 },
     sessiondArgv: [process.execPath, path.join(__dirname, '..', '..', 'src', 'sessiond', 'main.js'), '--spec', specFile] });
   /** @type {any[]} */
   const clients = [];
   tmp.defer(async () => {
     for (const c of clients) c.close();
-    await Promise.race([s.supervisor.stop(), new Promise((r) => setTimeout(r, 10000))]);
+    await Promise.race([s.session.stop(), new Promise((r) => setTimeout(r, 10000))]);
     await Promise.race([s.done, new Promise((r) => setTimeout(r, 2000))]);
     await s.shutdown();
     for (const [k, v] of Object.entries(saved)) { if (v === undefined) delete process.env[k]; else process.env[k] = v; }

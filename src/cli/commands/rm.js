@@ -6,7 +6,7 @@ const fs = require('fs');
 const { parseArgs, UsageError } = require('../args.js');
 const { resolveTarget } = require('../resolve.js');
 const { recordName } = require('../../common/registry.js');
-const { isLocked } = require('../../common/locks.js');
+const { isLocked } = require('nmux/platform/locks');
 const { isLive } = require('../lifecycle.js');
 
 /** @param {string[]} argv @param {any} ctx */

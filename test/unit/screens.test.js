@@ -2,7 +2,7 @@
 // @ts-check
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { loadScreens, matchSetup } = require('../../src/sessiond/screens.js');
+const { loadScreens, matchSetup } = require('../../src/claude/screens.js');
 
 const S = loadScreens('2.1.267');
 

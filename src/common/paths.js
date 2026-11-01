@@ -20,23 +20,19 @@
  */
 const os = require('node:os');
 const path = require('node:path');
+const { sessionLayout, segment } = require('nmux/wire/layout');
 
 /**
- * @typedef {{
- *   uid: number, hostname: string, runtimeDir: string,
- *   sessionDir(id: string): string, ctlSock(id: string): string, ptySock(id: string): string,
- *   holderLock(id: string): string, sessiondLock(id: string): string,
- *   holderSpec(id: string, gen: number): string, holderJson(id: string): string, settingsFile(id: string): string,
+ * @typedef {import('nmux/wire/layout').Layout & {
+ *   hostname: string, settingsFile(id: string): string,
  *   locksDir: string, startLock: string, registryLock: string, reconcileLock: string,
- *   runDir: string, logDir: string, logFile(id: string, comp: string): string, cliLog: string,
+ *   runDir: string, cliLog: string,
  *   stateDir: string, hostKey: string, hostsDir: string, hostDir: string, sessionsStateDir: string,
  *   intentFile(id: string): string, stateFile(id: string): string, backupsDir: string,
  *   configFile: string, claudeHome: string, claudeSessionsDir: string, claudeSettings: string,
  *   claudeProjectsDir: string, claudeJson: string, claudeBin: string|null, claudeVersionsDir: string,
  * }} Paths
  */
-
-const SAFE_SEGMENT = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
 
 /**
  * A hostname may be an FQDN, so it needs the DNS bound rather than Linux's HOST_NAME_MAX (64).
@@ -45,17 +41,6 @@ const SAFE_SEGMENT = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
  * unchanged: this is still a single path segment, never a path separator.
  */
 const SAFE_HOSTNAME = /^[A-Za-z0-9][A-Za-z0-9._-]{0,252}$/;
-
-/**
- * @param {string} kind @param {string} value
- * @param {RegExp} [re] the shape to accept; defaults to a 64-character segment
- */
-function segment(kind, value, re = SAFE_SEGMENT) {
-  if (typeof value !== 'string' || !re.test(value)) {
-    throw new TypeError(`invalid ${kind}: ${JSON.stringify(value)}`);
-  }
-  return value;
-}
 
 /**
  * The directory under hosts/ that holds this host's registry: CCS_HOSTNAME when set, else the machine id. Not
@@ -85,36 +70,22 @@ function resolvePaths(env = process.env) {
   const claudeHome = path.resolve(env.CCS_CLAUDE_HOME || path.join(home, '.claude'));
   const codexHome = path.resolve(env.CCS_CODEX_HOME || path.join(home, '.codex'));
   const locksDir = path.join(runtimeDir, 'locks');
-  const logDir = path.join(runtimeDir, 'log');
   const hostKey = hostKeyOf(env, hostname);
   const hostsDir = path.join(stateDir, 'hosts');
   const hostDir = path.join(hostsDir, hostKey);
   const sessionsStateDir = path.join(hostDir, 'sessions');
-  const sessionDir = (/** @type {string} */ id) => path.join(runtimeDir, 's', segment('session id', id));
+  const layout = sessionLayout(runtimeDir);
 
   return {
-    uid,
+    ...layout,
     hostname,
-    runtimeDir,
-    sessionDir,
-    ctlSock: (id) => path.join(sessionDir(id), 'ctl.sock'),
-    ptySock: (id) => path.join(sessionDir(id), 'pty.sock'),
-    holderLock: (id) => path.join(sessionDir(id), 'holder.lock'),
-    sessiondLock: (id) => path.join(sessionDir(id), 'sessiond.lock'),
-    holderSpec: (id, gen) => {
-      if (!Number.isSafeInteger(gen) || gen < 0) throw new TypeError(`invalid holder gen: ${gen}`);
-      return path.join(sessionDir(id), `holder-${gen}.json`);
-    },
-    holderJson: (id) => path.join(sessionDir(id), 'holder.json'),
-    settingsFile: (id) => path.join(sessionDir(id), 'settings.json'),
+    settingsFile: (id) => path.join(layout.sessionDir(id), 'settings.json'),
     locksDir,
     startLock: path.join(locksDir, 'start.lock'),
     registryLock: path.join(locksDir, 'registry.lock'),
     reconcileLock: path.join(locksDir, 'reconcile.lock'),
     runDir: path.join(runtimeDir, 'run'),
-    logDir,
-    logFile: (id, comp) => path.join(logDir, segment('session id', id), `${segment('component', comp)}.log`),
-    cliLog: path.join(logDir, 'cli.log'),
+    cliLog: path.join(layout.logDir, 'cli.log'),
     stateDir,
     hostKey,
     hostsDir,

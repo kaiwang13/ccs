@@ -20,9 +20,9 @@ const os = require('node:os');
 const path = require('node:path');
 const { spawn } = require('node:child_process');
 const { performance } = require('node:perf_hooks');
-const { InputTokenizer } = require('../../src/common/vt/inputtok');
-const { decodeInputToken, classify } = require('../../src/common/vt/keys');
-const { realClock } = require('../../src/common/clock');
+const { InputTokenizer } = require('nmux/vt/inputtok');
+const { decodeInputToken, classify } = require('nmux/vt/keys');
+const { realClock } = require('nmux/base/clock');
 const procinfo = require('../../src/common/procinfo');
 const { capabilities } = require('../../src/common/platform/index.js');
 
@@ -263,7 +263,7 @@ function submit(line) {
 
 const tokenizer = new InputTokenizer({ clock: realClock, escFlushMs: 50, pasteIdleCloseMs: 2000, onTimerTokens: (toks) => { toks.forEach(onToken); flushDraw(); } });
 const hs = { highSurrogate: '' };
-/** @param {import('../../src/common/vt/inputtok').InputToken} tok */
+/** @param {import('nmux/vt/inputtok').InputToken} tok */
 function onToken(tok) {
   if (exiting || suspended) return;
   if (tok.kind === 'paste-start' || tok.kind === 'paste-end') return;

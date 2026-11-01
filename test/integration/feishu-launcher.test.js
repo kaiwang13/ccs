@@ -10,7 +10,7 @@ const { makeCcsEnv, runCcs, REPO } = require('../helpers/ccsenv.js');
 const { waitFor } = require('../helpers/waitfor.js');
 const { spawnNode } = require('../helpers/spawn.js');
 const { closeNfsWorker } = require('../../src/common/nfsworker.js');
-const { isLocked } = require('../../src/common/locks.js');
+const { isLocked } = require('nmux/platform/locks');
 const { procStart } = require('../../src/common/procinfo.js');
 const { feishuPaths } = require('../../addons/feishu/lib/config.js');
 const { stop: launcherStop } = require('../../src/cli/commands/feishu.js');
@@ -104,7 +104,7 @@ test('a daemon that fails at start is reported with its reason', { timeout: 6000
  *  @param {import('node:test').TestContext} t @param {string} lockFile @param {number} releaseDelayMs */
 function fakeSlowDaemon(t, lockFile, releaseDelayMs) {
   const script = [
-    `const { tryLock } = require(${JSON.stringify(path.join(REPO, 'src', 'common', 'locks.js'))});`,
+    `const { tryLock } = require(${JSON.stringify(require.resolve('nmux/platform/locks'))});`,
     `const lock = tryLock(process.argv[1]);`,
     `process.on('SIGTERM', () => setTimeout(() => { lock.release(); process.exit(0); }, ${releaseDelayMs}));`,
     `setInterval(() => {}, 100000);`,

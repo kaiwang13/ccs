@@ -177,8 +177,8 @@ function moveLeavingLink(from, to, afterRename = () => {}) {
 
 /** @type {Record<string, (...args: any[]) => any>} */
 const OPS = {
-  readJson(file, opts) { return require('./atomic.js').readJson(file, opts); },
-  writeAtomic(file, obj, opts) { require('./atomic.js').writeAtomic(file, obj, opts); return true; },
+  readJson(file, opts) { return require('nmux/base/atomic').readJson(file, opts); },
+  writeAtomic(file, obj, opts) { require('nmux/base/atomic').writeAtomic(file, obj, opts); return true; },
   readdir(dir) { try { return fs.readdirSync(dir); } catch (e) { if (isMissing(e)) return null; throw e; } },
   stat(file) {
     try {

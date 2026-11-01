@@ -12,8 +12,8 @@
 const { parseArgs, UsageError } = require('../args.js');
 const { resolveTarget } = require('../resolve.js');
 const { recordName } = require('../../common/registry.js');
-const { controlRequest } = require('../../common/ctlclient.js');
-const { labelFor } = require('../attach.js');
+const { controlRequest } = require('nmux/wire/ctlclient');
+const { labelFor } = require('nmux/client/attach');
 const platform = require('../../common/platform/index.js');
 const { fetchClients, selfClient, currentSession } = require('./clients.js');
 

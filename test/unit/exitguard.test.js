@@ -1,8 +1,8 @@
 'use strict';
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { ExitGuard } = require('../../src/sessiond/exitguard');
-const { createFakeClock } = require('../../src/common/clock');
+const { ExitGuard } = require('../../src/agents/exitguard');
+const { createFakeClock } = require('nmux/base/clock');
 
 function setup() {
   const clock = createFakeClock();
@@ -72,4 +72,12 @@ test('C and D are guarded independently; a wrong watch id does nothing; reset() 
   s.g.reset();
   s.g.offer('C', 'a');
   assert.equal(s.written.length, 3);
+});
+
+test('a session needs a person on a permission prompt or a question, not on a dialog', () => {
+  const { needsAttention } = require('../../src/agents/controller');
+  assert.equal(needsAttention({ status: 'waiting', waitingFor: 'permission prompt' }), true);
+  assert.equal(needsAttention({ status: 'waiting', waitingFor: 'input needed' }), true);
+  assert.equal(needsAttention({ status: 'waiting', waitingFor: 'dialog open' }), false);
+  assert.equal(needsAttention({ status: 'idle', waitingFor: null }), false);
 });

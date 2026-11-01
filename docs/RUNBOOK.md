@@ -19,7 +19,7 @@ paths. Session type is persisted (`intent.agent`) and displayed (`ccs ls`'s `TYP
 ```bash
 cd /path/to/ccs
 npm ci
-npm run build:native && npm test
+npm test
 ```
 
 Create `~/.local/bin/ccs` (mode 0755):

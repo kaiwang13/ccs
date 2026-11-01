@@ -1,7 +1,7 @@
 'use strict';
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { connectHolder } = require('../../src/sessiond/holderclient');
+const { connectHolder } = require('nmux/server/session/holderclient');
 const { startHolder } = require('../helpers/holder');
 const { readRecord } = require('../helpers/spawn');
 const { waitFor, onceEvent, sleep } = require('../helpers/waitfor');
@@ -24,7 +24,7 @@ test('connectHolder resolves with hello; events are held until attach(); data of
   await waitFor(() => /❯/.test(bytes), { what: 'prompt' });
   assert.equal(contiguous, true);
   assert.ok(lflags.length >= 1);
-  assert.deepEqual(Object.keys(lflags.at(-1)).sort(), ['echo', 'fgIsClaude', 'icanon', 'isig']);
+  assert.deepEqual(Object.keys(lflags.at(-1)).sort(), ['echo', 'fgIsChild', 'icanon', 'isig']);
 });
 
 test('write() returns a watch id only with watch:true; consumed(watchId) follows; resize → resized; pong', { timeout: 60000 }, async (t) => {
@@ -64,7 +64,7 @@ test('queryFwd/queryReply round trip; signal; closeMaster → exit; a second cli
   // macOS does not hang the pty slave up on master close, so claude keeps running and no EXIT
   // follows from closeMaster alone: the stop sequence escalates to SIGTERM. Linux needs only the
   // close. Either way an EXIT must arrive, which is what this asserts.
-  if (!hangupOnMasterClose) { await sleep(1000); process.kill(hc.hello.claude.pid, 'SIGTERM'); }
+  if (!hangupOnMasterClose) { await sleep(1000); process.kill(hc.hello.child.pid, 'SIGTERM'); }
   const e = await onceEvent(hc, 'exit', 20000);
   assert.equal(e.t, 'EXIT');
   hc.release();
@@ -75,7 +75,7 @@ test('queryFwd/queryReply round trip; signal; closeMaster → exit; a second cli
 test('a new connection after claude exited gets hello.exited and a re-sent EXIT', { timeout: 60000 }, async (t) => {
   const h = await startHolder(t, { timers: { orphanExitMs: 60000 } });
   const first = await connectHolder(h.sock);
-  const pid = first.hello.claude.pid;
+  const pid = first.hello.child.pid;
   first.close();
   await sleep(200);
   process.kill(pid, 'SIGTERM');

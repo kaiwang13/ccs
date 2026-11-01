@@ -27,7 +27,7 @@ const path = require('node:path');
  * @returns {Screens}
  */
 function loadScreens(version) {
-  const dir = path.resolve(__dirname, '..', 'claude');
+  const dir = __dirname;
   let file = path.join(dir, `screens-${version}.json`);
   if (!fs.existsSync(file)) {
     const known = fs.readdirSync(dir)

@@ -9,7 +9,7 @@ const cp = require('child_process');
 const fs = require('fs');
 const path = require('path');
 const { parseArgs, UsageError } = require('../args.js');
-const { isLocked } = require('../../common/locks.js');
+const { isLocked } = require('nmux/platform/locks');
 const { procStart } = require('../../common/procinfo.js');
 
 const ADDON = path.join(__dirname, '..', '..', '..', 'addons', 'feishu');

@@ -11,7 +11,7 @@ const path = require('path');
 const { resolvePaths } = require('../../src/common/paths.js');
 const { DEFAULTS } = require('../../src/common/config.js');
 const { listPids, readEnviron } = require('../../src/common/procinfo.js');
-const { resolveClaudeBin } = require('../../src/sessiond/launcher.js');
+const { resolveClaudeBin } = require('../../src/claude/launcher.js');
 
 const HOME = os.homedir();
 const LIVE_DIR = path.join(HOME, '.local', 'state', 'ccs-live');

@@ -7,7 +7,7 @@ const path = require('node:path');
 const { DatabaseSync } = require('node:sqlite');
 const { statusView, claudeStatusView, sessionRow, collectSessions, formatTable, formatAge, tildify, codexActivityText, blockedHint } = require('../../src/cli/ls.js');
 const { parseArgs, UsageError } = require('../../src/cli/args.js');
-const { tryLock } = require('../../src/common/locks.js');
+const { tryLock } = require('nmux/platform/locks');
 const { REQUIRED_COLUMNS } = require('../../src/codex/threads.js');
 
 test('claude status mapping treats status and waitingFor as open enums (H7.2)', () => {

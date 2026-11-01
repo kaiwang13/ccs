@@ -189,7 +189,7 @@ publishes them as the release's assets.
 
 ```bash
 git clone https://github.com/kaiwang13/ccs.git ccs && cd ccs
-npm ci && npm run build:native && npm test
+npm ci && npm test
 ```
 
 Then point a wrapper at `bin/ccs.js` with an **absolute** node path — sessions outlive your shell, so a
@@ -339,7 +339,9 @@ Feishu app. See [docs/feishu.md](docs/feishu.md).
 ## How it works
 
 Each session is a pair of processes hosting one agent (`claude` or `codex`), chosen through a small agent
-adapter (`src/agents/`) so the two never share code paths — the holder and sessiond below are agent-neutral:
+adapter (`src/agents/`) so the two never share code paths. The holder and sessiond below are the session host, a
+separate project called `nmux`, which knows nothing about agents; `AgentController` (`src/agents/controller.js`) adds
+everything that does:
 
 - **`ccs-holder`** owns the agent's pty and nothing else. It never touches NFS, drains output
   unconditionally, and answers terminal queries, so the agent can never block on a slow or absent client.

@@ -7,7 +7,8 @@
  */
 const fs = require('node:fs');
 const path = require('node:path');
-const { writeAtomic } = require('./atomic.js');
+const { writeAtomic } = require('nmux/base/atomic');
+const { DEFAULTS: HOST } = require('nmux/server/config');
 const { isProxySetting, isProxyUrl, isNoProxyList } = require('./proxy.js');
 
 /**
@@ -53,27 +54,17 @@ const DEFAULTS = deepFreeze({
   env: { passthrough: [], sshAuthSock: null, timezone: 'America/Los_Angeles' },
   // src/common/proxy.js: a URL, 'none', or null (keep the shell's). `ccs proxy` edits these.
   proxy: { session: null, feishu: null, noProxy: null },
-  size: {
-    floorCols: 50, hardMinCols: 40, floorRows: 15, maxCols: 240, maxRows: 150, defaultCols: 120, defaultRows: 40,
-    shrinkDebounceMs: 100, shrinkMaxWaitMs: 400, growDebounceMs: 2000, growMinCols: 4, growMinRows: 2,
-    joinRepaintWaitMs: 400, growResetCheckMs: 300,
-  },
-  snapshot: { scrollback: 10000, joinHistory: 'all', snapshotTimeoutMs: 30000, chunkBytes: 65536 },
-  clients: {
-    pingMs: 5000, stallMs: 20000, dropMs: 60000, queueCapBytes: 1048576,
-    rejoinMax: 3, rejoinWindowMs: 300000, osc52: 'last-typist', dsrProbe: true,
-  },
-  input: {
-    escFlushMs: 40, escHoldMs: 60, escHoldMaxMs: 1500, exitGuardMarginMs: 1000, crossClientEscMs: 800,
-    answerCollisionMs: 1000, pasteIdleCloseMs: 1500,
-  },
+  size: { ...HOST.size },
+  snapshot: { ...HOST.snapshot },
+  clients: { ...HOST.clients },
+  input: { ...HOST.input, exitGuardMarginMs: 1000 },
   restart: {
     onUnplannedExit: true, cleanExitCountdownSec: 5, backoffSec: [2, 10, 30, 60, 120], maxUnplanned: 5, windowMin: 15,
     detectExitIntent: true, attributedExitDelayMs: 500,
   },
   start: { staggerMs: 8000, readyTimeoutMs: 60000, sessionJsonSlowMs: 60000 },
-  stop: { exitWaitMs: 15000, exitWaitMaxMs: 60000, hangupWaitMs: 30000, termWaitMs: 60000 },
-  holder: { ringBytes: 8388608, sessiondGiveUpAfter: 10, unresponsiveTermSec: 300 },
+  stop: { ...HOST.stop, exitWaitMs: 15000, exitWaitMaxMs: 60000 },
+  holder: { ...HOST.holder, sessiondGiveUpAfter: 10, unresponsiveTermSec: 300 },
   preflight: { secondWriterRemoteWindowSec: 120 },
   registry: { nfsTimeoutMs: 10000 },
   notices: { bellOnNeedsYou: true },

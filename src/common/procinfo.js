@@ -1,29 +1,11 @@
 'use strict';
 // @ts-check
 /**
- * Process identity and machine identity, platform-blind.
- *
- * The OS-specific readers live behind `./platform` (linux.js / darwin.js), which export an
- * identical surface; this file re-exports them and adds the two pieces of *policy* that do not
- * depend on the OS: `isSameProcess` (pid + start time, so a recycled pid is never mistaken for
- * the original) and `parsePidDomain`.
- *
- * Process identity is always pid + procStart. The encoding of procStart differs per platform --
- * see the note at the top of darwin.js -- and the two are deliberately not interchangeable, so a
- * record written on one platform is never mistaken for a live process on the other.
+ * Process identity and machine identity: nmux's `platform/procinfo`, plus what only ccs needs to
+ * know about the agents on this machine.
  */
-const platform = require('./platform');
-
-const { procStart, procState, pgid, procSid, ppid, bootId, machineId, readEnviron, readArgv, listPids, pidNs, ttyOf } = platform;
-
-/**
- * Is the process at `pid` still the same process that `start` was captured from?
- * @param {number} pid @param {string} start
- */
-function isSameProcess(pid, start) {
-  if (typeof start !== 'string' || start === '') return false;
-  return procStart(pid) === start;
-}
+const host = require('nmux/platform/procinfo');
+const platform = require('./platform/index.js');
 
 /**
  * Claude's session json `pidDomain`, e.g. "linux:7a68e45928c14fbe99ded232dbc07122:pid:[4026531836]".
@@ -43,23 +25,9 @@ function parsePidDomain(s) {
 }
 
 module.exports = {
-  procStart, procState, pgid, procSid, ppid,
-  bootId, machineId, readEnviron, readArgv, listPids, pidNs, ttyOf,
-  isSameProcess, parsePidDomain,
-  // The rest of the seam surface, re-exported so callers that already reach for procinfo do not
-  // have to know which helpers came from the platform: the CLI needs argvVisibleToOthers/selfTty and the
-  // holder needs shutdownCorroborated.
-  argvVisibleToOthers: platform.argvVisibleToOthers,
-  listProcesses: platform.listProcesses,
-  procSource: platform.procSource,
+  ...host,
+  parsePidDomain,
   crossHostWritersNote: platform.crossHostWritersNote,
-  platformReportsZombieParent: platform.platformReportsZombieParent,
-  hangupOnMasterClose: platform.hangupOnMasterClose,
-  selfTty: platform.selfTty,
-  shutdownCorroborated: platform.shutdownCorroborated,
-  sameProcStart: platform.sameProcStart,
   hasStoredCredential: platform.hasStoredCredential,
-  oomScoreAdjPath: platform.oomScoreAdjPath,
-  name: platform.name,
   capabilities: platform.capabilities,
 };

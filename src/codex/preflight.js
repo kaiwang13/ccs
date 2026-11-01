@@ -9,7 +9,7 @@
  *   - the host-wide start lock, which staggers session starts regardless of agent (H4.10); and
  *   - never two processes on one conversation — here, one thread id.
  */
-const { acquireStartLock } = require('../sessiond/preflight.js');
+const { acquireStartLock } = require('../claude/preflight.js');
 const { checkThreadSchema } = require('./threads.js');
 
 const realSleep = (/** @type {number} */ ms) => new Promise((r) => setTimeout(r, ms));

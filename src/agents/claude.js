@@ -7,9 +7,9 @@
  * moved, so introducing this seam cannot change Claude behaviour — that is the point. Adding a second
  * agent must never put the working Claude path at risk.
  */
-const { buildLaunch, resolveClaudeBin, writeSettingsFile } = require('../sessiond/launcher.js');
-const { runPreflight } = require('../sessiond/preflight.js');
-const { ClaudeWatch } = require('../sessiond/claudewatch.js');
+const { buildLaunch, resolveClaudeBin, writeSettingsFile } = require('../claude/launcher.js');
+const { runPreflight } = require('../claude/preflight.js');
+const { ClaudeWatch } = require('../claude/watch.js');
 const { runNfsOp } = require('../common/nfsworker.js');
 
 /** @typedef {import('../common/types').Capabilities} Capabilities */
@@ -34,9 +34,9 @@ module.exports = {
   buildLaunch: (ctx) => buildLaunch(ctx),
   writeSettingsFile: (file, theme) => writeSettingsFile(file, theme),
   /** Plan A does not route observation through the agent — the supervisor constructs ClaudeWatch
-   *  directly (src/sessiond/supervisor.js:317). Plan B wires this properly; until then, fail loudly.
+   *  directly (src/agents/controller.js). Plan B wires this properly; until then, fail loudly.
    *  Note ClaudeWatch takes ONE options object ({claudeHome, clock, pidProvider, …}), not (pid, paths). */
-  observe: () => { throw new Error('agent.observe is not implemented in Plan A — see src/sessiond/supervisor.js:317'); },
+  observe: () => { throw new Error('agent.observe is not implemented in Plan A — see src/agents/controller.js'); },
   preflight: (ctx) => runPreflight(ctx),
   /** Claude's checks are still inline in src/cli/doctor.js (checkClaude/checkDecoder/checkClaudeJsonHealth).
    *  Moving them here would be a pure refactor of working code with no behavioural gain; it is deliberately

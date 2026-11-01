@@ -3,7 +3,7 @@
 // @ts-check
 /**
  * Extract Claude Code's input key decoders from the compiled binary, so the port in
- * src/common/vt/keys.js can be tested against the real thing (spec §9.2, contract R4).
+ * nmux's src/vt/keys.js can be tested against the real thing (spec §9.2, contract R4).
  *
  * Anchors are stable literals, never minified identifiers (the bundler renames those every
  * release): the chunk starts at the win32-input-mode regex `/^\x1b\[(\d*(?:;\d*){0,5})_$/`

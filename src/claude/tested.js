@@ -3,7 +3,7 @@
 /**
  * Claude Code versions ccs is tested against. A version is "tested" only if its key
  * decoder was extracted and recorded in decoder-baseline.json (spec §9.2): the differential
- * test then proves src/common/vt/keys.js matches that binary.
+ * test then proves nmux's src/vt/keys.js matches that binary.
  */
 const fs = require('node:fs');
 const path = require('node:path');

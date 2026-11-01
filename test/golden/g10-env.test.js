@@ -3,11 +3,11 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
-const { Tracker } = require('../../src/sessiond/tracker');
-const { Pipeline } = require('../../src/sessiond/pipeline');
-const { Emulator } = require('../../src/sessiond/emulator');
-const { buildJoinBytes } = require('../../src/sessiond/snapshot');
-const { createFakeClock } = require('../../src/common/clock');
+const { Tracker } = require('nmux/server/output/tracker');
+const { Pipeline } = require('nmux/server/output/pipeline');
+const { Emulator } = require('nmux/server/output/emulator');
+const { buildJoinBytes } = require('nmux/server/output/snapshot');
+const { createFakeClock } = require('nmux/base/clock');
 const { CAPTURES, makeTerm, writeTerm } = require('../replay/replay');
 const { bufferLines } = require('../replay/judge');
 
@@ -31,6 +31,6 @@ test('G10 the URL text survives a join snapshot', async () => {
   await emulator.tail;
   assert.ok(bufferLines(emulator.term).join('\n').includes('https://example.com'), 'the emulator shows the URL');
   const client = makeTerm(100, 30);
-  await writeTerm(client, buildJoinBytes({ emulator, tracker, name: 'g10', client: { rows: 30, cols: 100, cursorRow: 1 }, historyLimit: 'all' }));
+  await writeTerm(client, buildJoinBytes({ emulator, tracker, name: 'g10', brand: 'ccs', client: { rows: 30, cols: 100, cursorRow: 1 }, historyLimit: 'all' }));
   assert.ok(bufferLines(client).join('\n').includes('https://example.com'));
 });

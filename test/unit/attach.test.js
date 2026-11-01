@@ -2,7 +2,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const { Terminal } = require('@xterm/headless');
-const A = require('../../src/cli/attach.js');
+const A = { ...require('nmux/client/attach'), ...require('../../src/cli/attach.js') };
 
 const FORBIDDEN = [/\x1bc/, /\x1b\[2J/, /\x1b\[3J/, /\x1b\[0?J/];
 

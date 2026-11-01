@@ -3,8 +3,8 @@
 /** The connector's own persistent state and its single-instance lock (spec §5, §6.1). */
 const fs = require('node:fs');
 const path = require('node:path');
-const { writeAtomic } = require('../../../src/common/atomic.js');
-const { tryLock } = require('../../../src/common/locks.js');
+const { writeAtomic } = require('nmux/base/atomic');
+const { tryLock } = require('nmux/platform/locks');
 
 const SCHEMA = 'ccs.feishu-state/1';
 

@@ -11,7 +11,7 @@ const lines = (e) => ((e.record() || {}).lines || []);
 test('INPUT text arrives as one submitted line; newlines inside it do not submit early', { timeout: 60000 }, async (t) => {
   const e = await startTestSession(t);
   const k = await e.control();
-  await waitFor(() => /❯/.test(e.s.supervisor.screenText()), { timeoutMs: 10000, what: 'prompt' });
+  await waitFor(() => /❯/.test(e.s.session.screenText()), { timeoutMs: 10000, what: 'prompt' });
   const r1 = await k.request('INPUT', { text: 'hello from feishu' });
   assert.deepEqual([r1.ok, r1.error], [true, undefined]);
   await waitFor(() => lines(e).includes('hello from feishu'), { timeoutMs: 5000, what: 'line submitted' });
@@ -25,7 +25,7 @@ test('INPUT text arrives as one submitted line; newlines inside it do not submit
 test('INPUT keys: digits and enter are typed; esc is accepted and its hold expiring is harmless', { timeout: 60000 }, async (t) => {
   const e = await startTestSession(t);
   const k = await e.control();
-  await waitFor(() => /❯/.test(e.s.supervisor.screenText()), { timeoutMs: 10000, what: 'prompt' });
+  await waitFor(() => /❯/.test(e.s.session.screenText()), { timeoutMs: 10000, what: 'prompt' });
   assert.equal((await k.request('INPUT', { key: '7' })).ok, true);
   assert.equal((await k.request('INPUT', { key: 'enter' })).ok, true);
   await waitFor(() => lines(e).includes('7'), { timeoutMs: 5000, what: 'digit + enter submitted' });
@@ -50,7 +50,7 @@ test('INPUT rejects malformed arguments with BAD_ARGS', { timeout: 60000 }, asyn
 
 test('INPUT honours the gates: a setup screen refuses it (control never carries --allow-setup)', { timeout: 60000 }, async (t) => {
   const e = await startTestSession(t, { fakeArgs: ['--trust'] });
-  await waitFor(() => e.s.supervisor.lifecycle === 'SETUP_GATED', { timeoutMs: 6000, what: 'trust gate' });
+  await waitFor(() => e.s.session.lifecycle === 'SETUP_GATED', { timeoutMs: 6000, what: 'trust gate' });
   const k = await e.control();
   const r = await k.request('INPUT', { key: '1' });
   assert.deepEqual([r.ok, r.error], [false, 'SETUP']);
@@ -60,29 +60,29 @@ test('INPUT honours the gates: a setup screen refuses it (control never carries 
 test('INPUT is refused while stopping or after the agent exited; a control connection never counts as a client', { timeout: 60000 }, async (t) => {
   const e = await startTestSession(t);
   const k = await e.control();
-  await waitFor(() => /❯/.test(e.s.supervisor.screenText()), { timeoutMs: 10000, what: 'prompt' });
+  await waitFor(() => /❯/.test(e.s.session.screenText()), { timeoutMs: 10000, what: 'prompt' });
   assert.equal((await k.request('INPUT', { text: 'counted?' })).ok, true);
   const st = await k.request('STATUS');
   assert.deepEqual(st.data.clients, [], 'the control connection must not appear among clients (never arbitrates size)');
   // Gate states set directly: a real STOP would also close this very connection, so the refusal could not be observed.
-  const sup = e.s.supervisor;
-  const saved = sup.lifecycle;
-  t.after(() => { sup.lifecycle = saved; });
+  const sup = e.s.session;
+  const saved = sup.machine;
+  t.after(() => { sup.machine = saved; });
   for (const [lc, err] of [['STOPPING', 'STOPPING'], ['EXITED', 'EXITED']]) {
-    sup.lifecycle = /** @type {any} */ (lc);
+    sup.machine = { ...saved, lifecycle: lc };
     const r = await k.request('INPUT', { text: 'too late' });
     assert.deepEqual([r.ok, r.error], [false, err], lc);
   }
-  sup.lifecycle = saved;
+  sup.machine = saved;
 });
 
 test('INPUT is refused while the session is suspended (M9)', { timeout: 60000 }, async (t) => {
   const e = await startTestSession(t);
   const k = await e.control();
-  await waitFor(() => /❯/.test(e.s.supervisor.screenText()), { timeoutMs: 10000, what: 'prompt' });
+  await waitFor(() => /❯/.test(e.s.session.screenText()), { timeoutMs: 10000, what: 'prompt' });
   // suspendNet.gate reads `suspended` directly (suspendnet.js); set it the same way the STOPPING/EXITED test above
   // sets lifecycle, since actually suspending the holder is a whole other test's concern (spec §3.8).
-  const sn = e.s.supervisor.suspendNet;
+  const sn = e.s.session.controller.suspendNet;
   assert.ok(sn, 'suspendNet must be attached once a holder has attached');
   const saved = sn.suspended;
   t.after(() => { sn.suspended = saved; });
@@ -95,7 +95,7 @@ test('INPUT is refused while the session is suspended (M9)', { timeout: 60000 },
 test('closing a control connection removes its input identity from the router', { timeout: 60000 }, async (t) => {
   const e = await startTestSession(t);
   const k = await e.control();
-  await waitFor(() => /❯/.test(e.s.supervisor.screenText()), { timeoutMs: 10000, what: 'prompt' });
+  await waitFor(() => /❯/.test(e.s.session.screenText()), { timeoutMs: 10000, what: 'prompt' });
   const before = e.s.router.state.size;
   assert.equal((await k.request('INPUT', { text: 'x' })).ok, true);
   assert.equal(e.s.router.state.size, before + 1);

@@ -10,7 +10,7 @@
  * stdin into flowing mode, and if queryTermColors ever restores raw mode without also restoring stdin's
  * paused state, the TTY read handle keeps the event loop alive and this process never exits on its own.
  */
-const { queryTermColors } = require('../../src/cli/termcolors.js');
+const { queryTermColors } = require('nmux/client/termcolors');
 
 queryTermColors({ stdin: process.stdin, stdout: process.stdout }).then(() => {
   // Deliberately nothing else here — see the comment above.

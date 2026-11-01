@@ -17,7 +17,7 @@ test('I1: three clients (120×40, 100×30, 160×50) see the same conversation; d
   const a = await e.attach({ cols: 120, rows: 40, label: 'A' });
   const b = await e.attach({ cols: 100, rows: 30, label: 'B' });
   const c = await e.attach({ cols: 160, rows: 50, label: 'C' });
-  await waitFor(() => e.s.supervisor.pty.cols === 100 && e.s.supervisor.pty.rows === 30, { timeoutMs: 3000, what: 'PTY = min = 100×30' });
+  await waitFor(() => e.s.session.pty.cols === 100 && e.s.session.pty.rows === 30, { timeoutMs: 3000, what: 'PTY = min = 100×30' });
   a.send('!seq 40\r');
   for (const v of [a, b, c]) await v.waitForText(/^\s+40$/m, 5000);
   const regions = [a, b, c].map((v) => seqRegion(v.allText(), 40));
@@ -32,7 +32,7 @@ test('I1: three clients (120×40, 100×30, 160×50) see the same conversation; d
   }
   b.detach();
   assert.equal((await b.waitForBye(3000)).reason, 'USER');
-  await waitFor(() => e.s.supervisor.pty.cols === 120 && e.s.supervisor.pty.rows === 40, { timeoutMs: 5000, what: 'grow to 120×40 after 2 s' });
+  await waitFor(() => e.s.session.pty.cols === 120 && e.s.session.pty.rows === 40, { timeoutMs: 5000, what: 'grow to 120×40 after 2 s' });
   const b2 = await e.attach({ cols: 100, rows: 30, label: 'B2' });
   await b2.waitForText(/echo: hello from b/, 5000);
   assert.deepEqual(seqRegion(b2.allText(), 40), regions[0], 'the rejoin snapshot carries the conversation into native scrollback');

@@ -12,7 +12,7 @@
  *      /proc lacks hidepid this leaks strictly less than Claude does.
  */
 const { resolveCodexBin } = require('../codex/bin.js');
-const { validateExtraArgs, LaunchError } = require('../sessiond/launcher.js');
+const { validateExtraArgs, LaunchError } = require('../claude/launcher.js');
 const { buildEnv } = require('./../sessiond/env.js');
 const { resolveSessionProxy } = require('../common/proxy.js');
 

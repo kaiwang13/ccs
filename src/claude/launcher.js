@@ -19,11 +19,11 @@
  */
 const fs = require('fs');
 const path = require('path');
-const { buildEnv, loadXwe } = require('./env.js');
+const { buildEnv, loadXwe } = require('../sessiond/env.js');
 const { resolveSessionProxy } = require('../common/proxy.js');
-const { TESTED_VERSIONS } = require('../claude/tested.js');
+const { TESTED_VERSIONS } = require('./tested.js');
 
-const { versionFromPath } = require('../claude/version.js');
+const { versionFromPath } = require('./version.js');
 
 const SEMVER_RE = /^\d+\.\d+\.\d+$/;
 

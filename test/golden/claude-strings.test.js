@@ -7,7 +7,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const { checkStrings } = require('../../tools/check-claude-strings.js');
-const { loadScreens } = require('../../src/sessiond/screens.js');
+const { loadScreens } = require('../../src/claude/screens.js');
 const { TESTED_VERSIONS } = require('../../src/claude/tested.js');
 
 for (const version of TESTED_VERSIONS) {

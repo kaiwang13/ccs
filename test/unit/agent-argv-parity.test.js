@@ -4,7 +4,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const { getAgent } = require('../../src/agents/index.js');
-const { buildLaunch } = require('../../src/sessiond/launcher.js');
+const { buildLaunch } = require('../../src/claude/launcher.js');
 const { DEFAULTS } = require('../../src/common/config.js');
 
 const BIN = { path: '/opt/claude/2.1.267', version: '2.1.267', tested: true, source: 'versions' };

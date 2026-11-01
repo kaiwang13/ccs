@@ -9,14 +9,14 @@
  */
 const { Terminal } = require('@xterm/headless');
 const { Unicode11Addon } = require('@xterm/addon-unicode11');
-const { Tracker } = require('../../src/sessiond/tracker');
-const { Pipeline } = require('../../src/sessiond/pipeline');
-const { Emulator } = require('../../src/sessiond/emulator');
-const { ClientAdapter } = require('../../src/sessiond/adapter');
-const { buildJoinBytes } = require('../../src/sessiond/snapshot');
+const { Tracker } = require('nmux/server/output/tracker');
+const { Pipeline } = require('nmux/server/output/pipeline');
+const { Emulator } = require('nmux/server/output/emulator');
+const { ClientAdapter } = require('nmux/server/output/adapter');
+const { buildJoinBytes } = require('nmux/server/output/snapshot');
 const { DEFAULTS } = require('../../src/common/config');
-const { createFakeClock } = require('../../src/common/clock');
-const { T } = require('../../src/common/proto');
+const { createFakeClock } = require('nmux/base/clock');
+const { T } = require('nmux/wire/proto');
 const { bufferLines } = require('./judge');
 const { loadCapture, loadFlowCapture, CAPTURES } = require('./census');
 
@@ -78,7 +78,7 @@ async function replayCapture({ capture, clients: specs, soe = false, joinRepaint
     c.term = makeTerm(cols, rows, soe);
     c.adapter = new ClientAdapter({ id: c.spec.name, cols, rows, config: DEFAULTS, tracker, clock, writableLength: () => 0,
       send: (type, payload) => { if (type === T.OUTPUT) c.queue.push(payload); } });
-    await writeTerm(c.term, buildJoinBytes({ emulator, tracker, name: 'replay', client: { rows, cols, cursorRow: 1 }, historyLimit: 'all' }));
+    await writeTerm(c.term, buildJoinBytes({ emulator, tracker, name: 'replay', brand: 'ccs', client: { rows, cols, cursorRow: 1 }, historyLimit: 'all' }));
     c.adapter.goLive();
     c.state = 'live';
     c.joinedAt = now;

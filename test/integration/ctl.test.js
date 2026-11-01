@@ -3,7 +3,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const net = require('node:net');
 const { spawn } = require('node:child_process');
-const { T, FramedSocket } = require('../../src/common/proto');
+const { T, FramedSocket } = require('nmux/wire/proto');
 const { startTestSession } = require('../helpers/session');
 const { connectVirtualClient } = require('../helpers/vclient');
 const { waitFor } = require('../helpers/waitfor');
@@ -22,7 +22,7 @@ function hello(sockPath, hello) {
 test('WELCOME, STATE, SNAPSHOT_BEGIN → OUTPUT → SNAPSHOT_END, then live input and output', { timeout: 60000 }, async (t) => {
   const e = await startTestSession(t);
   const a = await e.attach({ label: 'A' });
-  assert.deepEqual(Object.keys(a.welcome).sort(), ['ccsId', 'clientId', 'lifecycle', 'name', 'ping', 'policy', 'proto', 'pty', 't'].sort());
+  assert.deepEqual(Object.keys(a.welcome).sort(), ['ccsId', 'clientId', 'id', 'lifecycle', 'name', 'ping', 'policy', 'proto', 'pty', 't'].sort());
   assert.deepEqual(a.welcome.policy, { floorCols: 50, floorRows: 15, hardMinCols: 40 });
   assert.equal(a.snapshots, 1);
   assert.ok(a.states.length >= 1);
@@ -55,7 +55,7 @@ test('REFUSE: PROTO, BELOW_FLOOR (with need), --shrink floor 40, TOO_SHORT, NEST
 
 test('REFUSE BLOCKED when the session json never appeared', { timeout: 60000 }, async (t) => {
   const e = await startTestSession(t, { fakeArgs: ['--slow-session-json', '60000'], config: { start: { sessionJsonSlowMs: 1000 } }, supervisorTimers: { startingSlowMs: 500 } });
-  await waitFor(() => e.s.supervisor.lifecycle === 'BLOCKED', { timeoutMs: 5000, what: 'BLOCKED' });
+  await waitFor(() => e.s.session.lifecycle === 'BLOCKED', { timeoutMs: 5000, what: 'BLOCKED' });
   assert.equal((await hello(e.sockPath, {})).code, 'BLOCKED');
 });
 
@@ -65,9 +65,9 @@ test('control role: STATUS, PEEK, UNSUPPORTED, STATE pushes; never counted by th
   const k = await e.control();
   const st = await k.request('STATUS');
   assert.equal(st.ok, true);
-  assert.equal(st.data.lifecycle, e.s.supervisor.lifecycle);
+  assert.equal(st.data.lifecycle, e.s.session.lifecycle);
   assert.deepEqual(Object.keys(st.data.claude).sort(), ['bridgeSessionId', 'name', 'pid', 'sessionId', 'status', 'waitingFor']);
-  assert.equal(st.data.claude.pid, e.s.supervisor.hello.claude.pid);
+  assert.equal(st.data.claude.pid, e.s.session.hello.child.pid);
   assert.equal(st.data.clients.length, 1);
   for (const key of ['id', 'label', 'cols', 'rows', 'phase', 'stalled']) assert.ok(key in st.data.clients[0], key);
   assert.deepEqual(Object.keys(st.data.pty).sort(), ['cols', 'rows']);
@@ -83,7 +83,7 @@ test('control role: STATUS, PEEK, UNSUPPORTED, STATE pushes; never counted by th
     assert.deepEqual([r.ok, r.error], [false, 'BAD_ARGS'], JSON.stringify(args));
   }
   assert.equal(a.bye, null, 'a rejected KICK detaches nobody');
-  await waitFor(() => e.s.supervisor.pty.cols === 100, { timeoutMs: 3000, what: 'pty follows the attach client only' });
+  await waitFor(() => e.s.session.pty.cols === 100, { timeoutMs: 3000, what: 'pty follows the attach client only' });
   await k.waitForState((s) => s.pty.cols === 100, 3000);
 });
 

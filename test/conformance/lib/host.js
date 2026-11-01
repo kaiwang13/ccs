@@ -11,8 +11,8 @@ const fs = require('node:fs');
 const net = require('node:net');
 const path = require('node:path');
 const { makeCcsEnv, runCcs, REPO } = require('../../helpers/ccsenv.js');
-const { controlRequest } = require('../../../src/common/ctlclient.js');
-const { FramedSocket, T, CTL_PROTO } = require('../../../src/common/proto.js');
+const { controlRequest } = require('nmux/wire/ctlclient');
+const { FramedSocket, T, CTL_PROTO } = require('nmux/wire/proto');
 const { openTerminal } = require('./reference.js');
 
 const CCS = path.join(REPO, 'bin', 'ccs.js');

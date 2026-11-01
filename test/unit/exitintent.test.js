@@ -1,7 +1,7 @@
 'use strict';
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { ExitIntent } = require('../../src/sessiond/exitintent');
+const { ExitIntent } = require('../../src/agents/exitintent');
 
 /** A forwarded-token driver that keeps the session byte total like the supervisor does. */
 function driver() {

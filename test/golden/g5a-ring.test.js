@@ -2,11 +2,11 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const { SerializeAddon } = require('@xterm/addon-serialize');
-const { Ring } = require('../../src/holder/ring');
-const { Tracker } = require('../../src/sessiond/tracker');
-const { Pipeline } = require('../../src/sessiond/pipeline');
-const { Emulator } = require('../../src/sessiond/emulator');
-const { createFakeClock } = require('../../src/common/clock');
+const { Ring } = require('nmux/holder/ring');
+const { Tracker } = require('nmux/server/output/tracker');
+const { Pipeline } = require('nmux/server/output/pipeline');
+const { Emulator } = require('nmux/server/output/emulator');
+const { createFakeClock } = require('nmux/base/clock');
 const { loadCapture } = require('../replay/census');
 
 /**

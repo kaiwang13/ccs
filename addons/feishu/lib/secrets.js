@@ -7,7 +7,7 @@
  */
 const crypto = require('node:crypto');
 const fs = require('node:fs');
-const { writeAtomic } = require('../../../src/common/atomic.js');
+const { writeAtomic } = require('nmux/base/atomic');
 const { feishuPaths, ensureFeishuDir } = require('./config.js');
 
 const STORE_SCHEMA = 'ccs.feishu-secrets/1';

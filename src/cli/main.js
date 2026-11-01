@@ -3,7 +3,7 @@
 /** `ccs` command dispatch (spec §3.14, M1 subset). */
 const { resolvePaths } = require('../common/paths.js');
 const { loadConfig } = require('../common/config.js');
-const { ensureRuntime } = require('../common/runtime.js');
+const { ensureRuntime } = require('nmux/platform/runtime');
 const { createRegistry } = require('../common/registry.js');
 const { UsageError } = require('./args.js');
 

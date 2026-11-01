@@ -2,15 +2,15 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const { SerializeAddon } = require('@xterm/addon-serialize');
-const { Lexer } = require('../../src/common/vt/lexer');
-const { Tracker } = require('../../src/sessiond/tracker');
-const { Pipeline } = require('../../src/sessiond/pipeline');
-const { Emulator } = require('../../src/sessiond/emulator');
-const { ClientAdapter } = require('../../src/sessiond/adapter');
-const { buildJoinBytes } = require('../../src/sessiond/snapshot');
+const { Lexer } = require('nmux/vt/lexer');
+const { Tracker } = require('nmux/server/output/tracker');
+const { Pipeline } = require('nmux/server/output/pipeline');
+const { Emulator } = require('nmux/server/output/emulator');
+const { ClientAdapter } = require('nmux/server/output/adapter');
+const { buildJoinBytes } = require('nmux/server/output/snapshot');
 const { DEFAULTS } = require('../../src/common/config');
-const { createFakeClock } = require('../../src/common/clock');
-const { T } = require('../../src/common/proto');
+const { createFakeClock } = require('nmux/base/clock');
+const { T } = require('nmux/wire/proto');
 const { Terminal } = require('@xterm/headless');
 const { Unicode11Addon } = require('@xterm/addon-unicode11');
 const { loadFlowCapture } = require('../replay/census');
@@ -50,7 +50,7 @@ test('G4 spike-flows/run: non-ground cut points are refused and the deferred sna
   const tryTake = async (end) => {
     if (last && last.endOffset === end && last.groundAfter && pipeline.quiescent) {
       await emulator.tail;
-      snaps.push({ outIdx: outs.length, bytes: buildJoinBytes({ emulator, tracker, name: 'g4', client: { rows: 40, cols: 120, cursorRow: 1 }, historyLimit: 'all' }) });
+      snaps.push({ outIdx: outs.length, bytes: buildJoinBytes({ emulator, tracker, name: 'g4', brand: 'ccs', client: { rows: 40, cols: 120, cursorRow: 1 }, historyLimit: 'all' }) });
       return true;
     }
     return false;

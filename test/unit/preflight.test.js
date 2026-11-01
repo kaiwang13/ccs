@@ -6,11 +6,11 @@ const path = require('path');
 const cp = require('child_process');
 const { resolvePaths } = require('../../src/common/paths.js');
 const { DEFAULTS } = require('../../src/common/config.js');
-const { tryLock } = require('../../src/common/locks.js');
-const { ensureRuntime } = require('../../src/common/runtime.js');
+const { tryLock } = require('nmux/platform/locks');
+const { ensureRuntime } = require('nmux/platform/runtime');
 const { procStart, machineId, pidNs } = require('../../src/common/procinfo.js');
 const { closeNfsWorker } = require('../../src/common/nfsworker.js');
-const pf = require('../../src/sessiond/preflight.js');
+const pf = require('../../src/claude/preflight.js');
 const { claudeJsonFixture } = require('../helpers/claudejson.js');
 
 test.after(() => closeNfsWorker());

@@ -72,22 +72,22 @@ say "staging $NAME (commit $COMMIT)"
 ( cd "$REPO_DIR" && tar -cf - \
     --exclude=node_modules --exclude=build --exclude='*.log' \
     --exclude=docs/superpowers --exclude=docs/debug --exclude=tools/local-ci.sh \
-    bin src addons native/ttyctl/binding.gyp native/ttyctl/ttyctl.c tools docs \
+    bin src addons tools docs \
     package.json package-lock.json install.sh README.md LICENSE ) | ( cd "$STAGE" && tar -xf - )
 
-say "installing production dependencies (node-pty is built for Node $NODE_VERSION)"
+say "installing production dependencies (node-pty and ttyctl are built for Node $NODE_VERSION)"
 ( cd "$STAGE" && npm ci --omit=dev --no-audit --no-fund --loglevel=error )
-say "building the ttyctl addon"
-( cd "$STAGE" && npm run --silent build:native )
 say "installing the Feishu add-on's dependencies"
 ( cd "$STAGE/addons/feishu" && npm ci --omit=dev --no-audit --no-fund --loglevel=error )
 
 # ---- prune build leftovers and other platforms' binaries -----------------------------------------------------------
-TTY="$STAGE/native/ttyctl/build/Release/ttyctl.node"
+NMUX="$STAGE/node_modules/nmux"
+TTY="$NMUX/native/ttyctl/build/Release/ttyctl.node"
 [ -f "$TTY" ] || die "native build produced no ttyctl.node"
 mv "$TTY" "$STAGE/ttyctl.node.keep"
-rm -rf "$STAGE/native/ttyctl/build"; mkdir -p "$STAGE/native/ttyctl/build/Release"
+rm -rf "$NMUX/native/ttyctl/build"; mkdir -p "$NMUX/native/ttyctl/build/Release"
 mv "$STAGE/ttyctl.node.keep" "$TTY"
+rm -rf "$NMUX/test"
 
 PTY="$STAGE/node_modules/node-pty"
 rm -rf "$PTY/deps" "$PTY/third_party" "$PTY/src" "$PTY/build/Release/obj.target" "$PTY/build/Release/.deps" \
@@ -114,7 +114,7 @@ EOF
 # ---- the package must work from its own runtime before it is shipped -------------------------------------------------
 say "checking the staged package"
 ( cd "$STAGE" && runtime/bin/node -e '
-    require("./src/common/native.js");
+    require("nmux/platform/native");
     const pty = require("node-pty");
     const p = pty.spawn("/bin/sh", ["-c", "echo ccs-pty-ok"], { cols: 80, rows: 24 });
     let out = "";

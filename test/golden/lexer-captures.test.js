@@ -7,7 +7,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
-const { Lexer } = require('../../src/common/vt/lexer.js');
+const { Lexer } = require('nmux/vt/lexer');
 
 const GOLDEN = __dirname;
 const manifest = JSON.parse(fs.readFileSync(path.join(GOLDEN, 'manifest.json'), 'utf8'));
@@ -27,7 +27,7 @@ function lexAll(chunks) {
   return { tokens, midSequence };
 }
 
-/** @param {import('../../src/common/vt/lexer.js').Token[]} tokens */
+/** @param {import('nmux/vt/lexer').Token[]} tokens */
 function merged(tokens) {
   const out = [];
   for (const t of tokens) {

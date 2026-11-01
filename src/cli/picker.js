@@ -8,9 +8,9 @@
  * 1 s and on SIGWINCH. Under 70 columns it shows name and status only. Sorting, preview, rename, filter
  * and kick are M2/M3.
  */
-const { InputTokenizer } = require('../common/vt/inputtok.js');
-const { decodeInputToken } = require('../common/vt/keys.js');
-const { realClock } = require('../common/clock.js');
+const { InputTokenizer } = require('nmux/vt/inputtok');
+const { decodeInputToken } = require('nmux/vt/keys');
+const { realClock } = require('nmux/base/clock');
 const { recordName } = require('../common/registry.js');
 const { getAgent } = require('../agents/index.js');
 const { collectSessions, formatAge, tildify } = require('./ls.js');

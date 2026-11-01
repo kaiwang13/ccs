@@ -4,10 +4,10 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const { Terminal } = require('xterm-cursor');
-const { Lexer } = require('../../src/common/vt/lexer');
-const { ModeState } = require('../../src/holder/modes');
-const { Responder } = require('../../src/holder/responder');
-const { createFakeClock } = require('../../src/common/clock');
+const { Lexer } = require('nmux/vt/lexer');
+const { ModeState } = require('nmux/vt/modes');
+const { Responder } = require('nmux/holder/responder');
+const { createFakeClock } = require('nmux/base/clock');
 const CAPTURES = path.join(__dirname, 'captures');
 
 /*

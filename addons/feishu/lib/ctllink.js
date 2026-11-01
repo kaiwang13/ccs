@@ -6,8 +6,8 @@
  */
 const net = require('node:net');
 const { EventEmitter } = require('node:events');
-const { FramedSocket, CTL_PROTO } = require('../../../src/common/proto.js');
-const { onControl, CtlError } = require('../../../src/common/ctlclient.js');
+const { FramedSocket, CTL_PROTO } = require('nmux/wire/proto');
+const { onControl, CtlError } = require('nmux/wire/ctlclient');
 
 class ControlLink extends EventEmitter {
   /** @param {{sockPath: string, label?: string, backoffMs?: number[]}} o */

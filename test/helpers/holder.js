@@ -7,7 +7,7 @@ const { makeTempRoot } = require('./tmp');
 const { makeSessionSpec, ROOT, NODE } = require('./spawn');
 const { waitFor } = require('./waitfor');
 
-const HOLDER = path.join(ROOT, 'src', 'holder', 'main.js');
+const HOLDER = require.resolve('nmux/holder/main');
 
 /**
  * Starts a real holder running the fake claude, without any sessiond (sessiondCmd is empty unless given).
@@ -20,7 +20,7 @@ async function startHolder(t, { fakeArgs = [], timers = {}, sessiondCmd = [], ri
   for (const d of ['s', 'log', 'run', 'locks']) fs.mkdirSync(path.join(tmp.root, d), { recursive: true, mode: 0o700 });
   fs.mkdirSync(path.join(tmp.root, 's', 'hold01'), { recursive: true, mode: 0o700 });
   const file = path.join(tmp.root, 's', 'hold01', 'holder-1.json');
-  fs.writeFileSync(file, JSON.stringify({ schema: 'ccs.holderspec/1', ccsId: 'hold01', argv: spec.claude.argv, env: spec.claude.env, cwd: spec.claude.cwd, cols: 100, rows: 30,
+  fs.writeFileSync(file, JSON.stringify({ schema: 'nmux.holderspec/1', id: 'hold01', argv: spec.claude.argv, env: spec.claude.env, cwd: spec.claude.cwd, cols: 100, rows: 30,
     ringBytes, sessiondCmd, gen: 1, runtimeDir: tmp.root, timers: { noConnMs: 600000, ...timers } }), { mode: 0o600 });
   const child = spawn(NODE, [HOLDER, '--spec', file], { env: { ...process.env, CCS_RUNTIME_DIR: tmp.root }, stdio: ['ignore', 'ignore', 'pipe'] });
   /** @type {Promise<number|null>} */

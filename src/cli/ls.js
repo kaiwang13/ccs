@@ -12,8 +12,8 @@
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
-const { isLocked } = require('../common/locks.js');
-const { controlRequest } = require('../common/ctlclient.js');
+const { isLocked } = require('nmux/platform/locks');
+const { controlRequest } = require('nmux/wire/ctlclient');
 const { recordName } = require('../common/registry.js');
 const { DEFAULT_AGENT, getAgent } = require('../agents/index.js');
 

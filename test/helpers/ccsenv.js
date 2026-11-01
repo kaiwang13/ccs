@@ -7,8 +7,8 @@ const cp = require('child_process');
 const { resolvePaths } = require('../../src/common/paths.js');
 const { readEnviron, listProcesses } = require('../../src/common/procinfo.js');
 const { withDescendants } = require('./processes.js');
-const { isLocked } = require('../../src/common/locks.js');
-const { controlRequest } = require('../../src/common/ctlclient.js');
+const { isLocked } = require('nmux/platform/locks');
+const { controlRequest } = require('nmux/wire/ctlclient');
 const { claudeJsonFixture } = require('./claudejson.js');
 
 const REPO = path.resolve(__dirname, '../..');

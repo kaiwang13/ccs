@@ -10,7 +10,7 @@ const cp = require('child_process');
 const fs = require('fs');
 const path = require('path');
 const { getAgent, KNOWN_AGENTS } = require('../agents/index.js');
-const { claudeJsonGuard, checkClaudeJson, backupClaudeJson } = require('../sessiond/preflight.js');
+const { claudeJsonGuard, checkClaudeJson, backupClaudeJson } = require('../claude/preflight.js');
 const { loadDecoderBaseline } = require('../claude/tested.js');
 const { tildify } = require('./ls.js');
 const platform = require('../common/platform/index.js');
@@ -40,7 +40,7 @@ function checkNode() {
 function checkNative() {
   /** @type {Check[]} */
   const out = [];
-  try { require('../common/native.js'); out.push({ level: 'ok', label: 'ttyctl', detail: 'native addon loaded' }); } catch (e) {
+  try { require('nmux/platform/native'); out.push({ level: 'ok', label: 'ttyctl', detail: 'native addon loaded' }); } catch (e) {
     out.push({ level: 'fail', label: 'ttyctl', detail: `did not load (${(/** @type {any} */ (e)).message}) — run: npm run build:native` });
   }
   try {

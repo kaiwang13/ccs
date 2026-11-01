@@ -8,7 +8,7 @@ const { makeTempRoot } = require('../helpers/tmp');
 const { waitFor } = require('../helpers/waitfor');
 
 const ROOT = path.resolve(__dirname, '..', '..');
-const HOLDER = path.join(ROOT, 'src', 'holder', 'main.js');
+const HOLDER = require.resolve('nmux/holder/main');
 const FAKECODEX = path.join(ROOT, 'test', 'fake', 'fakecodex');
 const NODE = process.execPath;
 
@@ -42,8 +42,8 @@ test('end-to-end: the holder answers a hosted codex\'s startup OSC 10/11 query w
   const specFile = path.join(tmp.root, 's', 'tc01', 'holder-1.json');
   const termColors = { fg: 'rgb:c5c5/c8c8/c6c6', bg: 'rgb:1e1e/2222/2727' };
   fs.writeFileSync(specFile, JSON.stringify({
-    schema: 'ccs.holderspec/1',
-    ccsId: 'tc01',
+    schema: 'nmux.holderspec/1',
+    id: 'tc01',
     argv: [FAKECODEX, '-C', tmp.home],
     env: {
       HOME: tmp.home, PATH: process.env.PATH || '/usr/bin:/bin', TERM: 'xterm-256color',
@@ -74,8 +74,8 @@ test('end-to-end regression guard: with termColors omitted from the holder spec,
   fs.mkdirSync(path.join(tmp.root, 's', 'tc02'), { recursive: true, mode: 0o700 });
   const specFile = path.join(tmp.root, 's', 'tc02', 'holder-1.json');
   fs.writeFileSync(specFile, JSON.stringify({
-    schema: 'ccs.holderspec/1',
-    ccsId: 'tc02',
+    schema: 'nmux.holderspec/1',
+    id: 'tc02',
     argv: [FAKECODEX, '-C', tmp.home],
     env: {
       HOME: tmp.home, PATH: process.env.PATH || '/usr/bin:/bin', TERM: 'xterm-256color',

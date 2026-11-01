@@ -1,10 +1,11 @@
 'use strict';
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { InputRouter } = require('../../src/sessiond/input');
-const { ExitIntent } = require('../../src/sessiond/exitintent');
+const { InputRouter } = require('nmux/server/input/input');
+const { ExitIntent } = require('../../src/agents/exitintent');
+const { agentInputPolicy } = require('../../src/agents/controller');
 const { DEFAULTS } = require('../../src/common/config');
-const { createFakeClock } = require('../../src/common/clock');
+const { createFakeClock } = require('nmux/base/clock');
 
 /** @param {{gates?: string[], allowSetup?: boolean}} [o] */
 function setup({ gates = [], allowSetup = false } = {}) {
@@ -20,9 +21,10 @@ function setup({ gates = [], allowSetup = false } = {}) {
   let total = 0;
   const g = { list: gates };
   const exitIntent = new ExitIntent();
-  const r = new InputRouter({ config: DEFAULTS, clock, exitIntent, gates: () => /** @type {any} */ (g.list), allowSetup: () => allowSetup,
+  const policy = agentInputPolicy({ exitIntent, allowSetup: () => allowSetup, exitGuard: { offer: (cls, c) => offers.push([cls, c.id]) } });
+  const r = new InputRouter({ config: DEFAULTS, clock, policy, gates: () => /** @type {any} */ (g.list),
     holder: { write: (b, o = {}) => { writes.push({ bytes: b.toString('latin1'), loneEsc: !!o.loneEsc }); total += b.length; return 0; } },
-    writtenTotal: () => total, exitGuard: { offer: (cls, c) => offers.push([cls, c.id]) },
+    writtenTotal: () => total,
     onDetachRequest: (c) => detached.push(c.id), notice: (c, _l, code) => notices.push([c ? c.id : null, code]) });
   const A = { id: 'A' };
   const B = { id: 'B' };

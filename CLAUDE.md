@@ -1,13 +1,23 @@
 # Working on ccs
 
+## ccs sits on nmux
+
+The session host is a separate project, `nmux`, in `../nmux`. It knows nothing about agents and must stay that way: a
+feature that needs to know what a session is running belongs here, in `AgentController` (`src/agents/controller.js`), which
+uses only the session's public calls. `node_modules/nmux` links to that checkout, so a change there takes effect here
+without an install, and both test suites have to pass.
+
+ccs's words, file formats and wire fields are its own. The host speaks through tables ccs replaces
+(`src/sessiond/messages.js`, `src/cli/attach.js`), and `state.json` and `STATUS` are shaped by the controller.
+
 ## Platform code lives in one place
 
-ccs runs on Linux and macOS. Everything that differs between them lives in `src/common/platform/`:
+ccs runs on Linux and macOS. Questions about processes are answered by `nmux/platform`, with the same rules there. What
+differs between the OSes and also depends on the agents lives in `src/common/platform/`:
 
-- `index.js` — the only file that may read `process.platform`. It selects an implementation and derives
+- `index.js` — the only file in ccs that may read `process.platform`. It selects an implementation and adds to nmux's
   `capabilities`.
 - `linux.js` and `darwin.js` — two implementations of one surface. They export exactly the same names.
-- helper modules one implementation uses (e.g. `linux-mounts.js`).
 
 Everything else — `src/`, `bin/`, `test/helpers/`, `addons/` — is platform-blind. It asks the platform a question
 (`platform.argvVisibleToOthers()`, `capabilities.crossHostWriters`) and never asks which OS this is.
@@ -30,7 +40,7 @@ an OS name as an array element or quoted object key, `capabilities.name`, OS pat
 
 Never narrow or disable the guard to make a change pass: move the code into the platform instead.
 User-facing text that describes one OS belongs in the platform too (see `crossHostWritersNote`).
-`native/ttyctl` (C, `#ifdef`) and `install.sh` (`uname`) are platform layers by nature and are not guarded.
+`install.sh` (`uname`) is a platform layer by nature and is not guarded.
 
 ### What the guard cannot tell you
 

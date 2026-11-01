@@ -17,7 +17,7 @@ test('a control link connects, receives STATE, answers requests and types throug
   await waitFor(() => link.up && states.length > 0, { timeoutMs: 5000, what: 'up + first STATE' });
   const st = await link.request('STATUS');
   assert.equal(st.ok, true);
-  await waitFor(() => /❯/.test(e.s.supervisor.screenText()), { timeoutMs: 10000, what: 'prompt' });
+  await waitFor(() => /❯/.test(e.s.session.screenText()), { timeoutMs: 10000, what: 'prompt' });
   assert.equal((await link.request('INPUT', { text: 'via link' })).ok, true);
   await waitFor(() => ((e.record() || {}).lines || []).includes('via link'), { timeoutMs: 5000, what: 'typed' });
 });

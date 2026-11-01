@@ -8,7 +8,7 @@
  * CLI: node tools/check-claude-strings.js <claude binary> <version>   (exit 1 if any is missing)
  */
 const fs = require('node:fs');
-const { loadScreens } = require('../src/sessiond/screens.js');
+const { loadScreens } = require('../src/claude/screens.js');
 
 /**
  * @param {string} binPath

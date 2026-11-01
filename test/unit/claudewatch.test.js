@@ -1,8 +1,8 @@
 'use strict';
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { ClaudeWatch } = require('../../src/sessiond/claudewatch');
-const { createFakeClock } = require('../../src/common/clock');
+const { ClaudeWatch } = require('../../src/claude/watch');
+const { createFakeClock } = require('nmux/base/clock');
 
 const flush = () => new Promise((r) => setImmediate(r));
 

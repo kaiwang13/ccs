@@ -3,7 +3,7 @@
 // it stops once found, and backs off while waiting for a live session's first prompt.
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { shouldDiscover, nextDiscoveryDelayMs } = require('../../src/sessiond/discovery.js');
+const { shouldDiscover, nextDiscoveryDelayMs } = require('../../src/agents/discovery.js');
 
 test('only agents that cannot be assigned an id discover one', () => {
   assert.equal(shouldDiscover({ capabilities: { assignableSessionId: false } }, null), true);

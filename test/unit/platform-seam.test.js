@@ -254,12 +254,7 @@ test('the two platform implementations export exactly the same surface', () => {
 // add it to the Platform typedef in index.js, add its name here, and re-export it from procinfo.js -- required
 // for every name, not only ones a caller already reaches for there; the procinfo re-export test below enforces
 // it. Everything outside src/common/platform/ then stays untouched.
-const SURFACE = [
-  'argvVisibleToOthers', 'bootId', 'crossHostWritersNote', 'hangupOnMasterClose', 'hasStoredCredential',
-  'listPids', 'listProcesses', 'machineId', 'name', 'oomScoreAdjPath', 'pgid', 'pidNs', 'platformReportsZombieParent', 'ppid',
-  'procSid', 'procSource', 'procStart', 'procState', 'readArgv', 'readEnviron', 'sameProcStart', 'selfTty',
-  'shutdownCorroborated', 'ttyOf',
-];
+const SURFACE = ['crossHostWritersNote', 'hasStoredCredential'];
 
 test('the platform surface is exactly the pinned list, in both implementations', () => {
   for (const file of ['linux.js', 'darwin.js']) {
@@ -285,8 +280,8 @@ test('procinfo re-exports the platform surface and adds only platform-independen
   for (const key of Object.keys(platform)) {
     assert.ok(key in procinfo, `procinfo.js must re-export platform's ${key}`);
   }
-  // The two policy functions have no /proc or libproc equivalent: they are pure functions of
-  // their arguments, which is why they live in the facade rather than in either implementation.
+  // The policy functions have no /proc or libproc equivalent: they are pure functions of their
+  // arguments, which is why they live in the facade rather than in either implementation.
   assert.equal(typeof procinfo.isSameProcess, 'function');
   assert.equal(typeof procinfo.parsePidDomain, 'function');
   assert.equal(procinfo.isSameProcess(process.pid, ''), false, 'empty start never matches');
@@ -340,7 +335,8 @@ test('the platform implementation selected matches the running platform', () => 
   const expected = process.platform === 'darwin'
     ? require('../../src/common/platform/darwin.js')
     : require('../../src/common/platform/linux.js');
-  assert.deepEqual(Object.keys(platform).sort(), [...Object.keys(expected), 'capabilities'].sort());
+  const host = require('nmux/platform');
+  assert.deepEqual(Object.keys(platform).sort(), [...new Set([...Object.keys(host), ...Object.keys(expected), 'capabilities'])].sort());
   for (const key of Object.keys(expected)) {
     assert.equal(platform[key], expected[key], `index.js must expose ${process.platform}'s ${key}`);
   }
@@ -385,7 +381,7 @@ test('the macOS procStart encoding is the one claude writes', () => {
   // claude's session json on macOS. Rendered in UTC, which is what the file contains.
   assert.match(String(P.procStart(process.pid)), /^[A-Z][a-z]{2} [A-Z][a-z]{2} [ \d]\d \d{2}:\d{2}:\d{2} \d{4}$/);
   // A single-digit day is space-padded, as in a real claude 2.1.289 session json from Oct 5.
-  const { ctimeUtc } = require('../../src/common/platform/ctime.js');
+  const { ctimeUtc } = require('nmux/platform/ctime');
   assert.equal(ctimeUtc(Date.UTC(2026, 9, 5, 6, 41, 43)), 'Mon Oct  5 06:41:43 2026');
   assert.equal(ctimeUtc(Date.UTC(2026, 8, 21, 1, 13, 3)), 'Mon Sep 21 01:13:03 2026');
 });

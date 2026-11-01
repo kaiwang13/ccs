@@ -1,6 +1,6 @@
 'use strict';
 const assert = require('node:assert/strict');
-const K = require('../src/common/vt/keys.js');
+const K = require('nmux/vt/keys');
 const E = '\x1b';
 
 /** Deterministic PRNG (mulberry32). @param {number} seed */
