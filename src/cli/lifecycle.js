@@ -74,7 +74,8 @@ async function stopAndWait({ paths, registry, id, timeoutMs, keepDesired = false
   const deadline = Date.now() + timeoutMs;
   let lastStatus = 0;
   while (Date.now() < deadline) {
-    if (!isLive(paths, id)) return { ok: true };
+    // All of it: a start right after this must not find a holder still on its way out.
+    if (!isLive(paths, id) && !isLocked(paths.holderLock(id))) return { ok: true };
     if (Date.now() - lastStatus > 2000) {
       lastStatus = Date.now();
       try {

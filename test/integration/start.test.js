@@ -55,7 +55,7 @@ test('sessiond --start runs preflight, starts claude, serves ctl.sock, and a dup
   assert.equal(rec2.env.CCS_RUNTIME_DIR, undefined, 'CCS_* test overrides never reach claude');
   assert.equal(rec2.env.TZ, 'America/Los_Angeles', 'config.env.timezone (default) replaces the shell TZ');
   assert.equal(fs.readdirSync(ctx.paths.backupsDir).length, 1);
-  await controlRequest(ctx.paths.ctlSock(rec.id), 'STOP', {}, { timeoutMs: 3000 });
+  await controlRequest(ctx.paths.ctlSock(rec.id), 'STOP', {}, { timeoutMs: 3000 }).catch(() => {});   // it can go as it answers
   assert.equal((await first.exited).code, 0);
 });
 
@@ -103,7 +103,7 @@ test('a --start that arrives while the holder lock is genuinely held recovers in
   const second = spawnSessiond(ctx, ['--start', rec.id]);
   await waitFor(() => probeSocket(ctx.paths.ctlSock(rec.id), 200), 20000, 'recovered ctl.sock');
   assert.deepEqual(fs.readdirSync(ctx.home).filter((x) => /^echoclaude-\d+\.json$/.test(x)), echoBefore, 'no second claude was spawned');
-  await controlRequest(ctx.paths.ctlSock(rec.id), 'STOP', {}, { timeoutMs: 3000 });
+  await controlRequest(ctx.paths.ctlSock(rec.id), 'STOP', {}, { timeoutMs: 3000 }).catch(() => {});   // it can go as it answers
   // This must be `second`'s own exit code, not merely "some ctl.sock came up": the holder independently
   // auto-respawns sessiond --recover ~5s after noticing sessiond is gone (src/holder/main.js noConnMs), and
   // separately preflight's SECOND_WRITER guard would also block a naive second claude spawn. Both of those

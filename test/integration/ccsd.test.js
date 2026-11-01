@@ -13,6 +13,7 @@ const { makeCcsEnv, runCcs, waitFor } = require('../helpers/ccsenv.js');
 const { connectVirtualClient } = require('../helpers/vclient');
 const { closeNfsWorker } = require('../../src/common/nfsworker.js');
 const { listProcesses, readEnviron } = require('../../src/common/procinfo.js');
+const { isLocked } = require('nmux/platform/locks');
 
 test.after(() => closeNfsWorker());
 
@@ -97,4 +98,15 @@ test('one ccsd looks after every session, and a second one leaves at once', { ti
   assert.equal(ccsdPid(ctx), first);
   assert.equal(listProcesses().filter((p) => p.argv && p.argv.includes('ccsd/main.js') && (readEnviron(p.pid) || {}).CCS_RUNTIME_DIR === ctx.env.CCS_RUNTIME_DIR).length, 1);
   assert.equal((await runCcs(ctx, ['stop', '--all'])).code, 0);
+});
+
+test('a start right behind a stop gets a new session, not the holder that was leaving', { timeout: 60000 }, async (t) => {
+  const ctx = makeCcsEnv(t, { config: { start: { staggerMs: 100, readyTimeoutMs: 10000 } } });
+  const s = await started(ctx, 'again');
+  const pid = (await s.status()).claude.pid;
+  assert.equal((await runCcs(ctx, ['stop', 'again'])).code, 0);
+  assert.equal(isLocked(ctx.paths.holderLock(s.id)), false, 'a stop that has returned has finished');
+  assert.equal((await runCcs(ctx, ['restart', 'again'])).code, 0);
+  await waitFor(async () => { const st = await s.status().catch(() => null); return st && st.lifecycle === 'RUNNING' && st.claude.pid && st.claude.pid !== pid; }, RUNNING_MS, 'a new agent');
+  assert.equal((await runCcs(ctx, ['stop', 'again'])).code, 0);
 });

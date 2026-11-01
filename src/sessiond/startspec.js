@@ -18,7 +18,7 @@ const { loadConfig } = require('../common/config.js');
 const { createLogger } = require('nmux/base/log');
 const { tryLock, isLocked } = require('nmux/platform/locks');
 const { ensureRuntime } = require('nmux/platform/runtime');
-const { bootId, procStart } = require('../common/procinfo.js');
+const { bootId, procStart, isSameProcess } = require('../common/procinfo.js');
 const { runNfsOp } = require('../common/nfsworker.js');
 const { createRegistry } = require('../common/registry.js');
 const { controlRequest, createSession, startServer } = require('nmux/sdk');
@@ -32,6 +32,7 @@ const { getAgent } = require('../agents/index.js');
 const { LaunchError } = require('../claude/launcher.js');
 
 const ID_RE = /^[0-9a-f]{8}$/;
+const HOLDER_LEAVING_MS = 5000;
 const SETTLED = new Set(['RUNNING', 'SETUP_GATED', 'SUSPENDED', 'BLOCKED', 'FAILED', 'EXITED', 'STOPPING', 'STOPPED', 'STOP_STUCK']);
 
 /**
@@ -62,6 +63,25 @@ async function buildSessionSpec(ccsId, paths, opts = {}) {
     pty, configFile: paths.configFile, agent: agent.id,
     termColors: (rec.intent && rec.intent.termColors) || null,
   });
+}
+
+/**
+ * Whether a holder has finished with its program and is leaving, which this waits for. Unreadable means alive: the worst that
+ * can come of that is recovering, and the worst of the other answer is a second agent.
+ * @param {any} paths @param {string} id @returns {Promise<boolean>}
+ */
+async function holderLeaves(paths, id) {
+  /** @type {any} */
+  let h = null;
+  try { h = JSON.parse(fs.readFileSync(paths.holderJson(id), 'utf8')); } catch { return false; }
+  const child = h.child || h.claude;
+  if (!child || isSameProcess(child.pid, child.procStart)) return false;
+  const deadline = Date.now() + HOLDER_LEAVING_MS;
+  while (isLocked(paths.holderLock(id))) {
+    if (Date.now() > deadline) return false;
+    await new Promise((r) => setTimeout(r, 25));
+  }
+  return true;
 }
 
 /** ccsd finds a session by itself, and the session's server would start it after a second; this saves the second. @param {any} paths @param {Record<string, string|undefined>} env */
@@ -156,8 +176,11 @@ async function startMain(argv, env = process.env, deps = {}) {
   if (!rec) { log.error('start.no_intent', {}); return 2; }
 
   // A live holder means claude is still running under it: never start a second claude (spec §4.11);
-  // recover the existing one instead.
-  if (!recover && isLocked(paths.holderLock(id))) { log.warn('start.holder_alive_recovering', {}); recover = true; }
+  // recover the existing one instead. A holder whose program has gone is on its way out, and there is nothing to recover.
+  if (!recover && isLocked(paths.holderLock(id))) {
+    if (await holderLeaves(paths, id)) log.info('start.holder_left', {});
+    else { log.warn('start.holder_alive_recovering', {}); recover = true; }
+  }
   if (recover) {
     const spec = await buildSessionSpec(id, paths, { config, rec });
     start(spec, config, paths, { recover: true, env });
