@@ -2,7 +2,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const path = require('path');
-const { parseStartArgv, startMain } = require('../../src/sessiond/startspec.js');
+const { parseStartArgv, startMain, releaseAfterReady } = require('../../src/sessiond/startspec.js');
 const { createRegistry } = require('../../src/common/registry.js');
 const { makeCcsEnv } = require('../helpers/ccsenv.js');
 
@@ -119,4 +119,15 @@ test('M7 regression guard: resumeRequested false/absent leaves initialState null
   assert.equal(code, 0);
   assert.ok(captured, 'the session must have been started');
   assert.equal((await reg.readState(rec.id)).lastSessionId, undefined, 'an ordinary new codex session must not have its auto-minted placeholder id seeded as a discovered sessionId');
+});
+
+test('a session that ends while its start is spacing out others frees them at once', { timeout: 5000 }, async () => {
+  let gone = false;
+  let released = false;
+  const done = releaseAfterReady({ release: () => { released = true; }, sockPath: 'unused', readyTimeoutMs: 0, staggerMs: 60000, pollMs: 5, gone: () => gone });
+  await new Promise((r) => setTimeout(r, 30));
+  assert.equal(released, false, 'still spacing them out');
+  gone = true;
+  await done;
+  assert.equal(released, true);
 });

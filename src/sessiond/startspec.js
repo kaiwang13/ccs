@@ -155,7 +155,8 @@ async function releaseAfterReady({ release, sockPath, readyTimeoutMs, staggerMs,
       if (gone()) return;
       await sleep(pollMs);
     }
-    if (!gone()) await sleep(staggerMs);
+    const spaced = Date.now() + staggerMs;
+    while (Date.now() < spaced && !gone()) await sleep(Math.min(pollMs, spaced - Date.now()));
   } finally {
     release();
   }

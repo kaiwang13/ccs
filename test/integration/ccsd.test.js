@@ -127,12 +127,14 @@ test('gates an old ccsd left up are put right by the next one', { timeout: 60000
 });
 
 test('a session stopped straight after starting can start again at once, while the first start is still spacing out others', { timeout: 60000 }, async (t) => {
-  const ctx = makeCcsEnv(t, { config: { start: { staggerMs: 8000, readyTimeoutMs: 10000 } } });
+  const ctx = makeCcsEnv(t, { config: { start: { staggerMs: 40000, readyTimeoutMs: 10000 } } });
   assert.equal((await runCcs(ctx, ['new', 'quick', '--no-attach'])).code, 0);
+  await waitFor(async () => JSON.parse((await runCcs(ctx, ['ls', '--json'])).stdout)[0].lifecycle === 'RUNNING', RUNNING_MS, 'the session to settle');
+  await new Promise((r) => setTimeout(r, 1500));                                 // a start looks twice a second, and then spaces out others
   assert.equal((await runCcs(ctx, ['stop', 'quick'])).code, 0);
   const at = Date.now();
   assert.equal((await runCcs(ctx, ['restart', 'quick'])).code, 0);
-  assert.ok(Date.now() - at < 6000, `${Date.now() - at} ms: a stopped session owes nobody a stagger`);
+  assert.ok(Date.now() - at < 25000, `${Date.now() - at} ms: a stopped session owes nobody a stagger`);
   assert.equal(JSON.parse((await runCcs(ctx, ['ls', '--json'])).stdout)[0].live, true);
   assert.equal((await runCcs(ctx, ['stop', 'quick'])).code, 0);
 });

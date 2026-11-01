@@ -16,8 +16,10 @@ test('I6: a forced suspend (raw 0x1a straight to the holder, bypassing the filte
   const sawSuspendedGate = waitFor(async () => (await e.gates()).includes('SUSPENDED'), { timeoutMs: 5000, what: 'SUSPENDED gate' });
   e.s.session.write('\x1a');
   await sawSuspendedGate;
-  await waitFor(() => lifecycles.includes('RUNNING'), { timeoutMs: 5000, what: 'resumed' });
-  assert.deepEqual(lifecycles, ['SUSPENDED', 'RUNNING']);
+  // the mirror says RUNNING before the session's own word on it has arrived, so that may yet be heard here
+  const sinceSuspending = () => (lifecycles.includes('SUSPENDED') ? lifecycles.slice(lifecycles.indexOf('SUSPENDED')) : []);
+  await waitFor(() => sinceSuspending().includes('RUNNING'), { timeoutMs: 5000, what: 'resumed' });
+  assert.deepEqual(sinceSuspending(), ['SUSPENDED', 'RUNNING']);
   await sleep(1000);
   const rec = e.record();
   assert.equal(rec.signals.filter((/** @type {any} */ s) => s.sig === 'SIGCONT').length, 1);

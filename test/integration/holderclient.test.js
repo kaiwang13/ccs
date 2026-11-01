@@ -2,14 +2,14 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const { connectHolder } = require('nmux/internal/server/session/holderclient');
-const { startHolder } = require('../helpers/holder');
+const { startHolder, whenListening } = require('../helpers/holder');
 const { readRecord } = require('../helpers/spawn');
 const { waitFor, onceEvent, sleep } = require('../helpers/waitfor');
 const { hangupOnMasterClose } = require('../../src/common/platform/index.js');
 
 test('connectHolder resolves with hello; events are held until attach(); data offsets are contiguous', { timeout: 60000 }, async (t) => {
   const h = await startHolder(t);
-  const hc = await connectHolder(h.sock);
+  const hc = await whenListening(() => connectHolder(h.sock));
   t.after(() => hc.close());
   assert.equal(hc.hello.proto, 1);
   await sleep(500);                                      // LFLAG and DATA would have arrived by now: they must be held
@@ -29,7 +29,7 @@ test('connectHolder resolves with hello; events are held until attach(); data of
 
 test('write() returns a watch id only with watch:true; consumed(watchId) follows; resize → resized; pong', { timeout: 60000 }, async (t) => {
   const h = await startHolder(t);
-  const hc = await connectHolder(h.sock);
+  const hc = await whenListening(() => connectHolder(h.sock));
   t.after(() => hc.close());
   let text = '';
   hc.on('data', ({ bytes }) => { text += bytes.toString('utf8'); });
@@ -48,7 +48,7 @@ test('write() returns a watch id only with watch:true; consumed(watchId) follows
 
 test('queryFwd/queryReply round trip; signal; closeMaster → exit; a second client is refused with code BUSY', { timeout: 60000 }, async (t) => {
   const h = await startHolder(t);
-  const hc = await connectHolder(h.sock);
+  const hc = await whenListening(() => connectHolder(h.sock));
   let text = '';
   hc.on('data', ({ bytes }) => { text += bytes.toString('utf8'); });
   hc.attach(0);
@@ -74,13 +74,13 @@ test('queryFwd/queryReply round trip; signal; closeMaster → exit; a second cli
 
 test('a new connection after claude exited gets hello.exited and a re-sent EXIT', { timeout: 60000 }, async (t) => {
   const h = await startHolder(t, { timers: { orphanExitMs: 60000 } });
-  const first = await connectHolder(h.sock);
+  const first = await whenListening(() => connectHolder(h.sock));
   const pid = first.hello.child.pid;
   first.close();
   await sleep(200);
   process.kill(pid, 'SIGTERM');
   await sleep(800);
-  const hc = await connectHolder(h.sock);
+  const hc = await whenListening(() => connectHolder(h.sock));
   t.after(() => hc.close());
   assert.equal(hc.hello.exited.t, 'EXIT');
   const exit = new Promise((r) => hc.once('exit', r));

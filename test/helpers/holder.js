@@ -30,4 +30,14 @@ async function startHolder(t, { fakeArgs = [], timers = {}, sessiondCmd = [], ri
   return { tmp, child, exited, sock, logFile: path.join(tmp.root, 'log', 'hold01', 'holder.log') };
 }
 
-module.exports = { startHolder };
+/**
+ * pty.sock exists a moment before the holder listens on it.
+ * @template T @param {() => Promise<T>} connect @returns {Promise<T>}
+ */
+function whenListening(connect) {
+  return waitFor(async () => {
+    try { return await connect(); } catch (e) { if (/** @type {any} */ (e).code !== 'ECONNREFUSED') throw e; return null; }
+  }, { timeoutMs: 5000, what: 'the holder to listen' });
+}
+
+module.exports = { startHolder, whenListening };

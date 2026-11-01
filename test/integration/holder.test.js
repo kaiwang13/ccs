@@ -9,11 +9,11 @@ const { T, FramedSocket, encodeWrite, decodeData } = require('nmux/internal/wire
 const procinfo = require('../../src/common/procinfo');
 const { hangupOnMasterClose } = require('../../src/common/platform/index.js');
 const { readRecord, NODE } = require('../helpers/spawn');
-const { startHolder } = require('../helpers/holder');
+const { startHolder, whenListening } = require('../helpers/holder');
 const { waitFor, sleep } = require('../helpers/waitfor');
 
 /** A raw holder-protocol connection that records frames (independent of holderclient.js). @param {string} sockPath */
-function rawConn(sockPath) {
+function dial(sockPath) {
   return new Promise((resolve, reject) => {
     const sock = net.connect(sockPath);
     const fs2 = new FramedSocket(sock);
@@ -37,6 +37,9 @@ function rawConn(sockPath) {
     sock.once('error', reject);
   });
 }
+
+/** @param {string} sockPath */
+const rawConn = (sockPath) => whenListening(() => dial(sockPath));
 
 test('H_HELLO fields, ATTACH from 0 streams contiguous DATA, the fake saw both probes answered in order, claude leads its session', { timeout: 60000 }, async (t) => {
   const h = await startHolder(t);
