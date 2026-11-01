@@ -100,15 +100,14 @@ function ensureCcsd(paths, env) {
   child.unref();
 }
 
-/** @param {any} spec @param {any} config @param {any} paths @param {{recover: boolean, env: Record<string, string|undefined>}} o */
-function host(spec, config, paths, { recover, env }) {
+/** Resolves once the session's server is answering. @param {any} spec @param {any} config @param {any} paths @param {{recover: boolean, env: Record<string, string|undefined>}} o */
+async function host(spec, config, paths, { recover, env }) {
   ensureCcsd(paths, env);
   const made = hostSpec(spec, config, loadScreens(spec.claude.version));
-  if (recover) {
-    const file = path.join(paths.sessionDir(spec.ccsId), 'session.json');
-    if (fs.existsSync(file)) { startServer(file, { recover: true, env }); return; }
-  }
-  createSession(made, { recover, env: { ...env, UV_THREADPOOL_SIZE: '16' } });
+  const file = path.join(paths.sessionDir(spec.ccsId), 'session.json');
+  if (recover && fs.existsSync(file)) startServer(file, { recover: true, env: { ...env, UV_THREADPOOL_SIZE: '16' } });
+  else createSession(made, { recover, env: { ...env, UV_THREADPOOL_SIZE: '16' } });
+  await serverUp(paths.ctlSock(spec.ccsId));
 }
 
 /**
@@ -139,9 +138,9 @@ function parseStartArgv(argv) {
 /**
  * Release the host start lock once this session is READY (a settled lifecycle via the STATUS RPC) or
  * readyTimeoutMs elapsed, then after staggerMs more (spec §3.11 item 1, N9).
- * @param {{release: () => void, sockPath: string, readyTimeoutMs: number, staggerMs: number, pollMs?: number}} a
+ * @param {{release: () => void, sockPath: string, readyTimeoutMs: number, staggerMs: number, pollMs?: number, gone?: () => boolean}} a gone: the session has ended already, so there is nothing to wait for
  */
-async function releaseAfterReady({ release, sockPath, readyTimeoutMs, staggerMs, pollMs = 500 }) {
+async function releaseAfterReady({ release, sockPath, readyTimeoutMs, staggerMs, pollMs = 500, gone = () => false }) {
   const sleep = (/** @type {number} */ ms) => new Promise((r) => setTimeout(r, ms));
   try {
     const started = Date.now();
@@ -153,9 +152,10 @@ async function releaseAfterReady({ release, sockPath, readyTimeoutMs, staggerMs,
         // Nobody is there to say it is ready, and one session must not hold up every other start for that.
         if (r.ok && r.data && r.data.controller === false && r.data.child.pid && Date.now() - started > NO_CONTROLLER_WAIT_MS) break;
       } catch { /* not listening yet */ }
+      if (gone()) return;
       await sleep(pollMs);
     }
-    await sleep(staggerMs);
+    if (!gone()) await sleep(staggerMs);
   } finally {
     release();
   }
@@ -195,8 +195,7 @@ async function startMain(argv, env = process.env, deps = {}) {
   }
   if (recover) {
     const spec = await buildSessionSpec(id, paths, { config, rec });
-    start(spec, config, paths, { recover: true, env });
-    await serverUp(paths.ctlSock(id));                                                 // or a caller takes this leaving for a failure
+    await start(spec, config, paths, { recover: true, env });                          // or a caller takes this leaving for a failure
     return 0;
   }
   if (rec.intent.desired !== 'running') { log.info('start.not_desired', { desired: rec.intent.desired }); return 0; }
@@ -228,8 +227,12 @@ async function startMain(argv, env = process.env, deps = {}) {
     return 2;
   }
   log.info('start.spawn', { mode: spec.claude.argv.includes('--resume') ? 'resume' : 'new', version: spec.claude.version });
-  start(spec, config, paths, { recover: false, env });
-  await releaseAfterReady({ release: pf.release, sockPath: paths.ctlSock(id), readyTimeoutMs: config.start.readyTimeoutMs, staggerMs: config.start.staggerMs })
+  await start(spec, config, paths, { recover: false, env });
+  // From here the server answers for this session. What remains is spacing out starts on this host, which is no reason to
+  // stop this session being started again if it is stopped straight away.
+  launchLock.release();
+  await releaseAfterReady({ release: pf.release, sockPath: paths.ctlSock(id), readyTimeoutMs: config.start.readyTimeoutMs, staggerMs: config.start.staggerMs,
+    gone: () => !isLocked(paths.sessiondLock(id)) })
     .catch((e) => log.error('start.release_failed', { message: String(e && e.message) }));
   return 0;
 }

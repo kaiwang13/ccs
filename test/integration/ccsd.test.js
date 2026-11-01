@@ -125,3 +125,14 @@ test('gates an old ccsd left up are put right by the next one', { timeout: 60000
   await waitFor(async () => (await e.gates()).length === 0, 5000, 'nothing wanted to stay up');
   await waitFor(async () => (await e.status()).lifecycle === 'RUNNING', 5000, 'the agent is running again, and the new ccsd can see that');
 });
+
+test('a session stopped straight after starting can start again at once, while the first start is still spacing out others', { timeout: 60000 }, async (t) => {
+  const ctx = makeCcsEnv(t, { config: { start: { staggerMs: 8000, readyTimeoutMs: 10000 } } });
+  assert.equal((await runCcs(ctx, ['new', 'quick', '--no-attach'])).code, 0);
+  assert.equal((await runCcs(ctx, ['stop', 'quick'])).code, 0);
+  const at = Date.now();
+  assert.equal((await runCcs(ctx, ['restart', 'quick'])).code, 0);
+  assert.ok(Date.now() - at < 6000, `${Date.now() - at} ms: a stopped session owes nobody a stagger`);
+  assert.equal(JSON.parse((await runCcs(ctx, ['ls', '--json'])).stdout)[0].live, true);
+  assert.equal((await runCcs(ctx, ['stop', 'quick'])).code, 0);
+});
