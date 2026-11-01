@@ -90,7 +90,8 @@ class AgentController {
   bind(session) { this.session = session; }
 
   // ---------------------------------------------------------------------------------------------------- the holder
-  onHolder() {
+  /** @param {{suspended?: boolean}} [o] suspended: the session was left that way by a controller before this one */
+  onHolder({ suspended = false } = {}) {
     const s = this.session;
     if (this.suspendNet) this.suspendNet.dispose();
     this.suspendNet = new SuspendNet({ clock: this.clock, tracker: s, name: s.name,
@@ -102,6 +103,7 @@ class AgentController {
       if (lc === 'RUNNING') s.setPhase('RUNNING', { from: ['SUSPENDED'] });
       this._syncGates();
     });
+    if (suspended) this.suspendNet.assumeSuspended();
     this._publish();
     this._syncGates();
   }
@@ -199,10 +201,11 @@ class AgentController {
     this.t.discovery = this.clock.setTimeout(() => {
       this.t.discovery = null;
       if (s.exited) return;
-      let id = null;
-      try { id = this.agent.discoverSessionId({ paths: this.paths, cwd: this.spec.claude.cwd, launchedAtMs: s.launchedAtMs }); } catch { id = null; }
-      if (id) { this.lastSessionId = id; if (this.log) this.log.info('discovery.found', { sessionId: id }); this._publish(); s.saveState(true); return; }
-      this._startDiscovery(attempt + 1);
+      Promise.resolve().then(() => this.agent.discoverSessionId({ paths: this.paths, cwd: this.spec.claude.cwd, launchedAtMs: s.launchedAtMs })).catch(() => null).then((id) => {
+        if (s.exited || s.disposed) return;
+        if (id) { this.lastSessionId = id; if (this.log) this.log.info('discovery.found', { sessionId: id }); this._publish(); s.saveState(true); return; }
+        this._startDiscovery(attempt + 1);
+      });
     }, delay);
   }
 
@@ -247,6 +250,7 @@ class AgentController {
     const s = this.session;
     if (!['STARTING', 'STARTING_SLOW', 'RUNNING', 'SETUP_GATED', 'BLOCKED'].includes(s.lifecycle)) return;
     const screen = await s.screen();
+    if (s.disposed || s.exited || this.stopping) return;                               // it can all change while the screen is on its way
     /** @type {'trust'|'login'|'onboarding'|'ack'|null} */
     let kind = this.agent.matchSetup ? this.agent.matchSetup(screen) : matchSetup(screen, this.gateScreens);
     if (kind === 'login' && s.lifecycle === 'RUNNING' && this.observed && this.observed.status === 'busy') kind = null;
@@ -276,7 +280,7 @@ class AgentController {
         const how = kind === 'trust' ? 'attach with --allow-setup to answer it' : `fix auth in a normal terminal, then: ccs restart ${s.name}`;
         s.notify('warn', 'SETUP_REQUIRED', `needs setup: ${kind} — ${how}`);
       }
-    } else if (s.lifecycle === 'SETUP_GATED') {
+    } else if (s.lifecycle === 'SETUP_GATED' || this.setupKind !== null) {             // a new server has forgotten the phase, not the screen
       this.setupKind = null;
       s.setPhase(this.observed || !this.agent.capabilities.liveStatus ? 'RUNNING' : 'STARTING');
       this._publish();
@@ -290,7 +294,7 @@ class AgentController {
    */
   _ackNotice() {
     const s = this.session;
-    if (s.exited) return false;
+    if (s.exited || !s.connected) return false;
     s.notify('info', 'NOTICE_ACKED', 'confirmed a notice from claude automatically (Enter); nothing was chosen');
     s.write('\r');
     return true;
@@ -363,7 +367,8 @@ class AgentController {
     return { ...doc, schema: 'ccs.state/1', ccsId: id,
       claude: child ? { ...child, version: this.spec.claude.version } : null,
       census: { ...census, ...this.census }, restarts: { attributed: this.attributed, lastExit },
-      observed: this.observed, lastSessionId: this.lastSessionId, lastName: this.session.name, lastBridgeSessionId: this.lastBridgeSessionId };
+      observed: this.observed, lastName: this.session.name, lastBridgeSessionId: this.lastBridgeSessionId,
+      ...(this.lastSessionId ? { lastSessionId: this.lastSessionId } : {}) };                 // not knowing it now is no reason to forget it
   }
 
   /** @param {'scan'|'slow'|'block'|'discovery'|'respawn'} k */

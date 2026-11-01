@@ -179,6 +179,7 @@ function moveLeavingLink(from, to, afterRename = () => {}) {
 const OPS = {
   readJson(file, opts) { return require('nmux/base/atomic').readJson(file, opts); },
   writeAtomic(file, obj, opts) { require('nmux/base/atomic').writeAtomic(file, obj, opts); return true; },
+  findThreadByCwd(paths, o) { return require('../codex/threads.js').findThreadByCwd(paths, o); },
   readdir(dir) { try { return fs.readdirSync(dir); } catch (e) { if (isMissing(e)) return null; throw e; } },
   stat(file) {
     try {

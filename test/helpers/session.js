@@ -69,8 +69,19 @@ async function startTestSession(t, { fakeArgs = [], config = {}, supervisorTimer
   });
   /** What the session says about itself. */
   const status = () => host2.status();
+  /** Another controller, as ccsd coming back would be: everything it knows it has to find out. */
+  const replaceController = async () => {
+    session.dispose();
+    const next = new AgentController({ spec, config: conf, clock: realClock, log: LOG, paths, screens, timers: supervisorTimers });
+    const hosted = new HostedSession({ sockPath, controller: next, log: LOG, clock: realClock, name: spec.name, debounceMs: 50, onStopped: () => stopped(),
+      writeState: (doc) => fs.writeFileSync(/** @type {string} */ (spec.stateFile), JSON.stringify(doc)) });
+    tmp.defer(() => hosted.dispose());
+    hosted.open();
+    await waitFor(() => hosted.child, { timeoutMs: 5000, what: 'the new controller to arrive' });
+    return { controller: next, session: hosted };
+  };
   return {
-    tmp, spec, specFile, sockPath, status,
+    tmp, spec, specFile, sockPath, status, replaceController,
     /** The same names tests have always used, for what the session and its controller know. */
     s: { session, controller, paths, done, stop, status },
     gates: async () => (await status()).gates,

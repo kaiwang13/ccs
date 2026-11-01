@@ -12,9 +12,12 @@
  *      /proc lacks hidepid this leaks strictly less than Claude does.
  */
 const { resolveCodexBin } = require('../codex/bin.js');
+const { runNfsOp } = require('../common/nfsworker.js');
 const { validateExtraArgs, LaunchError } = require('../claude/launcher.js');
 const { buildEnv } = require('./../sessiond/env.js');
 const { resolveSessionProxy } = require('../common/proxy.js');
+
+const DISCOVERY_TIMEOUT_MS = 5000;
 
 /** @typedef {import('../common/types').Capabilities} Capabilities */
 /** @typedef {import('../common/types').Agent} Agent */
@@ -99,8 +102,9 @@ module.exports = {
    *  using the Unix launch timestamp. Missing or ambiguous candidates return null — a wrong id
    *  would make `ccs restart` resume somebody else's conversation.
    *  @param {{paths: any, cwd: string, launchedAtMs: number}} a */
-  discoverSessionId: ({ paths, cwd, launchedAtMs }) => {
-    const t = require('../codex/threads.js').findThreadByCwd(paths, { cwd, createdAfterMs: launchedAtMs });
+  // In the NFS worker: this opens a database in a home that may be hanging, and ccsd looks after every session on one event loop.
+  discoverSessionId: async ({ paths, cwd, launchedAtMs }) => {
+    const t = await runNfsOp({ kind: 'findThreadByCwd', args: [{ codexStateDb: paths.codexStateDb }, { cwd, createdAfterMs: launchedAtMs }] }, DISCOVERY_TIMEOUT_MS);
     return t ? t.id : null;
   },
   /** Whether a --resume id names a real Codex thread: looked up directly in Codex's own thread

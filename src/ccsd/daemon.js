@@ -12,9 +12,11 @@ const { isLocked } = require('nmux/platform/locks');
 const { AgentController } = require('../agents/controller.js');
 const { loadScreens } = require('../claude/screens.js');
 const { HostedSession } = require('./hosted.js');
+const { settleRecord } = require('./record.js');
 const { CCSD_MAIN } = require('../sessiond/agentsession.js');
 
 const SCAN_MS = 300;
+const CLOSE_WAIT_MS = 2000;
 const IDLE_EXIT_MS = 60000;
 
 class Ccsd {
@@ -36,6 +38,8 @@ class Ccsd {
     /** Sessions that have ended and may not have left yet, by when each was created: the same id can come back as a new one. */
     /** @type {Map<string, string>} */
     this.ended = new Map();
+    /** Sessions it could not take on, by when each was created. @type {Set<string>} */
+    this.refused = new Set();
     /** @type {any} */
     this.timer = null;
     this.idleSince = clock.now();
@@ -71,18 +75,24 @@ class Ccsd {
   _adopt(id) {
     const host = this._specOf(id);
     if (!host || !host.agentSpec || !this._running(id)) return;                        // a session from before ccsd has its own controller
-    if (this.ended.get(id) === host.createdAt) return;
+    if (this.ended.get(id) === host.createdAt || this.refused.has(host.createdAt)) return;
     if (this._newerRelease(host)) { this.log.info('ccsd.superseded', { id }); this.onIdle(); return; }
     const spec = host.agentSpec;
-    const log = this.log.child ? this.log.child({ session: id }) : this.log;
-    /** @type {any} */
-    let initialState = null;
-    const controller = new AgentController({ spec, config: this.config, clock: this.clock, log, paths: this.paths, screens: loadScreens(spec.claude.version), timers: this.timers, initialState });
-    const hosted = new HostedSession({ sockPath: this.paths.ctlSock(id), controller, log, clock: this.clock, name: spec.name,
-      writeState: (doc) => this._write(id, doc), onStopped: () => { this.sessions.delete(id); this.ended.set(id, host.createdAt); } });
+    /** @type {AgentController} */
+    let controller;
+    try {
+      controller = new AgentController({ spec, config: host.config || this.config, clock: this.clock, log: this.log, paths: this.paths, screens: loadScreens(spec.claude.version), timers: this.timers });
+    } catch (e) {
+      // One session this cannot make sense of must not take the others down with it. It keeps running, as with no ccsd at all.
+      this.refused.add(host.createdAt);
+      this.log.error('session.refused', { id, error: String(/** @type {Error} */ (e).message) });
+      return;
+    }
+    const hosted = new HostedSession({ sockPath: this.paths.ctlSock(id), controller, log: this.log, clock: this.clock, name: spec.name,
+      writeState: (doc) => this._write(id, doc),
+      onStopped: () => { if (this.sessions.get(id) === hosted) this.sessions.delete(id); this.ended.set(id, host.createdAt); } });
     this.sessions.set(id, hosted);
     this.registry.readState(id).then((st) => {
-      initialState = st;
       if (st && st.lastSessionId && !controller.lastSessionId) controller.lastSessionId = st.lastSessionId;
       if (st && st.restarts && st.restarts.attributed) controller.attributed = st.restarts.attributed;
     }, () => {}).finally(() => { if (!hosted.disposed) hosted.open(); });
@@ -110,12 +120,16 @@ class Ccsd {
     this.log.info('session.lost', { id });
     hosted.dispose();
     this.sessions.delete(id);
+    settleRecord(this.paths, this.registry, id).catch((e) => this.log.warn('session.settle_failed', { id, error: String(e && e.message) }));
   }
 
-  close() {
+  /** Leaves with what is known written down, within a moment: a machine going down does not wait. @returns {Promise<void>} */
+  async close() {
     this.closed = true;
     if (this.timer !== null) this.clock.clearTimeout(this.timer);
-    for (const hosted of this.sessions.values()) hosted.dispose();
+    const all = [...this.sessions.values()];
+    await Promise.race([Promise.allSettled(all.map((h) => h.flush())), new Promise((r) => setTimeout(r, CLOSE_WAIT_MS))]);
+    for (const hosted of all) hosted.dispose();
     this.sessions.clear();
   }
 }

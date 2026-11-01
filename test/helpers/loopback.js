@@ -30,6 +30,7 @@ class LoopbackSession {
   get exited() { return this.host.exited; }
   get disposed() { return this.host.disposed; }
   get name() { return this.host.name; }
+  get connected() { return true; }
   get alt() { return this.host.tracker.alt; }
   get child() { return this.host.hello ? this.host.hello.child : null; }
   get launchedAtMs() { return this.host.launchedAtMs; }

@@ -7,6 +7,8 @@
  * Doctor only reads; the one write it ever does is that backup (into ccs's own state dir).
  */
 const { isRunning } = require('../ccsd/main.js');
+const { isLocked } = require('nmux/platform/locks');
+const { controlRequest } = require('nmux/sdk');
 const cp = require('child_process');
 const fs = require('fs');
 const path = require('path');
@@ -176,9 +178,21 @@ async function checkClaudeJsonHealth(paths, nfsTimeoutMs) {
 }
 
 /** @param {any} paths @returns {Check} */
-/** Not running is fine: it starts with the next session, and any session whose controller is missing starts it. @param {any} paths @returns {Check} */
-function checkCcsd(paths) {
-  return { level: 'ok', label: 'ccsd', detail: isRunning(paths) ? 'running' : 'not running (starts with the next session)' };
+/**
+ * Not running is fine: it starts with the next session, and any session whose controller is missing starts it. Running and
+ * not connected to a live session is what a hung one looks like, which only a session can tell.
+ * @param {any} paths @returns {Promise<Check>}
+ */
+async function checkCcsd(paths) {
+  if (!isRunning(paths)) return { level: 'ok', label: 'ccsd', detail: 'not running (starts with the next session)' };
+  let ids = [];
+  try { ids = fs.readdirSync(path.join(paths.runtimeDir, 's')); } catch { /* none */ }
+  for (const id of ids) {
+    if (!isLocked(paths.sessiondLock(id))) continue;
+    const r = await controlRequest(paths.ctlSock(id), 'STATUS', {}, { timeoutMs: 2000 }).catch(() => null);
+    if (r && r.ok && r.data.controller === false) return { level: 'warn', label: 'ccsd', detail: `running, but not connected to session ${id}: sessions keep working; see ${paths.logFile('ccsd', 'ccsd')}` };
+  }
+  return { level: 'ok', label: 'ccsd', detail: 'running' };
 }
 
 function checkRuntimeDir(paths) {
@@ -228,7 +242,7 @@ async function runDoctorLite({ paths, config, out, acceptConfig = false, nfsTime
   if (bin) checks.push(checkDecoder(bin, decoderTimeoutMs));
   checks.push(...(await checkClaudeJsonHealth(paths, nfsTimeoutMs)));
   checks.push(checkRuntimeDir(paths));
-  checks.push(checkCcsd(paths));
+  checks.push(await checkCcsd(paths));
   // Each agent contributes its own checks; Claude's are still the inline ones above (it returns []).
   for (const id of KNOWN_AGENTS) checks.push(...getAgent(id).doctorChecks(paths, config));
   const tag = { ok: '  ok  ', warn: '  WARN', fail: '  FAIL' };
@@ -238,4 +252,4 @@ async function runDoctorLite({ paths, config, out, acceptConfig = false, nfsTime
   return checks.some((c) => c.level === 'fail') ? 1 : 0;
 }
 
-module.exports = { runDoctorLite, checkNode, checkNative, checkPlatform, checkClaude, checkDecoder, checkClaudeJsonHealth, checkRuntimeDir, PINNED_NODE };
+module.exports = { checkCcsd, runDoctorLite, checkNode, checkNative, checkPlatform, checkClaude, checkDecoder, checkClaudeJsonHealth, checkRuntimeDir, PINNED_NODE };

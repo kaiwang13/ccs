@@ -11,6 +11,7 @@ const path = require('node:path');
 const { controlRequest } = require('nmux/sdk');
 const { makeCcsEnv, runCcs, waitFor } = require('../helpers/ccsenv.js');
 const { connectVirtualClient } = require('../helpers/vclient');
+const { startTestSession } = require('../helpers/session');
 const { closeNfsWorker } = require('../../src/common/nfsworker.js');
 const { listProcesses, readEnviron } = require('../../src/common/procinfo.js');
 const { isLocked } = require('nmux/platform/locks');
@@ -73,6 +74,7 @@ test('a stop works with no ccsd there, and still leaves a true record', { timeou
   assert.equal((await runCcs(ctx, ['stop', 'nobody'])).code, 0);
   const [row] = JSON.parse((await runCcs(ctx, ['ls', '--json'])).stdout);
   assert.equal(row.live, false);
+  assert.equal(row.lifecycle, 'STOPPED', 'with nobody to write it down, the stop itself does');
 });
 
 test('a server that dies takes nothing with it: ccsd reconnects, and gates and status come back', { timeout: 60000 }, async (t) => {
@@ -109,4 +111,17 @@ test('a start right behind a stop gets a new session, not the holder that was le
   assert.equal((await runCcs(ctx, ['restart', 'again'])).code, 0);
   await waitFor(async () => { const st = await s.status().catch(() => null); return st && st.lifecycle === 'RUNNING' && st.claude.pid && st.claude.pid !== pid; }, RUNNING_MS, 'a new agent');
   assert.equal((await runCcs(ctx, ['stop', 'again'])).code, 0);
+});
+
+test('gates an old ccsd left up are put right by the next one', { timeout: 60000 }, async (t) => {
+  const e = await startTestSession(t);
+  await waitFor(async () => e.s.controller.observed, 10000, 'the agent to be seen');
+  e.s.session.gate('COOKED', { effect: 'filter', rank: 3 });
+  e.s.session.gate('SUSPENDED', { effect: 'drop', blocking: true, rank: 2 });
+  await waitFor(async () => (await e.gates()).length === 2, 3000, 'the gates to be up');
+  e.s.session.setPhase('SUSPENDED');
+  await waitFor(async () => (await e.status()).lifecycle === 'SUSPENDED', 3000, 'the phase');
+  await e.replaceController();
+  await waitFor(async () => (await e.gates()).length === 0, 5000, 'nothing wanted to stay up');
+  await waitFor(async () => (await e.status()).lifecycle === 'RUNNING', 5000, 'the agent is running again, and the new ccsd can see that');
 });

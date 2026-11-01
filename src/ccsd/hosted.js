@@ -34,8 +34,10 @@ class HostedSession {
     this.pty = null;
     /** @type {any} */
     this.saveTimer = null;
-    /** @type {Promise<unknown>} */
-    this.saving = Promise.resolve();
+    /** @type {Promise<unknown>|null} the write under way */
+    this.writing = null;
+    /** something changed during that write */
+    this.writeAgain = false;
     this.client = new SessionClient({ sockPath, label: 'ccsd', subscribe: { controller: true } });
     this.client.on('subscribed', (snapshot) => this._arrived(snapshot));
     this.client.on('event', (e) => this._event(e));
@@ -45,34 +47,44 @@ class HostedSession {
 
   open() { this.client.open(); }
 
+  get connected() { return this.client.up; }
+
   // ---- what the session says ---------------------------------------------------------------------------------------
-  /** Connected, for the first time or again: where things stand now. @param {any} s */
+  /** Connected, for the first time or again: where things stand now, including what happened with nobody here. @param {any} s */
   async _arrived(s) {
     const c = this.controller;
     this.lifecycle = s.lifecycle;
+    this.blockedCode = s.blockedCode;
     this.exited = !!s.exited;
     this.name = s.name || this.name;
     this.launchedAtMs = s.launchedAtMs;
-    c.gatesSet = {};                                                                   // a new server knows none of them
-    if (s.holder) { this.child = s.holder.child; c.onHolder(); c.onAttached(); }
+    c.stopping = s.lifecycle === 'STOPPING';
+    c.gatesSet = Object.fromEntries((s.gates || []).map((/** @type {string} */ g) => [g, 'left by the last controller']));
+    if (s.holder) { this.child = s.holder.child; c.onHolder({ suspended: s.lifecycle === 'SUSPENDED' }); c.onAttached(); } else c._syncGates();
     if (s.tty) { this.alt = !!s.tty.alt; c.onLflag(s.tty); }
-    if (s.lifecycle === 'STOPPING') c.stopping = true;
+    if (s.exit) { this.exited = true; c.onExit(s.exit); }
   }
 
   /** @param {any} e */
   _event(e) {
     const c = this.controller;
     switch (e.event) {
-      case 'lifecycle': this.lifecycle = e.lifecycle; break;
+      case 'lifecycle': this.lifecycle = e.lifecycle; if (e.lifecycle !== 'BLOCKED') this.blockedCode = null; break;
       case 'holder': this.child = e.child; this.exited = false; c.onHolder(); break;
       case 'attached': c.onAttached(); break;
       case 'replayed': c.onReplayed(); break;
       case 'tty': this.alt = !!e.alt; c.onLflag(e); break;
+      case 'alt': this.alt = !!e.alt; break;
       case 'match': c.onMatch(); break;
       case 'exit': this.exited = true; c.onExit(e); break;
       case 'respawned': c.onRespawned(); break;
       case 'stopping': c.onStopping(); break;
-      case 'record': c.record = e.doc; this.saveState(false); break;
+      case 'record': {
+        const changed = !c.record || c.record.lifecycle !== e.doc.lifecycle;
+        c.record = e.doc;
+        this.saveState(changed);
+        break;
+      }
       case 'stopped': this._stopped(e); break;
       default: break;
     }
@@ -90,9 +102,8 @@ class HostedSession {
   _stopped({ lastExit }) {
     const c = this.controller;
     if (c.record) c.record = { ...c.record, lifecycle: 'STOPPED', restarts: { ...c.record.restarts, lastExit } };
-    this.saveState(true);
-    this.saving.finally(() => {
-      this.client.stopProceed().catch(() => {}).finally(() => { this.dispose(); this.onStopped(); });
+    this.flush().finally(() => {
+      this.client.recorded().catch(() => {}).finally(() => { this.dispose(); this.onStopped(); });
     });
   }
 
@@ -138,13 +149,34 @@ class HostedSession {
   stopProceed() { this._quiet(this.client.stopProceed(), 'stop'); }
   screen() { return this.client.screen(); }
 
-  /** Writes down what is known, at once or soon: several changes at once are one write. @param {boolean} immediate */
+  /** Writes down what is known, at once or at most a moment later. @param {boolean} immediate */
   saveState(immediate) {
+    if (this.disposed) return;
+    if (!immediate) {
+      if (this.saveTimer === null) this.saveTimer = this.clock.setTimeout(() => { this.saveTimer = null; this._write(); }, this.debounceMs);
+      return;
+    }
     if (this.saveTimer !== null) { this.clock.clearTimeout(this.saveTimer); this.saveTimer = null; }
-    if (!immediate) { this.saveTimer = this.clock.setTimeout(() => { this.saveTimer = null; this.saveState(true); }, this.debounceMs); return; }
+    this._write();
+  }
+
+  /** One write at a time, and only ever of the newest: an older state must not land after a newer one. */
+  _write() {
+    if (this.writing) { this.writeAgain = true; return; }
     const { record } = this.controller;
-    if (!record) return;
-    this.saving = this.saving.then(() => this.writeState(this.controller.persisted(record))).catch((e) => this.log.warn('state.write_failed', { error: String(e && e.message) }));
+    if (!record || this.disposed) return;
+    this.writing = Promise.resolve().then(() => this.writeState(this.controller.persisted(record)))
+      .catch((e) => this.log.warn('state.write_failed', { error: String(e && e.message) }))
+      .finally(() => {
+        this.writing = null;
+        if (this.writeAgain) { this.writeAgain = false; this._write(); }
+      });
+  }
+
+  /** Everything known has been written down. @returns {Promise<void>} */
+  async flush() {
+    this.saveState(true);
+    while (this.writing) await this.writing;
   }
 
   dispose() {

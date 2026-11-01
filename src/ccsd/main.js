@@ -26,8 +26,9 @@ async function main() {
   const registry = createRegistry(paths, { nfsTimeoutMs: config.registry.nfsTimeoutMs });
   process.on('SIGHUP', () => {});
   await new Promise((resolve) => {
-    const daemon = new Ccsd({ paths, config, registry, log, onIdle: () => resolve(undefined) });
-    process.on('SIGTERM', () => { daemon.close(); resolve(undefined); });
+    const leave = () => { daemon.close().finally(() => resolve(undefined)); };
+    const daemon = new Ccsd({ paths, config, registry, log, onIdle: leave });
+    process.on('SIGTERM', leave);
     log.info('ccsd.started', {});
     daemon.start();
   });

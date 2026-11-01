@@ -34,6 +34,14 @@ class SuspendNet extends EventEmitter {
     this.unconfirmedTimer = null;
   }
 
+  /** Taking over from a controller that went away with the agent suspended: what it knew is known here too. */
+  assumeSuspended() {
+    this.suspended = true;
+    this.rawSeen = true;
+    this.bannerSeen = true;
+    this.sigcontSent = true;
+  }
+
   /** @returns {'OPEN'|'SUSPENDED'|'COOKED'} COOKED: c_cc bytes (Ctrl+C would be SIGINT, Ctrl+S XOFF) must not be written */
   get gate() {
     if (this.suspended) return 'SUSPENDED';

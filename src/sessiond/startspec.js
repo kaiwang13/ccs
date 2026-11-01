@@ -21,18 +21,21 @@ const { ensureRuntime } = require('nmux/platform/runtime');
 const { bootId, procStart, isSameProcess } = require('../common/procinfo.js');
 const { runNfsOp } = require('../common/nfsworker.js');
 const { createRegistry } = require('../common/registry.js');
-const { controlRequest, createSession, startServer } = require('nmux/sdk');
+const { controlRequest, createSession, probeSocket, startServer } = require('nmux/sdk');
 const { validateSessionSpec } = require('./spec.js');
 const { hostSpec } = require('./agentsession.js');
 const { loadScreens } = require('../claude/screens.js');
 const { CCSD_MAIN } = require('./agentsession.js');
 const { isRunning } = require('../ccsd/main.js');
+const { settleRecord } = require('../ccsd/record.js');
 const cp = require('child_process');
 const { getAgent } = require('../agents/index.js');
 const { LaunchError } = require('../claude/launcher.js');
 
 const ID_RE = /^[0-9a-f]{8}$/;
 const HOLDER_LEAVING_MS = 5000;
+const NO_CONTROLLER_WAIT_MS = 5000;
+const SERVER_UP_WAIT_MS = 15000;
 const SETTLED = new Set(['RUNNING', 'SETUP_GATED', 'SUSPENDED', 'BLOCKED', 'FAILED', 'EXITED', 'STOPPING', 'STOPPED', 'STOP_STUCK']);
 
 /**
@@ -82,6 +85,12 @@ async function holderLeaves(paths, id) {
     await new Promise((r) => setTimeout(r, 25));
   }
   return true;
+}
+
+/** Resolves when a server is answering on this socket, or has had long enough. @param {string} sockPath */
+async function serverUp(sockPath) {
+  const deadline = Date.now() + SERVER_UP_WAIT_MS;
+  while (Date.now() < deadline && !(await probeSocket(sockPath, 200))) await new Promise((r) => setTimeout(r, 50));
 }
 
 /** ccsd finds a session by itself, and the session's server would start it after a second; this saves the second. @param {any} paths @param {Record<string, string|undefined>} env */
@@ -135,11 +144,14 @@ function parseStartArgv(argv) {
 async function releaseAfterReady({ release, sockPath, readyTimeoutMs, staggerMs, pollMs = 500 }) {
   const sleep = (/** @type {number} */ ms) => new Promise((r) => setTimeout(r, ms));
   try {
-    const deadline = Date.now() + readyTimeoutMs;
+    const started = Date.now();
+    const deadline = started + readyTimeoutMs;
     while (Date.now() < deadline) {
       try {
         const r = await controlRequest(sockPath, 'STATUS', {}, { timeoutMs: 2000, label: 'ccs-sessiond-ready' });
         if (r.ok && r.data && SETTLED.has(r.data.lifecycle)) break;
+        // Nobody is there to say it is ready, and one session must not hold up every other start for that.
+        if (r.ok && r.data && r.data.controller === false && r.data.child.pid && Date.now() - started > NO_CONTROLLER_WAIT_MS) break;
       } catch { /* not listening yet */ }
       await sleep(pollMs);
     }
@@ -184,10 +196,12 @@ async function startMain(argv, env = process.env, deps = {}) {
   if (recover) {
     const spec = await buildSessionSpec(id, paths, { config, rec });
     start(spec, config, paths, { recover: true, env });
+    await serverUp(paths.ctlSock(id));                                                 // or a caller takes this leaving for a failure
     return 0;
   }
   if (rec.intent.desired !== 'running') { log.info('start.not_desired', { desired: rec.intent.desired }); return 0; }
 
+  await settleRecord(paths, registry, id).catch(() => {});                              // the last run may have ended with nobody to write that down
   const bin = getAgent(rec.intent.agent).resolveBin(paths, config);
   const sessionId = (rec.state && rec.state.lastSessionId) || rec.intent.initialSessionId;
   const base = {

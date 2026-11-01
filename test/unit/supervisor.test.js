@@ -329,6 +329,17 @@ test('attributed /exit: clientExit to the typist, release, 500 ms settle, gen-2 
   s.sup.dispose();
 });
 
+test('a setup kind left over after a server restart is cleared by the first scan that finds no setup screen', async (t) => {
+  const s = setup(t);
+  await s.sup.start();
+  s.sessionJson();
+  s.sup.agent.setupKind = 'trust';
+  await s.tickAndSettle(2000);
+  assert.equal(s.sup.agent.setupKind, null);
+  assert.equal(s.sup.lifecycle, 'RUNNING', 'nothing is left stopping the session from being seen as running');
+  s.sup.dispose();
+});
+
 test('a restart forgets that the old child was waiting: a client joining next is not told it needs them', async (t) => {
   const s = setup(t);
   await s.sup.start();

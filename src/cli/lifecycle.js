@@ -13,8 +13,10 @@ const crypto = require('crypto');
 const path = require('path');
 const { isLocked } = require('nmux/platform/locks');
 const { controlRequest, probeSocket } = require('nmux/sdk');
+const { settleRecord } = require('../ccsd/record.js');
 
 const SESSIOND_MAIN = path.join(__dirname, '..', 'sessiond', 'main.js');
+const SERVER_GRACE_MS = 15000;
 const sleep = (/** @type {number} */ ms) => new Promise((r) => setTimeout(r, ms));
 
 /** A session daemon is alive iff its sessiond.lock is held (spec §3.12). @param {any} paths @param {string} id */
@@ -42,12 +44,14 @@ async function startAndWait({ paths, registry, id, timeoutMs = 60000, env }) {
   const spawnedAt = Date.now();
   const child = spawnSessiond(paths, id, { env });
   /** @type {number|null} */ let exitCode = null;
-  let exited = false;
-  child.on('exit', (code) => { exited = true; exitCode = code; });
+  /** @type {number|null} */ let exitedAt = null;
+  child.on('exit', (code) => { exitedAt = Date.now(); exitCode = code; });
   let lastStateCheck = 0;
   while (Date.now() - spawnedAt < timeoutMs) {
     if (await probeSocket(paths.ctlSock(id), 500)) return { ok: true };
-    const early = exited && exitCode !== 3; // 3 = another sessiond for this id is launching: keep waiting
+    // The start process leaves once the session is under way, and the session's server is another process: 0 says nothing
+    // about that, so it gets a while to show itself. 3 = another start for this id is under way: keep waiting.
+    const early = exitedAt !== null && exitCode !== 3 && (exitCode !== 0 || Date.now() - exitedAt > SERVER_GRACE_MS);
     if (early || Date.now() - lastStateCheck > 1000) {
       lastStateCheck = Date.now();
       let st = null;
@@ -69,13 +73,16 @@ async function startAndWait({ paths, registry, id, timeoutMs = 60000, env }) {
  */
 async function stopAndWait({ paths, registry, id, timeoutMs, keepDesired = false }) {
   if (!keepDesired) await registry.updateIntent(id, (i) => { i.desired = 'stopped'; });
-  if (!isLive(paths, id)) return { ok: true, already: true };
+  if (!isLive(paths, id)) { await settleRecord(paths, registry, id).catch(() => {}); return { ok: true, already: true }; }
   try { await controlRequest(paths.ctlSock(id), 'STOP', {}, { timeoutMs: 5000 }); } catch { /* the socket may close as the stop proceeds */ }
   const deadline = Date.now() + timeoutMs;
   let lastStatus = 0;
   while (Date.now() < deadline) {
     // All of it: a start right after this must not find a holder still on its way out.
-    if (!isLive(paths, id) && !isLocked(paths.holderLock(id))) return { ok: true };
+    if (!isLive(paths, id) && !isLocked(paths.holderLock(id))) {
+      await settleRecord(paths, registry, id).catch(() => {});                          // ccsd writes this, unless it was away
+      return { ok: true };
+    }
     if (Date.now() - lastStatus > 2000) {
       lastStatus = Date.now();
       try {
