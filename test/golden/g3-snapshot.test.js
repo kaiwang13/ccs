@@ -7,7 +7,10 @@ const { Pipeline } = require('nmux/server/output/pipeline');
 const { Emulator } = require('nmux/server/output/emulator');
 const { ClientAdapter } = require('nmux/server/output/adapter');
 const { buildJoinBytes } = require('nmux/server/output/snapshot');
+const { messagesFrom } = require('nmux/server/messages');
 const { CCS_MESSAGES } = require('../../src/sessiond/messages.js');
+
+const MESSAGES = messagesFrom(CCS_MESSAGES);
 const { DEFAULTS } = require('../../src/common/config');
 const { createFakeClock } = require('nmux/base/clock');
 const { T } = require('nmux/wire/proto');
@@ -73,7 +76,7 @@ for (const rel of ['spike-flows/run', 'verify-spike-renderer-flows/live1']) {
       if (i++ % STRIDE !== 0) continue;
       await emulator.tail;
       if (tracker.alt) altSnaps++;
-      snaps.push({ off: end, outIdx: outs.length, bytes: buildJoinBytes({ emulator, tracker, banner: (n) => CCS_MESSAGES.joinBanner('g3', n), client: { rows: 40, cols: 120, cursorRow: 1 }, historyLimit: 'all' }) });
+      snaps.push({ off: end, outIdx: outs.length, bytes: buildJoinBytes({ emulator, tracker, banner: (n) => MESSAGES.joinBanner('g3', n), client: { rows: 40, cols: 120, cursorRow: 1 }, historyLimit: 'all' }) });
     }
     deliver(pipeline.flush());
     await emulator.tail;

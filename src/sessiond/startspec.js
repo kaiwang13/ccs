@@ -2,13 +2,14 @@
 // @ts-check
 /**
  * Product-layer entry points for sessiond (contract R7):
- *   node src/sessiond/main.js --start <ccsId> [--batch <id>]   registry + preflight + launcher → runSession(spec, {recover: false, sessiondArgv})
- *   node src/sessiond/main.js --recover <ccsId>                registry + launcher → runSession(spec, {recover: true, sessiondArgv})
- * (plan 02's `--spec <file> [--recover]` path is untouched.) The holder respawns sessiond with
- * `[...sessiondArgv, '--recover']` (plan 02).
+ *   node src/sessiond/main.js --start <ccsId> [--batch <id>]   registry + preflight + launcher → a hosted session
+ *   node src/sessiond/main.js --recover <ccsId>                the same for a holder that is still running
+ * This process only starts a session and sees it settle: the session then runs under the host, with ccsd looking after the
+ * agent. Starting stays here rather than in ccsd because preflight reads a home that may be a hanging NFS mount, and that
+ * must not be able to stall every other session's controller.
  *
- * Exit codes of --start: 0 session ran and ended (or nothing to do), 2 blocked/failed before spawn
- * (state.json says why), 3 another sessiond for this id is already launching or running.
+ * Exit codes of --start: 0 started (or nothing to do), 2 blocked/failed before spawn (state.json says why), 3 another
+ * start for this id is already running.
  */
 const fs = require('fs');
 const path = require('path');
@@ -20,8 +21,13 @@ const { ensureRuntime } = require('nmux/platform/runtime');
 const { bootId, procStart } = require('../common/procinfo.js');
 const { runNfsOp } = require('../common/nfsworker.js');
 const { createRegistry } = require('../common/registry.js');
-const { controlRequest } = require('nmux/wire/ctlclient');
+const { controlRequest, createSession, startServer } = require('nmux/sdk');
 const { validateSessionSpec } = require('./spec.js');
+const { hostSpec } = require('./agentsession.js');
+const { loadScreens } = require('../claude/screens.js');
+const { CCSD_MAIN } = require('./agentsession.js');
+const { isRunning } = require('../ccsd/main.js');
+const cp = require('child_process');
 const { getAgent } = require('../agents/index.js');
 const { LaunchError } = require('../claude/launcher.js');
 
@@ -58,6 +64,24 @@ async function buildSessionSpec(ccsId, paths, opts = {}) {
   });
 }
 
+/** ccsd finds a session by itself, and the session's server would start it after a second; this saves the second. @param {any} paths @param {Record<string, string|undefined>} env */
+function ensureCcsd(paths, env) {
+  if (isRunning(paths)) return;
+  const child = cp.spawn(process.execPath, [CCSD_MAIN], { detached: true, stdio: 'ignore', cwd: '/', env: { ...env, UV_THREADPOOL_SIZE: '16' } });
+  child.unref();
+}
+
+/** @param {any} spec @param {any} config @param {any} paths @param {{recover: boolean, env: Record<string, string|undefined>}} o */
+function host(spec, config, paths, { recover, env }) {
+  ensureCcsd(paths, env);
+  const made = hostSpec(spec, config, loadScreens(spec.claude.version));
+  if (recover) {
+    const file = path.join(paths.sessionDir(spec.ccsId), 'session.json');
+    if (fs.existsSync(file)) { startServer(file, { recover: true, env }); return; }
+  }
+  createSession(made, { recover, env: { ...env, UV_THREADPOOL_SIZE: '16' } });
+}
+
 /**
  * Accepts `--start ID`, `--recover ID`, and `--start ID --recover` (the last is what a holder produces if
  * plan 02 builds sessiondCmd as "original argv + --recover").
@@ -84,16 +108,6 @@ function parseStartArgv(argv) {
 }
 
 /**
- * The argv the holder uses to respawn this sessiond (plan 02 appends `--recover`). Always the canonical
- * `--start <id>` form: filtering `--recover` out of a `--recover <id>` invocation would leave a bare id that
- * parseStartArgv cannot read.
- * @param {string} id @param {string[]} [argv] process.argv
- */
-function recoverArgv(id, argv = process.argv) {
-  return [argv[0], argv[1], '--start', id];
-}
-
-/**
  * Release the host start lock once this session is READY (a settled lifecycle via the STATUS RPC) or
  * readyTimeoutMs elapsed, then after staggerMs more (spec §3.11 item 1, N9).
  * @param {{release: () => void, sockPath: string, readyTimeoutMs: number, staggerMs: number, pollMs?: number}} a
@@ -116,30 +130,14 @@ async function releaseAfterReady({ release, sockPath, readyTimeoutMs, staggerMs,
 }
 
 /**
- * state.json writer handed to plan 02's supervisor (spec §3.12): merge through the killable NFS worker, so a stalled
- * `hard` NFS mount can never freeze sessiond's event loop (plan 02's default writer is synchronous and meant for local
- * test files).
- * @param {{readState: (id: string) => Promise<any>, writeState: (id: string, st: any) => Promise<any>}} registry @param {string} id
- * @returns {(file: string, st: object) => Promise<void>}
- */
-function nfsStateWriter(registry, id) {
-  return async (_file, st) => {
-    const prev = (await registry.readState(id)) || {};
-    await registry.writeState(id, { ...prev, ...st });
-  };
-}
-
-/**
  * @param {string[]} argv @param {Record<string,string|undefined>} [env]
- * @param {{runSession?: (spec: any, o?: any) => Promise<void>}} [deps]
+ * @param {{host?: typeof host}} [deps]
  * @returns {Promise<number>}
  */
 async function startMain(argv, env = process.env, deps = {}) {
   const parsed = parseStartArgv(argv);
   if (!parsed) { process.stderr.write('usage: sessiond/main.js --start <ccsId> [--batch <id>] | --recover <ccsId>\n'); return 64; }
-  // Resolved when called, not here: main.js calls startMain while it is still loading, and its exports are
-  // complete once the first `await` below has yielded.
-  const runSession = (/** @type {any} */ spec, /** @type {any} */ o) => (deps.runSession || require('./main.js').runSession)(spec, o);
+  const start = deps.host || host;
   const { id, batch } = parsed;
   let recover = parsed.recover;
   const paths = resolvePaths(env);
@@ -151,7 +149,7 @@ async function startMain(argv, env = process.env, deps = {}) {
   // One launcher per session id at a time. A second `--start` (two `ccs attach` racing) exits 3 before
   // it can run preflight against the first one's claude.
   const launchLock = tryLock(path.join(paths.sessionDir(id), 'launch.lock'));
-  if (!launchLock) { log.info('start.duplicate', { recover }); return 3; }
+  if (!launchLock || isLocked(paths.sessiondLock(id))) { log.info('start.duplicate', { recover }); return 3; }
 
   const registry = createRegistry(paths, { nfsTimeoutMs: config.registry.nfsTimeoutMs });
   const rec = await registry.get(id);
@@ -162,7 +160,7 @@ async function startMain(argv, env = process.env, deps = {}) {
   if (!recover && isLocked(paths.holderLock(id))) { log.warn('start.holder_alive_recovering', {}); recover = true; }
   if (recover) {
     const spec = await buildSessionSpec(id, paths, { config, rec });
-    await runSession(spec, { recover: true, sessiondArgv: recoverArgv(id), stateWriter: nfsStateWriter(registry, id), initialState: rec.state || null });
+    start(spec, config, paths, { recover: true, env });
     return 0;
   }
   if (rec.intent.desired !== 'running') { log.info('start.not_desired', { desired: rec.intent.desired }); return 0; }
@@ -182,7 +180,8 @@ async function startMain(argv, env = process.env, deps = {}) {
   if (pf.warnings.length) log.warn('preflight.warnings', { warnings: pf.warnings });
   let spec;
   try {
-    await registry.writeState(id, { ...base, lifecycle: 'STARTING', lifecycleSince: new Date().toISOString(), blocked: null, warnings: pf.warnings, accountHash: pf.accountHash || base.accountHash || null });
+    const seed = !rec.state && rec.intent.resumeRequested ? { lastSessionId: rec.intent.initialSessionId } : {};
+    await registry.writeState(id, { ...base, ...seed, lifecycle: 'STARTING', lifecycleSince: new Date().toISOString(), blocked: null, warnings: pf.warnings, accountHash: pf.accountHash || base.accountHash || null });
     spec = await buildSessionSpec(id, paths, { config, rec, bin: /** @type {any} */ (bin) });
   } catch (e) {
     pf.release();
@@ -192,12 +191,10 @@ async function startMain(argv, env = process.env, deps = {}) {
     return 2;
   }
   log.info('start.spawn', { mode: spec.claude.argv.includes('--resume') ? 'resume' : 'new', version: spec.claude.version });
-  const seededState = rec.state || (rec.intent.resumeRequested ? { lastSessionId: rec.intent.initialSessionId } : null);
-  const running = runSession(spec, { recover: false, sessiondArgv: recoverArgv(id), stateWriter: nfsStateWriter(registry, id), initialState: seededState });
-  releaseAfterReady({ release: pf.release, sockPath: paths.ctlSock(id), readyTimeoutMs: config.start.readyTimeoutMs, staggerMs: config.start.staggerMs })
+  start(spec, config, paths, { recover: false, env });
+  await releaseAfterReady({ release: pf.release, sockPath: paths.ctlSock(id), readyTimeoutMs: config.start.readyTimeoutMs, staggerMs: config.start.staggerMs })
     .catch((e) => log.error('start.release_failed', { message: String(e && e.message) }));
-  await running;
   return 0;
 }
 
-module.exports = { buildSessionSpec, parseStartArgv, recoverArgv, startMain, releaseAfterReady, nfsStateWriter };
+module.exports = { buildSessionSpec, parseStartArgv, startMain, releaseAfterReady };

@@ -97,8 +97,8 @@ test('a --start that arrives while the holder lock is genuinely held recovers in
   const echoBefore = await waitFor(() => { const f = fs.readdirSync(ctx.home).filter((x) => /^echoclaude-\d+\.json$/.test(x)); return f.length ? f : null; }, 10000, 'echoclaude record');
   // wait for a settled lifecycle before signalling, so runSession's SIGTERM handler is installed
   await waitFor(async () => { try { const r = await controlRequest(ctx.paths.ctlSock(rec.id), 'STATUS', {}, { timeoutMs: 1000 }); return r.ok && r.data && r.data.lifecycle === 'RUNNING'; } catch { return false; } }, 15000, 'lifecycle RUNNING');
-  first.child.kill('SIGTERM'); // graceful sessiond shutdown: detaches, leaves holder+claude alive
-  assert.equal((await first.exited).code, 0);
+  assert.equal((await first.exited).code, 0, 'the start process leaves once the session has settled');
+  process.kill(JSON.parse(fs.readFileSync(path.join(ctx.paths.sessionDir(rec.id), 'state.json'), 'utf8')).writer.pid, 'SIGTERM'); // the server goes, leaving holder+claude alive
   await waitFor(() => isLocked(ctx.paths.holderLock(rec.id)), 5000, 'holder.lock still held with no sessiond');
   const second = spawnSessiond(ctx, ['--start', rec.id]);
   await waitFor(() => probeSocket(ctx.paths.ctlSock(rec.id), 200), 20000, 'recovered ctl.sock');

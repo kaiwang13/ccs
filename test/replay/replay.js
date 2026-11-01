@@ -14,7 +14,10 @@ const { Pipeline } = require('nmux/server/output/pipeline');
 const { Emulator } = require('nmux/server/output/emulator');
 const { ClientAdapter } = require('nmux/server/output/adapter');
 const { buildJoinBytes } = require('nmux/server/output/snapshot');
+const { messagesFrom } = require('nmux/server/messages');
 const { CCS_MESSAGES } = require('../../src/sessiond/messages.js');
+
+const MESSAGES = messagesFrom(CCS_MESSAGES);
 const { DEFAULTS } = require('../../src/common/config');
 const { createFakeClock } = require('nmux/base/clock');
 const { T } = require('nmux/wire/proto');
@@ -79,7 +82,7 @@ async function replayCapture({ capture, clients: specs, soe = false, joinRepaint
     c.term = makeTerm(cols, rows, soe);
     c.adapter = new ClientAdapter({ id: c.spec.name, cols, rows, config: DEFAULTS, tracker, clock, writableLength: () => 0,
       send: (type, payload) => { if (type === T.OUTPUT) c.queue.push(payload); } });
-    await writeTerm(c.term, buildJoinBytes({ emulator, tracker, banner: (n) => CCS_MESSAGES.joinBanner('replay', n), client: { rows, cols, cursorRow: 1 }, historyLimit: 'all' }));
+    await writeTerm(c.term, buildJoinBytes({ emulator, tracker, banner: (n) => MESSAGES.joinBanner('replay', n), client: { rows, cols, cursorRow: 1 }, historyLimit: 'all' }));
     c.adapter.goLive();
     c.state = 'live';
     c.joinedAt = now;

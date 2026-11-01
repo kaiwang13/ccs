@@ -1,16 +1,10 @@
 'use strict';
 // @ts-check
-/** A ccs session spec turned into what the host needs, and the session that runs it. */
-const { Session } = require('nmux/server/session/session');
-const { AgentController } = require('../agents/controller.js');
+/** A ccs session spec turned into what the host needs to run it. */
+const path = require('node:path');
 const { CCS_MESSAGES } = require('./messages.js');
 
-/** @param {import('./spec').SessionSpec} spec */
-function hostSpec(spec) {
-  return { id: spec.ccsId, name: spec.name, runtimeDir: spec.runtimeDir, stateFile: spec.stateFile,
-    child: { argv: spec.claude.argv, env: spec.claude.env, cwd: spec.claude.cwd }, pty: spec.pty, termColors: spec.termColors,
-    nestEnv: 'CCS_ID', holderEnv: { CCS_RUNTIME_DIR: spec.runtimeDir } };
-}
+const CCSD_MAIN = path.join(__dirname, '..', 'ccsd', 'main.js');
 
 /** What the host needs that ccs does not offer as a setting, under the host's names. @param {any} config */
 function hostConfig(config) {
@@ -18,12 +12,18 @@ function hostConfig(config) {
 }
 
 /**
- * @param {{spec: import('./spec').SessionSpec, config: any, clock: import('nmux/base/types').Clock, log: any, paths: any, screens: any,
- *   timers?: object, initialState?: any} & Record<string, any>} o the rest is passed to Session
+ * The keys and their guards are declared here because they are enforced on every keystroke, by the host, with or without ccsd.
+ * @param {import('./spec').SessionSpec} spec @param {any} config @param {{suspendBanner: string}} screens
  */
-function createAgentSession({ spec, config, clock, log, paths, screens, timers = {}, initialState = null, ...rest }) {
-  const controller = new AgentController({ spec, config, clock, log, paths, screens, timers, initialState });
-  return new Session({ spec: hostSpec(spec), config: hostConfig(config), clock, log, layout: paths, controller, messages: CCS_MESSAGES, timers, initialState, ...rest });
+function hostSpec(spec, config, screens) {
+  return { id: spec.ccsId, name: spec.name, runtimeDir: spec.runtimeDir,
+    child: { argv: spec.claude.argv, env: spec.claude.env, cwd: spec.claude.cwd }, pty: spec.pty, termColors: spec.termColors,
+    nestEnv: 'CCS_ID', holderEnv: { CCS_RUNTIME_DIR: spec.runtimeDir }, config: hostConfig(config), messages: CCS_MESSAGES,
+    managed: { stays: true, detachKeys: ['Z', 'Q'], forwardFocus: false, guards: [{ keys: ['C', 'D'], marginMs: config.input.exitGuardMarginMs, code: 'EXIT_KEY_HELD' }],
+      match: [screens.suspendBanner.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')], stopGraceMs: config.stop.exitWaitMs,
+      welcome: { ccsId: spec.ccsId }, attrs: { ccsId: spec.ccsId, setupKind: null, claude: { pid: null, status: null, waitingFor: null, name: spec.name, sessionId: null, bridgeSessionId: null } },
+      command: { argv: [process.execPath, CCSD_MAIN] } },
+    agentSpec: spec };
 }
 
-module.exports = { createAgentSession, hostSpec, hostConfig };
+module.exports = { hostSpec, hostConfig, CCSD_MAIN };

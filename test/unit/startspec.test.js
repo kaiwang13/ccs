@@ -2,7 +2,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const path = require('path');
-const { parseStartArgv, recoverArgv, startMain } = require('../../src/sessiond/startspec.js');
+const { parseStartArgv, startMain } = require('../../src/sessiond/startspec.js');
 const { createRegistry } = require('../../src/common/registry.js');
 const { makeCcsEnv } = require('../helpers/ccsenv.js');
 
@@ -20,12 +20,6 @@ test('parseStartArgv accepts --start ID, --recover ID, --start ID --recover, and
   assert.equal(parseStartArgv(['--spec', '/x.json', '--recover']), null);
   assert.equal(parseStartArgv(['--start', 'NOT-AN-ID']), null);
   assert.equal(parseStartArgv([]), null);
-});
-
-test('recoverArgv is the canonical --start form, so the holder respawn (+ --recover) parses back to this session', () => {
-  const argv = recoverArgv('abcdef12', ['/usr/bin/node', '/repo/src/sessiond/main.js', '--recover', 'abcdef12']);
-  assert.deepEqual(argv, ['/usr/bin/node', '/repo/src/sessiond/main.js', '--start', 'abcdef12']);
-  assert.deepEqual(parseStartArgv([...argv.slice(2), '--recover']), { id: 'abcdef12', recover: true, batch: null });
 });
 
 test('the session spec is built through the agent selected by intent.agent', async () => {
@@ -92,10 +86,10 @@ test('M7: startMain seeds initialState.lastSessionId from intent.initialSessionI
   const rec = await reg.create({ name: 'seed-test', cwd: ctx.work, agent: 'codex', resumeRequested: true, initialSessionId: threadId, env: { PATH: process.env.PATH, HOME: ctx.home } });
 
   let captured = null;
-  const code = await startMain(['--start', rec.id], ctx.env, { runSession: async (spec, o) => { captured = o; } });
+  const code = await startMain(['--start', rec.id], ctx.env, { host: (spec) => { captured = spec; } });
   assert.equal(code, 0);
-  assert.ok(captured, 'runSession must have been called');
-  assert.deepEqual(captured.initialState, { lastSessionId: threadId });
+  assert.ok(captured, 'the session must have been started');
+  assert.equal((await reg.readState(rec.id)).lastSessionId, threadId);
 });
 
 test('M7 regression guard: rec.state already present always wins over the resumeRequested seed', async (t) => {
@@ -107,11 +101,11 @@ test('M7 regression guard: rec.state already present always wins over the resume
   const written = await reg.writeState(rec.id, { lifecycle: 'STOPPED' });
 
   let captured = null;
-  const code = await startMain(['--start', rec.id], ctx.env, { runSession: async (spec, o) => { captured = o; } });
+  const code = await startMain(['--start', rec.id], ctx.env, { host: (spec) => { captured = spec; } });
   assert.equal(code, 0);
-  assert.ok(captured, 'runSession must have been called');
-  assert.deepEqual(captured.initialState, written, 'real prior state must be passed through unchanged, not augmented with lastSessionId');
-  assert.equal(captured.initialState.lastSessionId, undefined, 'the seed must not be grafted onto real prior state');
+  assert.ok(captured, 'the session must have been started');
+  assert.equal(written.lastSessionId, undefined);
+  assert.equal((await reg.readState(rec.id)).lastSessionId, undefined, 'the seed must not be grafted onto real prior state');
 });
 
 test('M7 regression guard: resumeRequested false/absent leaves initialState null exactly as before this fix (ordinary new session)', async (t) => {
@@ -121,8 +115,8 @@ test('M7 regression guard: resumeRequested false/absent leaves initialState null
   assert.equal(rec.intent.resumeRequested, false);
 
   let captured = null;
-  const code = await startMain(['--start', rec.id], ctx.env, { runSession: async (spec, o) => { captured = o; } });
+  const code = await startMain(['--start', rec.id], ctx.env, { host: (spec) => { captured = spec; } });
   assert.equal(code, 0);
-  assert.ok(captured, 'runSession must have been called');
-  assert.equal(captured.initialState, null, 'an ordinary new codex session must not have its auto-minted placeholder id seeded as a discovered sessionId');
+  assert.ok(captured, 'the session must have been started');
+  assert.equal((await reg.readState(rec.id)).lastSessionId, undefined, 'an ordinary new codex session must not have its auto-minted placeholder id seeded as a discovered sessionId');
 });

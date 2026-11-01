@@ -12,7 +12,7 @@ test('I13: idle with an empty prompt → /exit, STOPPED, clients BYE; no signal 
   const e = await startTestSession(t);
   const a = await e.attach();
   await a.waitForText(/❯/, 5000);
-  await waitFor(() => e.s.session.controller.observed && e.s.session.controller.observed.status === 'idle', { timeoutMs: 5000, what: 'idle' });
+  await waitFor(() => e.s.controller.observed && e.s.controller.observed.status === 'idle', { timeoutMs: 5000, what: 'idle' });
   const k = await e.control();
   const res = await k.request('STOP', {}, 20000);
   assert.deepEqual(res.data, { lifecycle: 'STOPPED' });
@@ -26,7 +26,7 @@ test('I13: busy → close master (EIO + SIGHUP) → STOPPED; SIGTERM never neede
   t.after(() => fs.rmSync(path.dirname(ctl), { recursive: true, force: true }));
   fs.writeFileSync(ctl, JSON.stringify({ status: 'busy' }));
   const e = await startTestSession(t, { extraEnv: { FAKECLAUDE_CONTROL: ctl } });
-  await waitFor(() => e.s.session.controller.observed && e.s.session.controller.observed.status === 'busy', { timeoutMs: 5000, what: 'busy' });
+  await waitFor(() => e.s.controller.observed && e.s.controller.observed.status === 'busy', { timeoutMs: 5000, what: 'busy' });
   const k = await e.control();
   const res = await k.request('STOP', {}, 20000);
   assert.equal(res.data.lifecycle, 'STOPPED');
@@ -40,8 +40,8 @@ test('I13: a claude that ignores hangup and SIGTERM → STOP_STUCK; it is still 
   t.after(() => fs.rmSync(path.dirname(ctl), { recursive: true, force: true }));
   fs.writeFileSync(ctl, JSON.stringify({ status: 'busy' }));
   const e = await startTestSession(t, { fakeArgs: ['--ignore-sigterm'], extraEnv: { FAKECLAUDE_CONTROL: ctl } });
-  await waitFor(() => e.s.session.controller.observed && e.s.session.controller.observed.status === 'busy', { timeoutMs: 5000, what: 'busy' });
-  const pid = e.s.session.hello.child.pid;
+  await waitFor(() => e.s.controller.observed && e.s.controller.observed.status === 'busy', { timeoutMs: 5000, what: 'busy' });
+  const pid = e.s.session.child.pid;
   const k = await e.control();
   const res = await k.request('STOP', {}, 20000);
   assert.equal(res.data.lifecycle, 'STOP_STUCK');

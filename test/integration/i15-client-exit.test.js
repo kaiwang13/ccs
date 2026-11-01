@@ -19,7 +19,7 @@ test('I15: a client\'s own /exit detaches only that client; Claude resumes for t
     await waitFor(() => (b.allText().match(/Fake Claude/g) || []).length > headersBefore, { timeoutMs: 10000, what: 'the resumed claude reprints for B' }).catch(async () => { await b.flush(); });
     await b.waitForText(new RegExp(`(Fake Claude[\\s\\S]*){${headersBefore + 1}}`), 10000);
     await waitFor(() => e.s.session.lifecycle === 'RUNNING', { timeoutMs: 10000, what: 'RUNNING again' });
-    assert.equal(e.s.session.restarts.attributed, round);
+    assert.equal(e.s.controller.attributed, round);
     const rec = e.record();
     assert.deepEqual(rec.argv.slice(0, 2), ['--resume', sessionId]);
   }
@@ -44,5 +44,5 @@ test('I15: /exit typed interleaved by two clients is never attributed: unattribu
     assert.ok(v.notices.some((n) => n.code === 'CLAUDE_EXITED' && /ccs restart fake/.test(n.text)));
     assert.equal(v.bye, null);
   }
-  assert.equal(e.s.session.restarts.attributed, 0);
+  assert.equal(e.s.controller.attributed, 0);
 });

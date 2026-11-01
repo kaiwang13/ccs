@@ -1,8 +1,8 @@
 'use strict';
 // @ts-check
 /** The host's attach client, in ccs's words. */
-const host = require('nmux/client/attach');
-const { hhmm } = require('nmux/client/text');
+const host = require('nmux/sdk');
+const { hhmm } = host;
 const { loadConfig } = require('../common/config.js');
 
 /**

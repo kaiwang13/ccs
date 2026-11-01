@@ -3,7 +3,12 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const { spawn } = require('node:child_process');
+const { createSession } = require('nmux/sdk');
 const procinfo = require('../../src/common/procinfo');
+const { hostSpec } = require('../../src/sessiond/agentsession');
+const { validateSessionSpec } = require('../../src/sessiond/spec');
+const { loadScreens } = require('../../src/claude/screens');
+const { loadConfig } = require('../../src/common/config');
 const { waitFor } = require('./waitfor');
 const { processesUnder } = require('./processes');
 
@@ -97,9 +102,10 @@ function spawnNode(t, args, env) {
  * @param {{root: string, env: Record<string, string>, defer: (fn: () => any) => void}} tmp @param {object} spec
  */
 function spawnSessiond(tmp, spec) {
-  const file = path.join(tmp.root, 'spec-in.json');
-  fs.writeFileSync(file, JSON.stringify(spec), { mode: 0o600 });
-  return spawnNode(tmp, [path.join(ROOT, 'src', 'sessiond', 'main.js'), '--spec', file], tmp.env);
+  const valid = validateSessionSpec(spec);
+  const { process: child } = createSession(hostSpec(valid, loadConfig(valid.configFile), loadScreens(valid.claude.version)), { env: { ...process.env, ...tmp.env } });
+  const exited = new Promise((resolve) => { child.on('exit', (code, signal) => resolve({ code, signal })); });
+  return { child, exited };
 }
 
 module.exports = { makeSessionSpec, readRecord, processesUnder, terminateAll, spawnNode, spawnSessiond, ROOT, NODE, FAKE };

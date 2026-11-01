@@ -9,12 +9,12 @@ test('I6: a forced suspend (raw 0x1a straight to the holder, bypassing the filte
   const a = await e.attach();
   await a.waitForText(/❯/, 5000);
   // the 250 ms LFLAG poll must have seen Claude in raw mode first: a suspend is only confirmed after raw was seen
-  await waitFor(() => e.s.session.controller.suspendNet && e.s.session.controller.suspendNet.rawSeen && e.s.session.lifecycle === 'RUNNING', { timeoutMs: 5000, what: 'RUNNING in raw mode' });
+  await waitFor(() => e.s.controller.suspendNet && e.s.controller.suspendNet.rawSeen && e.s.session.lifecycle === 'RUNNING', { timeoutMs: 5000, what: 'RUNNING in raw mode' });
   /** @type {string[]} */
   const lifecycles = [];
-  e.s.session.on('lifecycle', (lc) => lifecycles.push(lc));
-  const sawSuspendedGate = waitFor(() => e.s.session.gates().includes('SUSPENDED'), { timeoutMs: 5000, what: 'SUSPENDED gate' });
-  /** @type {any} */ (e.s.session.holder).write(Buffer.from([0x1a]));
+  e.s.session.client.on('event', (ev) => { if (ev.event === 'lifecycle') lifecycles.push(ev.lifecycle); });
+  const sawSuspendedGate = waitFor(async () => (await e.gates()).includes('SUSPENDED'), { timeoutMs: 5000, what: 'SUSPENDED gate' });
+  e.s.session.write('\x1a');
   await sawSuspendedGate;
   await waitFor(() => lifecycles.includes('RUNNING'), { timeoutMs: 5000, what: 'resumed' });
   assert.deepEqual(lifecycles, ['SUSPENDED', 'RUNNING']);
@@ -30,15 +30,15 @@ test('I6: a child owning the terminal in cooked mode (foreground pgrp ≠ claude
   const e = await startTestSession(t);
   const a = await e.attach();
   await a.waitForText(/❯/, 5000);
-  await waitFor(() => e.s.session.controller.suspendNet && e.s.session.controller.suspendNet.rawSeen && e.s.session.lifecycle === 'RUNNING', { timeoutMs: 5000, what: 'RUNNING in raw mode' });
+  await waitFor(() => e.s.controller.suspendNet && e.s.controller.suspendNet.rawSeen && e.s.session.lifecycle === 'RUNNING', { timeoutMs: 5000, what: 'RUNNING in raw mode' });
   /** @type {string[]} */
   const lifecycles = [];
-  e.s.session.on('lifecycle', (lc) => lifecycles.push(lc));
+  e.s.session.client.on('event', (ev) => { if (ev.event === 'lifecycle') lifecycles.push(ev.lifecycle); });
   a.send('/child-cooked 3000\r');
-  await waitFor(() => { const l = e.s.session.controller.suspendNet && e.s.session.controller.suspendNet.lflag; return l && l.icanon && !l.fgIsChild; }, { timeoutMs: 5000, what: 'child holds the terminal in cooked mode' });
+  await waitFor(() => { const l = e.s.controller.suspendNet && e.s.controller.suspendNet.lflag; return l && l.icanon && !l.fgIsChild; }, { timeoutMs: 5000, what: 'child holds the terminal in cooked mode' });
   await sleep(3500);
   assert.deepEqual(lifecycles, []);
   assert.equal(e.record().signals.filter((/** @type {any} */ s) => s.sig === 'SIGCONT').length, 0);
   assert.equal(a.notices.some((n) => n.code === 'COOKED_UNCONFIRMED' || n.code === 'SUSPEND_STUCK'), false);
-  await waitFor(() => { const l = e.s.session.controller.suspendNet && e.s.session.controller.suspendNet.lflag; return l && !l.icanon && l.fgIsChild; }, { timeoutMs: 5000, what: 'claude back in raw mode' });
+  await waitFor(() => { const l = e.s.controller.suspendNet && e.s.controller.suspendNet.lflag; return l && !l.icanon && l.fgIsChild; }, { timeoutMs: 5000, what: 'claude back in raw mode' });
 });

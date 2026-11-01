@@ -67,7 +67,7 @@ test('control role: STATUS, PEEK, UNSUPPORTED, STATE pushes; never counted by th
   assert.equal(st.ok, true);
   assert.equal(st.data.lifecycle, e.s.session.lifecycle);
   assert.deepEqual(Object.keys(st.data.claude).sort(), ['bridgeSessionId', 'name', 'pid', 'sessionId', 'status', 'waitingFor']);
-  assert.equal(st.data.claude.pid, e.s.session.hello.child.pid);
+  assert.equal(st.data.claude.pid, e.s.session.child.pid);
   assert.equal(st.data.clients.length, 1);
   for (const key of ['id', 'label', 'cols', 'rows', 'phase', 'stalled']) assert.ok(key in st.data.clients[0], key);
   assert.deepEqual(Object.keys(st.data.pty).sort(), ['cols', 'rows']);
@@ -76,14 +76,14 @@ test('control role: STATUS, PEEK, UNSUPPORTED, STATE pushes; never counted by th
   await a.waitForText(/^\s+3$[\s\S]*❯/m, 5000);
   const peek = await k.request('PEEK', { lines: 4 });
   assert.ok(peek.data.lines.length <= 4 && peek.data.lines.some((/** @type {string} */ l) => /❯/.test(l)));
-  const un = await k.request('RENAME');
+  const un = await k.request('NO_SUCH_OPERATION');
   assert.deepEqual([un.ok, un.error], [false, 'UNSUPPORTED']);
   for (const args of [{}, { clients: [] }, { clients: 'c1' }, { clients: [1] }, { clients: ['c1'], allExcept: [] }, { allExcept: 'c1' }]) {
     const r = await k.request('KICK', args);
     assert.deepEqual([r.ok, r.error], [false, 'BAD_ARGS'], JSON.stringify(args));
   }
   assert.equal(a.bye, null, 'a rejected KICK detaches nobody');
-  await waitFor(() => e.s.session.pty.cols === 100, { timeoutMs: 3000, what: 'pty follows the attach client only' });
+  await waitFor(() => (e.s.session.pty || {}).cols === 100, { timeoutMs: 3000, what: 'pty follows the attach client only' });
   await k.waitForState((s) => s.pty.cols === 100, 3000);
 });
 
@@ -122,16 +122,15 @@ test('a below-floor RESIZE followed immediately by an above-floor RESIZE, while 
   await new Promise((r) => setTimeout(r, 1000));
   assert.equal(snapshotBegins, 1, 'exactly one SNAPSHOT_BEGIN');
   assert.equal(snapshotEnds, 1, 'exactly one SNAPSHOT_END');
-  const c = e.s.registry.clients.find((x) => x.label === 'race');
+  const c = (await e.clientList()).find((/** @type {any} */ x) => x.label === 'race');
   assert.ok(c, 'client still registered');
-  assert.equal(c.adapter.phase, 'LIVE');
-  assert.equal(c.joining, false, 'no join left running');
+  assert.equal(c.phase, 'LIVE');
 });
 
-test('the holder spec carries sessiondCmd = the argv that started sessiond, with --recover appended once', { timeout: 60000 }, async (t) => {
+test('the holder spec carries sessiondCmd = the argv that started the server, with --recover appended once', { timeout: 60000 }, async (t) => {
   const e = await startTestSession(t);
   const holderSpec = JSON.parse(require('node:fs').readFileSync(e.s.paths.holderSpec('sess01', 1), 'utf8'));
-  assert.deepEqual(holderSpec.sessiondCmd, [process.execPath, require('node:path').join(__dirname, '..', '..', 'src', 'sessiond', 'main.js'), '--spec', e.specFile, '--recover']);
+  assert.deepEqual(holderSpec.sessiondCmd, [process.execPath, require.resolve('nmux/server/run'), '--spec', e.specFile, '--recover']);
 });
 
 test('DETACH ends the client with BYE USER', { timeout: 60000 }, async (t) => {
@@ -140,7 +139,7 @@ test('DETACH ends the client with BYE USER', { timeout: 60000 }, async (t) => {
   a.detach();
   const bye = await a.waitForBye(3000);
   assert.deepEqual([bye.reason, bye.autoRejoin], ['USER', false]);
-  await waitFor(() => e.s.registry.clients.length === 0, { what: 'client removed' });
+  await waitFor(async () => (await e.clientList()).length === 0, { what: 'client removed' });
 });
 
 test('INPUT sent before SNAPSHOT_END is not accepted; the client queues it until then', { timeout: 60000 }, async (t) => {

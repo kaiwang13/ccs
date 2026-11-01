@@ -5,7 +5,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const { EventEmitter } = require('node:events');
-const { createAgentSession } = require('../../src/sessiond/agentsession');
+const { createAgentSession } = require('../helpers/loopback');
 const { loadScreens } = require('../../src/claude/screens');
 const { DEFAULTS } = require('../../src/common/config');
 const { createFakeClock } = require('nmux/base/clock');
@@ -87,7 +87,7 @@ test('start: gen-1 holder, attach from 0, STARTING → RUNNING when the session 
   s.sessionJson();
   await s.tickAndSettle(1000);
   assert.equal(s.sup.lifecycle, 'RUNNING');
-  assert.equal(s.sup.controller.lastSessionId, 'sid-1');
+  assert.equal(s.sup.agent.lastSessionId, 'sid-1');
   assert.equal(JSON.parse(fs.readFileSync(path.join(s.dir, 'state.json'), 'utf8')).lifecycle, 'RUNNING');
   s.sup.dispose();
 });
@@ -133,7 +133,7 @@ test('I1: recover with unreplayed ring bytes seeds lastSessionId/launchedAtMs, s
   s.holders.push(fh);
   await s.sup.start();
   assert.equal(s.sup.lifecycle, 'RECOVERING', 'unreplayed ring bytes must keep it RECOVERING through _adopt() and _armStartTimers()');
-  assert.equal(s.sup.controller.lastSessionId, 'seed-thread-id', 'seeded from initialState, not reset to null by the constructor');
+  assert.equal(s.sup.agent.lastSessionId, 'seed-thread-id', 'seeded from initialState, not reset to null by the constructor');
   assert.equal(s.sup.launchedAtMs, 555555, 'seeded from initialState so discoverSessionId\'s cwd+time correlation is never handed undefined');
   fh.data('x'.repeat(80));                                  // replay: pipeline emits a chunk whose endOffset (80) >= replayUntil (40)
   await s.settle();
@@ -150,8 +150,8 @@ test('Codex discovery uses Unix launch time and finds a delayed first prompt wit
   const launchedAt = 1791965347897;
   const s = setup(t, { agent: 'codex', wallNow: () => launchedAt });
   t.after(() => s.sup.dispose());
-  s.sup.controller.paths.codexStateDb = path.join(s.dir, 'state_5.sqlite');
-  const db = new DatabaseSync(s.sup.controller.paths.codexStateDb);
+  s.sup.agent.paths.codexStateDb = path.join(s.dir, 'state_5.sqlite');
+  const db = new DatabaseSync(s.sup.agent.paths.codexStateDb);
   t.after(() => db.close());
   db.exec(`CREATE TABLE threads (${REQUIRED_COLUMNS.map((c) => `${c} TEXT`).join(', ')}, source TEXT, thread_source TEXT)`);
   const insert = db.prepare('INSERT INTO threads (id, cwd, created_at_ms, archived, source, thread_source) VALUES (?, ?, ?, 0, ?, ?)');
@@ -159,16 +159,16 @@ test('Codex discovery uses Unix launch time and finds a delayed first prompt wit
   await s.sup.start();
   await s.tickAndSettle(2000);
   assert.equal(s.sup.launchedAtMs, launchedAt, 'a process-relative clock would select the older thread');
-  assert.equal(s.sup.controller.lastSessionId, null);
+  assert.equal(s.sup.agent.lastSessionId, null);
   const idleMs = 2 * 60 * 60 * 1000;
   await s.tickAndSettle(idleMs, 30000);
-  assert.equal(s.sup.controller.lastSessionId, null);
+  assert.equal(s.sup.agent.lastSessionId, null);
   insert.run('actual', s.dir, launchedAt + idleMs, 'vscode', 'user');
   insert.run('reviewer', s.dir, launchedAt + idleMs + 100, '{"subagent":{"other":"guardian"}}', 'guardian_review');
   await s.tickAndSettle(30000, 1000);
-  assert.equal(s.sup.controller.lastSessionId, 'actual');
+  assert.equal(s.sup.agent.lastSessionId, 'actual');
   assert.equal(JSON.parse(fs.readFileSync(s.sup.spec.stateFile, 'utf8')).lastSessionId, 'actual');
-  assert.equal(s.sup.controller.t.discovery, null, 'stop polling after the correct thread is known');
+  assert.equal(s.sup.agent.t.discovery, null, 'stop polling after the correct thread is known');
 });
 
 test('Codex discovery keeps polling after a long login wait and stops on disposal', async (t) => {
@@ -176,9 +176,9 @@ test('Codex discovery keeps polling after a long login wait and stops on disposa
   t.after(() => s.sup.dispose());
   await s.sup.start();
   await s.tickAndSettle(2 * 60 * 60 * 1000, 30000);
-  assert.ok(s.sup.controller.t.discovery, 'a live agent waiting for its first prompt still needs discovery');
+  assert.ok(s.sup.agent.t.discovery, 'a live agent waiting for its first prompt still needs discovery');
   s.sup.dispose();
-  assert.equal(s.sup.controller.t.discovery, null);
+  assert.equal(s.sup.agent.t.discovery, null);
 });
 
 test('Codex login chooser gates input and returns to RUNNING after login', async (t) => {
@@ -190,7 +190,7 @@ test('Codex login chooser gates input and returns to RUNNING after login', async
   await s.tickAndSettle(1000);
   assert.equal(s.sup.lifecycle, 'RUNNING', 'one redraw is not enough to gate');
   await s.tickAndSettle(1000);
-  assert.equal(s.sup.controller.setupKind, 'login');
+  assert.equal(s.sup.agent.setupKind, 'login');
   assert.ok(s.sup.gates().includes('SETUP'), 'Feishu INPUT must not type prompts into the login chooser');
   assert.equal(s.holders[0].calls.filter((c) => c[0] === 'write').length, 0, 'never select a login method automatically');
   s.holders[0].data(RESET(30) + 'Finish signing in via your browser\r\n'
@@ -210,7 +210,7 @@ test('Codex folder trust requires terminal confirmation and never receives autom
   s.holders[0].data(RESET(30) + 'Folder access\r\n/work\r\nTrust this folder?\r\n'
     + '1. Trust and continue\r\n2. Back to Agent Command Center\r\nenter continue · esc back');
   await s.tickAndSettle(2000);
-  assert.equal(s.sup.controller.setupKind, 'trust');
+  assert.equal(s.sup.agent.setupKind, 'trust');
   assert.ok(s.sup.gates().includes('SETUP'));
   assert.equal(s.holders[0].calls.filter((c) => c[0] === 'write').length, 0);
   s.holders[0].data(RESET(30) + 'Ask Codex to do anything');
@@ -227,7 +227,7 @@ test('R11(b): a setup screen gates only after 2 consecutive 1 s scans; it ungate
   await s.tickAndSettle(1000);
   assert.equal(s.sup.lifecycle, 'STARTING');
   await s.tickAndSettle(1000);
-  assert.deepEqual([s.sup.lifecycle, s.sup.controller.setupKind], ['SETUP_GATED', 'trust']);
+  assert.deepEqual([s.sup.lifecycle, s.sup.agent.setupKind], ['SETUP_GATED', 'trust']);
   assert.ok(s.sup.gates().includes('SETUP'));
   s.holders[0].data(RESET(30) + '❯ \r\n');
   s.sessionJson();
@@ -285,7 +285,7 @@ test('R11(c): "Browser didn\'t open" alone is not a login screen; "Select login 
   assert.notEqual(s.sup.lifecycle, 'SETUP_GATED');
   s.holders[0].data(RESET(30) + 'Select login method:\r\n');
   await s.tickAndSettle(3000);
-  assert.deepEqual([s.sup.lifecycle, s.sup.controller.setupKind], ['SETUP_GATED', 'login']);
+  assert.deepEqual([s.sup.lifecycle, s.sup.agent.setupKind], ['SETUP_GATED', 'login']);
   s.sup.dispose();
 });
 
@@ -300,7 +300,7 @@ test('R11(d): in RUNNING a login screen does not gate while claudewatch says bus
   assert.equal(s.sup.lifecycle, 'RUNNING');
   s.sessionJson({ status: 'idle' });
   await s.tickAndSettle(3000);
-  assert.deepEqual([s.sup.lifecycle, s.sup.controller.setupKind], ['SETUP_GATED', 'login']);
+  assert.deepEqual([s.sup.lifecycle, s.sup.agent.setupKind], ['SETUP_GATED', 'login']);
   s.sup.dispose();
 });
 
@@ -312,7 +312,7 @@ test('attributed /exit: clientExit to the typist, release, 500 ms settle, gen-2 
   for (const ch of '/exit\r') {
     const bytes = Buffer.from(ch);
     s.sup.write(bytes);
-    s.sup.controller.exitIntent.onForwarded('c7', { kind: 'seq', bytes, seq: ch }, 'OTHER', s.sup.writes.total);
+    s.sup.controller.lastLine.onForwarded('c7', { kind: 'seq', bytes, seq: ch }, s.sup.writes.total);
   }
   s.holders[0].emit('exit', { t: 'EXIT', code: 0, signal: null, shuttingDown: false, detectedBy: 'pty' });
   assert.deepEqual(s.events.filter((e) => e[0] === 'clientExit'), [['clientExit', 'c7']]);
@@ -325,7 +325,7 @@ test('attributed /exit: clientExit to the typist, release, 500 ms settle, gen-2 
   assert.equal(s.started.length, 2);
   assert.deepEqual(s.started[1], { gen: 2, argv: ['/fake', '--resume', 'sid-1', '-n', 'demo'], cols: 100, rows: 30 });
   assert.equal(s.sup.lifecycle, 'STARTING');
-  assert.equal(s.sup.restarts.attributed, 1);
+  assert.equal(s.sup.agent.attributed, 1);
   s.sup.dispose();
 });
 
@@ -335,7 +335,7 @@ test('a restart forgets that the old child was waiting: a client joining next is
   s.sessionJson({ status: 'waiting', waitingFor: 'permission prompt' });
   await s.tickAndSettle(1000);
   assert.equal(s.sup.attention, true);
-  s.sup.controller.exitIntent.pendingTag = { clientId: 'c1', atTotal: 0 };
+  s.sup.controller.lastLine.submitted = { clientId: 'c1', text: '/exit', atTotal: 0 };
   s.holders[0].emit('exit', { code: 0, signal: null });
   await s.tickAndSettle(1000);
   assert.equal(s.holders.length, 2, 'the child was restarted');
@@ -377,7 +377,7 @@ test('stop, idle with an empty prompt: one /exit\\r write, then STOPPED on exit'
   s.holders[0].emit('exit', { t: 'EXIT', code: 0, signal: null, shuttingDown: false, detectedBy: 'pty' });
   await p;
   assert.equal(s.sup.lifecycle, 'STOPPED');
-  assert.equal(s.sup.controller.exitIntent.take({ code: 0, signal: null }, s.sup.writes.total), null, 'the stop write never attributes');
+  assert.equal(s.sup.agent.attributed, 0, 'the stop write never attributes');
   s.sup.dispose();
 });
 

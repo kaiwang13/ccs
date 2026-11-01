@@ -31,22 +31,22 @@ test('I4: a SIGSTOPped client is excluded (≤ stallMs + ping) and dropped (≤ 
   await a.waitForText(/❯/, 5000);
   const c = childClient(e.tmp, e.sockPath, ['100', '30', 'C']);
   await waitFor(() => c.msgs.some((m) => m.type === 'live'), { timeoutMs: 5000, what: 'child client live' });
-  await waitFor(() => e.s.session.pty.cols === 100, { timeoutMs: 3000, what: 'the child sets the width' });
+  await waitFor(() => (e.s.session.pty || {}).cols === 100, { timeoutMs: 3000, what: 'the child sets the width' });
   const rss0 = process.memoryUsage().rss;
   const stoppedAt = Date.now();
   process.kill(/** @type {number} */ (c.child.pid), 'SIGSTOP');
   a.send('!lines 1500 200\r');                                            // ~300 KiB the stopped client cannot read
   await a.waitForText(/line-001500/, 10000);
-  await waitFor(() => e.s.registry.clients.some((x) => x.label === 'C' && x.adapter.stalled), { timeoutMs: 6000, what: 'C stalled' });
+  await waitFor(async () => (await e.clientList()).some((/** @type {any} */ x) => x.label === 'C' && x.stalled), { timeoutMs: 6000, what: 'C stalled' });
   const stalledAfter = Date.now() - stoppedAt;
   assert.ok(stalledAfter <= 3000 + 1000 + 1500, `stalled after ${stalledAfter} ms`);
-  await waitFor(() => e.s.session.pty.cols === 120, { timeoutMs: 3000, what: 'C no longer limits the width' });
+  await waitFor(() => (e.s.session.pty || {}).cols === 120, { timeoutMs: 3000, what: 'C no longer limits the width' });
   assert.ok(a.notices.some((n) => n.code === 'CLIENT_STALLED'));
   const t1 = Date.now();
   a.send('still here\r');
   await a.waitForText(/echo: still here/, 2000);
   assert.ok(Date.now() - t1 < 2000, 'the other client is unaffected');
-  await waitFor(() => !e.s.registry.clients.some((x) => x.label === 'C'), { timeoutMs: 9000, what: 'C dropped' });
+  await waitFor(async () => !(await e.clientList()).some((/** @type {any} */ x) => x.label === 'C'), { timeoutMs: 9000, what: 'C dropped' });
   const droppedAfter = Date.now() - stoppedAt;
   assert.ok(droppedAfter <= 6000 + 1000 + 1500, `dropped after ${droppedAfter} ms`);
   assert.deepEqual(byeReasons(path.join(e.tmp.root, 'log', 'sess01', 'sessiond.log')), ['STALLED']);

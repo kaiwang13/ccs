@@ -8,7 +8,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const { writeAtomic } = require('nmux/base/atomic');
-const { DEFAULTS: HOST } = require('nmux/server/config');
+const { HOST_DEFAULTS: HOST } = require('nmux/sdk');
 const { isProxySetting, isProxyUrl, isNoProxyList } = require('./proxy.js');
 
 /**

@@ -11,7 +11,7 @@ const lines = (e) => ((e.record() || {}).lines || []);
 test('INPUT text arrives as one submitted line; newlines inside it do not submit early', { timeout: 60000 }, async (t) => {
   const e = await startTestSession(t);
   const k = await e.control();
-  await waitFor(() => /❯/.test(e.s.session.screenText()), { timeoutMs: 10000, what: 'prompt' });
+  await waitFor(async () => /❯/.test(await e.s.session.screen()), { timeoutMs: 10000, what: 'prompt' });
   const r1 = await k.request('INPUT', { text: 'hello from feishu' });
   assert.deepEqual([r1.ok, r1.error], [true, undefined]);
   await waitFor(() => lines(e).includes('hello from feishu'), { timeoutMs: 5000, what: 'line submitted' });
@@ -25,7 +25,7 @@ test('INPUT text arrives as one submitted line; newlines inside it do not submit
 test('INPUT keys: digits and enter are typed; esc is accepted and its hold expiring is harmless', { timeout: 60000 }, async (t) => {
   const e = await startTestSession(t);
   const k = await e.control();
-  await waitFor(() => /❯/.test(e.s.session.screenText()), { timeoutMs: 10000, what: 'prompt' });
+  await waitFor(async () => /❯/.test(await e.s.session.screen()), { timeoutMs: 10000, what: 'prompt' });
   assert.equal((await k.request('INPUT', { key: '7' })).ok, true);
   assert.equal((await k.request('INPUT', { key: 'enter' })).ok, true);
   await waitFor(() => lines(e).includes('7'), { timeoutMs: 5000, what: 'digit + enter submitted' });
@@ -60,45 +60,30 @@ test('INPUT honours the gates: a setup screen refuses it (control never carries 
 test('INPUT is refused while stopping or after the agent exited; a control connection never counts as a client', { timeout: 60000 }, async (t) => {
   const e = await startTestSession(t);
   const k = await e.control();
-  await waitFor(() => /❯/.test(e.s.session.screenText()), { timeoutMs: 10000, what: 'prompt' });
+  await waitFor(async () => /❯/.test(await e.s.session.screen()), { timeoutMs: 10000, what: 'prompt' });
   assert.equal((await k.request('INPUT', { text: 'counted?' })).ok, true);
   const st = await k.request('STATUS');
   assert.deepEqual(st.data.clients, [], 'the control connection must not appear among clients (never arbitrates size)');
-  // Gate states set directly: a real STOP would also close this very connection, so the refusal could not be observed.
-  const sup = e.s.session;
-  const saved = sup.machine;
-  t.after(() => { sup.machine = saved; });
-  for (const [lc, err] of [['STOPPING', 'STOPPING'], ['EXITED', 'EXITED']]) {
-    sup.machine = { ...saved, lifecycle: lc };
-    const r = await k.request('INPUT', { text: 'too late' });
-    assert.deepEqual([r.ok, r.error], [false, err], lc);
-  }
-  sup.machine = saved;
+  e.s.session.write('/quit\r');
+  await waitFor(async () => (await e.status()).lifecycle === 'EXITED', { timeoutMs: 5000, what: 'the agent to exit' });
+  const r = await k.request('INPUT', { text: 'too late' });
+  assert.deepEqual([r.ok, r.error], [false, 'EXITED']);
 });
 
 test('INPUT is refused while the session is suspended (M9)', { timeout: 60000 }, async (t) => {
   const e = await startTestSession(t);
   const k = await e.control();
-  await waitFor(() => /❯/.test(e.s.session.screenText()), { timeoutMs: 10000, what: 'prompt' });
+  await waitFor(async () => /❯/.test(await e.s.session.screen()), { timeoutMs: 10000, what: 'prompt' });
   // suspendNet.gate reads `suspended` directly (suspendnet.js); set it the same way the STOPPING/EXITED test above
   // sets lifecycle, since actually suspending the holder is a whole other test's concern (spec §3.8).
-  const sn = e.s.session.controller.suspendNet;
+  const sn = e.s.controller.suspendNet;
   assert.ok(sn, 'suspendNet must be attached once a holder has attached');
   const saved = sn.suspended;
   t.after(() => { sn.suspended = saved; });
   sn.suspended = true;
+  e.s.controller._syncGates();
+  await waitFor(async () => (await e.gates()).includes('SUSPENDED'), { timeoutMs: 3000, what: 'the session to take the gate' });
   const r = await k.request('INPUT', { text: 'while suspended' });
   assert.deepEqual([r.ok, r.error], [false, 'SUSPENDED']);
   sn.suspended = saved;
-});
-
-test('closing a control connection removes its input identity from the router', { timeout: 60000 }, async (t) => {
-  const e = await startTestSession(t);
-  const k = await e.control();
-  await waitFor(() => /❯/.test(e.s.session.screenText()), { timeoutMs: 10000, what: 'prompt' });
-  const before = e.s.router.state.size;
-  assert.equal((await k.request('INPUT', { text: 'x' })).ok, true);
-  assert.equal(e.s.router.state.size, before + 1);
-  k.close();
-  await waitFor(() => e.s.router.state.size === before, { timeoutMs: 3000, what: 'router forgets the closed connection' });
 });

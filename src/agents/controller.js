@@ -2,12 +2,9 @@
 // @ts-check
 /**
  * What ccs adds to a hosted session because it knows the program inside is an agent: when it has really started,
- * whether a setup screen needs a person, what its key presses and /exit mean, and how to resume it. Everything here is
- * done through the session's public calls, so none of it needs to live inside the host.
+ * whether a setup screen needs a person, what its key presses and /exit mean, and how to resume it. It runs in ccsd and
+ * reaches the session through `HostedSession`, so if ccsd is away the session keeps running and only this stops.
  */
-const { Controller } = require('nmux/server/session/controller');
-const { ExitGuard } = require('./exitguard.js');
-const { ExitIntent } = require('./exitintent.js');
 const { SuspendNet } = require('./suspendnet.js');
 const { shouldDiscover, nextDiscoveryDelayMs } = require('./discovery.js');
 const { getAgent } = require('./index.js');
@@ -18,6 +15,8 @@ const { resumeArgvFor } = require('../sessiond/spec.js');
 const DEFAULT_TIMERS = Object.freeze({ startingSlowMs: 10000, setupScanMs: 1000, setupConfirmScans: 2, claudeWatchMs: 1000 });
 /** R11(c): shown by the MCP OAuth flow too, so never enough on its own to call a screen a login screen */
 const WEAK_LOGIN_STRINGS = ["Browser didn't open"];
+/** A clean exit right after one client typed this was that client leaving, not the agent ending. */
+const EXIT_LINE = /^\/(exit|quit)\s*$/i;
 
 /** @param {string[]} argv @returns {string|null} */
 function sessionIdFromArgv(argv) {
@@ -30,35 +29,15 @@ function needsAttention(o) {
   return o.status === 'waiting' && (o.waitingFor === 'permission prompt' || o.waitingFor === 'input needed');
 }
 
-/**
- * How an agent session's gates and keys work. SETUP lets a client through only when it asked to answer a trust prompt;
- * COOKED keeps signal bytes from reaching a terminal that would act on them.
- * @param {{exitGuard: {offer: (cls: 'C'|'D', client: any) => void}, exitIntent: ExitIntent, allowSetup: (client: any) => boolean}} o
- * @returns {import('nmux/server/input/input').InputPolicy}
- */
-function agentInputPolicy({ exitGuard, exitIntent, allowSetup }) {
-  return {
-    detachKeys: ['Z', 'Q'],
-    forwardFocus: () => false,
-    gateEffect(gate, client) {
-      if (gate === 'COOKED') return 'filter';
-      if (gate === 'SETUP' && allowSetup(client)) return 'open';
-      return 'drop';
-    },
-    offerSignalKey: (cls, client) => exitGuard.offer(cls, client),
-    onPaste: () => exitIntent.onPaste(),
-    onForwarded: (id, tok, cls, total) => exitIntent.onForwarded(id, tok, cls, total),
-  };
-}
-
-class AgentController extends Controller {
+class AgentController {
   /**
    * @param {{spec: import('../sessiond/spec').SessionSpec, config: any, clock: import('nmux/base/types').Clock, log: any, paths: any,
    *   screens: {onboarding: string[], login: string[], trust: string[], suspendBanner: string, ack: string[][]},
    *   timers?: Partial<typeof DEFAULT_TIMERS>, initialState?: any}} o
    */
   constructor({ spec, config, clock, log, paths, screens, timers = {}, initialState = null }) {
-    super();
+    /** @type {any} a HostedSession: set by bind(), before any hook runs */
+    this.session = null;
     this.spec = spec;
     this.config = config;
     this.clock = clock;
@@ -79,9 +58,15 @@ class AgentController extends Controller {
      * @type {Set<string>}
      */
     this.ackedNotices = new Set();
-    this.exitIntent = new ExitIntent();
-    /** @type {ExitGuard|null} */
-    this.exitGuard = null;
+    /** a stop is under way, so this agent's exit is not news */
+    this.stopping = false;
+    /** exits that were one client leaving */
+    this.attributed = (initialState && initialState.restarts && initialState.restarts.attributed) || 0;
+    /** @type {Record<string, string>} the gates the session has been told about, as text */
+    this.gatesSet = {};
+    /** the last record the session sent, which what ccs writes down is built on */
+    /** @type {any} */
+    this.record = null;
     /** @type {SuspendNet|null} */
     this.suspendNet = null;
     /** @type {ClaudeWatch|null} */
@@ -94,34 +79,35 @@ class AgentController extends Controller {
     this.lastSessionId = (initialState && initialState.lastSessionId) || null;
     /** @type {string|null} */
     this.lastBridgeSessionId = null;
-    /** @type {{scan: any, slow: any, block: any, discovery: any}} */
-    this.t = { scan: null, slow: null, block: null, discovery: null };
+    this.census = { unknownStatus: 0 };
+    /** @type {string|null} why the last exit happened, when ccs knows better than the session */
+    this.exitCause = null;
+    /** @type {{scan: any, slow: any, block: any, discovery: any, respawn: any}} */
+    this.t = { scan: null, slow: null, block: null, discovery: null, respawn: null };
   }
 
-  /** @param {import('nmux/server/session/session').Session} session */
-  bind(session) {
-    super.bind(session);
-    this.exitGuard = new ExitGuard({ clock: this.clock, marginMs: this.config.input.exitGuardMarginMs, name: this.spec.name,
-      write: (bytes, opts) => session.write(bytes, opts),
-      notice: (client, code, text) => session.notifyClient(client, 'warn', code, text) });
-  }
+  /** @param {any} session */
+  bind(session) { this.session = session; }
 
   // ---------------------------------------------------------------------------------------------------- the holder
   onHolder() {
     const s = this.session;
     if (this.suspendNet) this.suspendNet.dispose();
-    this.suspendNet = new SuspendNet({ clock: this.clock, tracker: s.tracker, name: s.name,
+    this.suspendNet = new SuspendNet({ clock: this.clock, tracker: s, name: s.name,
       bannerRe: new RegExp(this.screens.suspendBanner.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')),
       signal: (sig) => s.signal(sig),
       notice: (code, text, level = 'warn') => s.notify(level, code, text) });
     this.suspendNet.on('lifecycle', (lc) => {
       if (lc === 'SUSPENDED') s.setPhase('SUSPENDED', { from: ['RUNNING', 'STARTING', 'STARTING_SLOW'] });
       if (lc === 'RUNNING') s.setPhase('RUNNING', { from: ['SUSPENDED'] });
+      this._syncGates();
     });
-    /** @type {ExitGuard} */ (this.exitGuard).reset();
+    this._publish();
+    this._syncGates();
   }
 
   onAttached() {
+    if (this.session.exited) return;
     this._startWatch();
     this._startDiscovery();
     this._armStartTimers();
@@ -133,37 +119,47 @@ class AgentController extends Controller {
     if (this.setupKind === null && !this.agent.capabilities.liveStatus) this.session.setPhase('RUNNING');
   }
 
-  /** @param {number} id */
-  onConsumed(id) { /** @type {ExitGuard} */ (this.exitGuard).onConsumed(id); }
-
   /** @param {any} l */
-  onLflag(l) { if (this.suspendNet) this.suspendNet.onLflag(l); }
+  onLflag(l) {
+    if (this.suspendNet) this.suspendNet.onLflag(l);
+    this._syncGates();
+  }
 
-  /** @param {import('nmux/server/output/pipeline').AnnotatedChunk} chunk */
-  onChunk(chunk) {
-    /** @type {ExitGuard} */ (this.exitGuard).onData();
-    if (this.suspendNet && chunk.text) this.suspendNet.onText(chunk.text);
+  /** The suspend banner went past in the output. */
+  onMatch() {
+    if (this.suspendNet) this.suspendNet.onText(this.screens.suspendBanner);
+    this._syncGates();
   }
 
   // ---------------------------------------------------------------------------------------------------- input
-  gates() {
-    /** @type {string[]} */
-    const g = [];
-    if (this.session.lifecycle === 'SETUP_GATED') g.push('SETUP');
-    if (this.suspendNet) {
-      const s = this.suspendNet.gate;
-      if (s === 'SUSPENDED') g.push('SUSPENDED');
-      if (s === 'COOKED') g.push('COOKED');
+  /** What input may do just now. The session enforces this on every keystroke; ccs only says when it changes. */
+  _syncGates() {
+    const s = this.session;
+    const suspended = this.suspendNet ? this.suspendNet.gate : 'OPEN';
+    /** @type {Record<string, object|null>} */
+    const want = {
+      SETUP: s.lifecycle === 'SETUP_GATED' ? { effect: 'drop', passable: this.setupKind === 'trust', blocking: true, rank: 1 } : null,
+      SUSPENDED: suspended === 'SUSPENDED' ? { effect: 'drop', blocking: true, rank: 2 } : null,
+      COOKED: suspended === 'COOKED' ? { effect: 'filter', rank: 3 } : null,
+    };
+    for (const [name, gate] of Object.entries(want)) {
+      const text = JSON.stringify(gate);
+      if (this.gatesSet[name] === text || (gate === null && this.gatesSet[name] === undefined)) continue;
+      this.gatesSet[name] = text;
+      s.gate(name, gate || { effect: null });
     }
-    return g;
   }
 
-  blockingGates() { return ['SUSPENDED', 'SETUP']; }
-
-  inputPolicy() {
-    return agentInputPolicy({ exitGuard: /** @type {ExitGuard} */ (this.exitGuard), exitIntent: this.exitIntent,
-      allowSetup: (c) => this.setupKind === 'trust' && !!(c.flags && c.flags.allowSetup) });
+  /** What ccs and the Feishu add-on read in STATUS and STATE. */
+  attrs() {
+    const o = this.observed;
+    const s = this.session;
+    return { setupKind: this.setupKind, claude: { pid: s.child ? s.child.pid : null, status: o ? o.status : null, waitingFor: o ? o.waitingFor : null,
+      name: s.name, sessionId: this.lastSessionId, bridgeSessionId: this.lastBridgeSessionId } };
   }
+
+  /** @param {{attention?: boolean}} [o] */
+  _publish(o = {}) { this.session.publish({ attrs: this.attrs(), ...o }); }
 
   // ---------------------------------------------------------------------------------------------------- watching the agent
   _startWatch() {
@@ -172,8 +168,8 @@ class AgentController extends Controller {
     if (!this.agent.capabilities.liveStatus) return;
     const s = this.session;
     if (this.watch) this.watch.stop();
-    const child = s.hello.child;
-    this.watch = new ClaudeWatch({ claudeHome: this.paths.claudeHome, clock: this.clock, census: s.tracker.census, intervalMs: this.timers.claudeWatchMs,
+    const { child } = s;
+    this.watch = new ClaudeWatch({ claudeHome: this.paths.claudeHome, clock: this.clock, census: this.census, intervalMs: this.timers.claudeWatchMs,
       pidProvider: () => (s.exited ? null : { pid: child.pid, procStart: child.procStart }) });
     this.watch.on('observed', (o) => this._onObserved(o));
     this.watch.start();
@@ -189,7 +185,7 @@ class AgentController extends Controller {
     if (this.setupKind === null && (['STARTING', 'STARTING_SLOW'].includes(s.lifecycle) || (s.lifecycle === 'BLOCKED' && s.blockedCode === 'NO_SESSION_JSON'))) {
       s.setPhase('RUNNING');
     }
-    s.publish({ attention: needsAttention(o) });
+    this._publish({ attention: needsAttention(o) });
     s.saveState(false);
   }
 
@@ -205,7 +201,7 @@ class AgentController extends Controller {
       if (s.exited) return;
       let id = null;
       try { id = this.agent.discoverSessionId({ paths: this.paths, cwd: this.spec.claude.cwd, launchedAtMs: s.launchedAtMs }); } catch { id = null; }
-      if (id) { this.lastSessionId = id; if (this.log) this.log.info('discovery.found', { sessionId: id }); s.saveState(true); return; }
+      if (id) { this.lastSessionId = id; if (this.log) this.log.info('discovery.found', { sessionId: id }); this._publish(); s.saveState(true); return; }
       this._startDiscovery(attempt + 1);
     }, delay);
   }
@@ -242,17 +238,17 @@ class AgentController extends Controller {
     this._clearTimer('scan');
     this.t.scan = this.clock.setTimeout(() => {
       this.t.scan = null;
-      this._scan();
-      if (!s.exited && !s.disposed) this._armScan();
+      this._scan().catch((e) => this.log.warn('scan.failed', { error: String(e && e.message) })).finally(() => { if (!s.exited && !s.disposed) this._armScan(); });
     }, this.timers.setupScanMs);
   }
 
   /** Setup detection (spec §3.10, R11): PTY screen rows only, 2 consecutive matching scans, weak login strings excluded, no login gate while busy. */
-  _scan() {
+  async _scan() {
     const s = this.session;
     if (!['STARTING', 'STARTING_SLOW', 'RUNNING', 'SETUP_GATED', 'BLOCKED'].includes(s.lifecycle)) return;
+    const screen = await s.screen();
     /** @type {'trust'|'login'|'onboarding'|'ack'|null} */
-    let kind = this.agent.matchSetup ? this.agent.matchSetup(s.screenText()) : matchSetup(s.screenText(), this.gateScreens);
+    let kind = this.agent.matchSetup ? this.agent.matchSetup(screen) : matchSetup(screen, this.gateScreens);
     if (kind === 'login' && s.lifecycle === 'RUNNING' && this.observed && this.observed.status === 'busy') kind = null;
     // An acknowledgement notice is not a setup screen: it wants one Enter and carries no decision,
     // so confirm it rather than gating the session. Leaving it up stranded attached terminals (the
@@ -262,10 +258,10 @@ class AgentController extends Controller {
     if (kind === 'ack') {
       if (this.setupCandidate !== 'ack') { this.setupCandidate = 'ack'; this.setupHits = 1; return; }
       this.setupHits++;
-      if (this.setupHits >= this.timers.setupConfirmScans && !this.ackedNotices.has(s.screenText())) {
+      if (this.setupHits >= this.timers.setupConfirmScans && !this.ackedNotices.has(screen)) {
         // Recorded only when it was actually written: with no holder the Enter goes nowhere, and
         // marking it here would leave the notice unconfirmed for good.
-        if (this._ackNotice()) this.ackedNotices.add(s.screenText());
+        if (this._ackNotice()) this.ackedNotices.add(screen);
       }
       return;
     }
@@ -275,12 +271,16 @@ class AgentController extends Controller {
       if (this.setupHits >= this.timers.setupConfirmScans && (s.lifecycle !== 'SETUP_GATED' || this.setupKind !== kind)) {
         this.setupKind = kind;
         s.setPhase('SETUP_GATED');
+        this._publish();
+        this._syncGates();
         const how = kind === 'trust' ? 'attach with --allow-setup to answer it' : `fix auth in a normal terminal, then: ccs restart ${s.name}`;
         s.notify('warn', 'SETUP_REQUIRED', `needs setup: ${kind} — ${how}`);
       }
     } else if (s.lifecycle === 'SETUP_GATED') {
       this.setupKind = null;
       s.setPhase(this.observed || !this.agent.capabilities.liveStatus ? 'RUNNING' : 'STARTING');
+      this._publish();
+      this._syncGates();
     }
   }
 
@@ -290,9 +290,9 @@ class AgentController extends Controller {
    */
   _ackNotice() {
     const s = this.session;
-    if (!s.holder || s.exited) return false;
+    if (s.exited) return false;
     s.notify('info', 'NOTICE_ACKED', 'confirmed a notice from claude automatically (Enter); nothing was chosen');
-    s.write(Buffer.from('\r'));
+    s.write('\r');
     return true;
   }
 
@@ -302,10 +302,25 @@ class AgentController extends Controller {
     if (this.watch) { this.watch.stop(); this.watch = null; }
   }
 
-  /** One client's own /exit: BYE that client, settle, resume for everyone else; no budget. @param {{code: number|null, signal: string|null}} exit */
-  claimExit(exit) {
-    const who = this.exitIntent.take(exit, this.session.writes.total);
-    return this.config.restart.detectExitIntent ? who : null;
+  /**
+   * The agent exited. If that was one client's own /exit, that client leaves, the agent is resumed for everyone else, and
+   * none of it counts against anything. A stop, or the host going down, is not news.
+   * @param {{code: number|null, signal: string|null, lastLine: {client: string, text: string}|null}} e
+   */
+  onExit(e) {
+    const s = this.session;
+    this.onChildExit();
+    if (this.stopping || s.lifecycle === 'STOPPED') return;
+    const line = e.lastLine;
+    if (this.config.restart.detectExitIntent && line && EXIT_LINE.test(line.text) && e.code === 0 && !e.signal) {
+      this.attributed += 1;
+      this.exitCause = 'client-exit';
+      s.leave(line.client);
+      s.saveState(true);
+      this.t.respawn = this.clock.setTimeout(() => { this.t.respawn = null; s.respawn(this.respawnArgv()); }, this.config.restart.attributedExitDelayMs);
+      return;
+    }
+    s.notify('warn', 'CLAUDE_EXITED', `claude exited (code ${e.code ?? e.signal ?? 'unknown'}) — run: ccs restart ${s.name}`);
   }
 
   respawnArgv() {
@@ -313,67 +328,52 @@ class AgentController extends Controller {
     return sid ? resumeArgvFor(this.spec, sid) : this.spec.claude.argv;
   }
 
-  get respawnDelayMs() { return this.config.restart.attributedExitDelayMs; }
-
-  /** A session stays when its agent exits: `ccs restart` brings it back, and clients keep their place. */
-  get staysAfterExit() { return true; }
-
-  /** ccs answers for its sessions: their names, restarts and input all go through what it knows about agents. */
-  get acceptsHostOps() { return false; }
-
   onRespawned() {
     this.observed = null;
     this.setupKind = null;
     this.setupCandidate = null;
     this.setupHits = 0;
     this.ackedNotices = new Set();
+    this.exitCause = null;
+    this._publish({ attention: false });
+    this._syncGates();
   }
 
-  /** /exit when idle with an empty prompt: one write that archives Remote Control reliably. @param {(ms: number) => Promise<boolean>} waitExit */
-  async beforeHangup(waitExit) {
+  /** /exit when idle with an empty prompt: one write that archives Remote Control reliably. Anything else, the stop carries on. */
+  async onStopping() {
+    this.stopping = true;
+    const s = this.session;
     const o = this.observed;
-    if (!o || o.status !== 'idle' || o.waitingFor || !this._promptEmpty()) return false;
-    this.session.write(Buffer.from('/exit\r'));
-    return waitExit(this.config.stop.exitWaitMs);
+    if (o && o.status === 'idle' && !o.waitingFor && this._promptEmpty(await s.screen().catch(() => ''))) { s.write('/exit\r'); return; }
+    s.stopProceed();
   }
 
-  _promptEmpty() {
-    const lines = this.session.screenText().split('\n');
+  /** @param {string} screen */
+  _promptEmpty(screen) {
+    const lines = screen.split('\n');
     for (let i = lines.length - 1; i >= 0; i--) if (lines[i].startsWith('❯')) return /^❯\s*$/.test(lines[i]);
     return false;
   }
 
   // ---------------------------------------------------------------------------------------------------- reporting
-  /** STATUS as ccs and the Feishu add-on read it. @param {any} status */
-  status({ child, ...s }) {
-    const o = this.observed;
-    return { ccsId: this.spec.ccsId, ...s, setupKind: this.setupKind,
-      claude: { pid: child.pid, status: o ? o.status : null, waitingFor: o ? o.waitingFor : null,
-        name: s.name, sessionId: this.lastSessionId, bridgeSessionId: this.lastBridgeSessionId } };
-  }
-
-  /** @param {any} status */
-  stateFields({ claude: c }) {
-    return { claude: { status: c.status, waitingFor: c.waitingFor, name: c.name, sessionId: c.sessionId, bridgeSessionId: c.bridgeSessionId } };
-  }
-
-  welcomeFields() { return { ccsId: this.spec.ccsId }; }
-
-  /** state.json as the registry reads it. @param {any} doc */
-  persisted({ id, child, ...doc }) {
+  /** The session's own record, and state.json as the registry reads it. @param {any} record */
+  persisted({ id, child, attrs, restarts, census, ...doc }) {
+    void attrs;
+    const lastExit = restarts && restarts.lastExit ? { ...restarts.lastExit, ...(this.exitCause ? { cause: this.exitCause } : {}) } : null;
     return { ...doc, schema: 'ccs.state/1', ccsId: id,
       claude: child ? { ...child, version: this.spec.claude.version } : null,
-      observed: this.observed, lastSessionId: this.lastSessionId, lastName: this.session.currentName, lastBridgeSessionId: this.lastBridgeSessionId };
+      census: { ...census, ...this.census }, restarts: { attributed: this.attributed, lastExit },
+      observed: this.observed, lastSessionId: this.lastSessionId, lastName: this.session.name, lastBridgeSessionId: this.lastBridgeSessionId };
   }
 
-  /** @param {'scan'|'slow'|'block'|'discovery'} k */
+  /** @param {'scan'|'slow'|'block'|'discovery'|'respawn'} k */
   _clearTimer(k) { if (this.t[k] !== null) { this.clock.clearTimeout(this.t[k]); this.t[k] = null; } }
 
   dispose() {
-    for (const k of /** @type {const} */ (['scan', 'slow', 'block', 'discovery'])) this._clearTimer(k);
+    for (const k of /** @type {const} */ (['scan', 'slow', 'block', 'discovery', 'respawn'])) this._clearTimer(k);
     if (this.watch) this.watch.stop();
     if (this.suspendNet) this.suspendNet.dispose();
   }
 }
 
-module.exports = { AgentController, DEFAULT_TIMERS, WEAK_LOGIN_STRINGS, agentInputPolicy, needsAttention, sessionIdFromArgv };
+module.exports = { AgentController, DEFAULT_TIMERS, WEAK_LOGIN_STRINGS, needsAttention, sessionIdFromArgv };

@@ -17,7 +17,7 @@ test('a control link connects, receives STATE, answers requests and types throug
   await waitFor(() => link.up && states.length > 0, { timeoutMs: 5000, what: 'up + first STATE' });
   const st = await link.request('STATUS');
   assert.equal(st.ok, true);
-  await waitFor(() => /❯/.test(e.s.session.screenText()), { timeoutMs: 10000, what: 'prompt' });
+  await waitFor(async () => /❯/.test(await e.s.session.screen()), { timeoutMs: 10000, what: 'prompt' });
   assert.equal((await link.request('INPUT', { text: 'via link' })).ok, true);
   await waitFor(() => ((e.record() || {}).lines || []).includes('via link'), { timeoutMs: 5000, what: 'typed' });
 });
@@ -32,11 +32,10 @@ test('a link that loses its sessiond reports down, rejects requests, and reconne
   t.after(() => link.stop());
   link.start();
   await waitFor(() => ups === 1, { timeoutMs: 5000, what: 'first up' });
-  e.s.control.close();
+  await e.killServer();
   await waitFor(() => downs === 1, { timeoutMs: 5000, what: 'down' });
   await assert.rejects(link.request('STATUS'), (err) => /** @type {any} */ (err).code === 'DOWN');
-  await e.s.control.listen();
-  await waitFor(() => ups === 2, { timeoutMs: 5000, what: 'reconnected' });
+  await waitFor(() => ups === 2, { timeoutMs: 10000, what: 'reconnected to the server the holder started' });
   assert.equal((await link.request('STATUS')).ok, true);
 });
 
