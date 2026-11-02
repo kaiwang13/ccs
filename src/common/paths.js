@@ -6,6 +6,7 @@
  *
  *   CCS_RUNTIME_DIR  default /tmp/ccs-<uid>            runtime root (local, 0700)
  *   CCS_STATE_DIR    default ~/.local/state/ccs         persistent registry root (NFS)
+ *   CCS_HISTORY_DIR  default <state dir>/history         every kept session's output, by id: `ccs search` and `ccs view` read it
  *   CCS_CONFIG       default ~/.config/ccs/config.json  config file
  *   CCS_CLAUDE_HOME  default ~/.claude                  Claude's sessions/, settings.json, projects/ (read-only)
  *   CCS_CLAUDE_JSON  default ~/.claude.json             Claude's global config (read-only)
@@ -27,7 +28,7 @@ const { sessionLayout, segment } = require('nmux/sdk');
  *   hostname: string, settingsFile(id: string): string,
  *   locksDir: string, startLock: string, registryLock: string, reconcileLock: string,
  *   runDir: string, cliLog: string,
- *   stateDir: string, hostKey: string, hostsDir: string, hostDir: string, sessionsStateDir: string,
+ *   stateDir: string, historyDir: string, hostKey: string, hostsDir: string, hostDir: string, sessionsStateDir: string,
  *   intentFile(id: string): string, stateFile(id: string): string, backupsDir: string,
  *   configFile: string, claudeHome: string, claudeSessionsDir: string, claudeSettings: string,
  *   claudeProjectsDir: string, claudeJson: string, claudeBin: string|null, claudeVersionsDir: string,
@@ -87,6 +88,7 @@ function resolvePaths(env = process.env) {
     runDir: path.join(runtimeDir, 'run'),
     cliLog: path.join(layout.logDir, 'cli.log'),
     stateDir,
+    historyDir: path.resolve(env.CCS_HISTORY_DIR || path.join(stateDir, 'history')),
     hostKey,
     hostsDir,
     hostDir,

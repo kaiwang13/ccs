@@ -52,6 +52,11 @@ const DEFAULTS = deepFreeze({
   // timezone: the TZ every hosted agent runs in, so all sessions agree on "now" whichever shell created
   // them. An IANA zone name (default: Palo Alto's), or null to keep the TZ captured from that shell.
   env: { passthrough: [], sshAuthSock: null, timezone: 'America/Los_Angeles' },
+  // keep: every line a session prints is kept, with its time, after the session ends; `ccs search` and `ccs view` read it.
+  history: { keep: true },
+  // A quiet session shows the time faintly behind its text, in env.timezone, with the date and its name, and each new day
+  // starts with a line saying so. Neither ever reaches the scrollback.
+  overlay: { watermark: true, dayLines: true },
   // src/common/proxy.js: a URL, 'none', or null (keep the shell's). `ccs proxy` edits these.
   proxy: { session: null, feishu: null, noProxy: null },
   // Claude's UI does not survive a narrow terminal or a resize storm, and a shared session should not jump about.
@@ -116,6 +121,9 @@ const LEAVES = {
   'env.passthrough': arrayOf((v) => typeof v === 'string' && /^[A-Za-z_*][A-Za-z0-9_*]*$/.test(v)),
   'env.sshAuthSock': (v) => v === null || (typeof v === 'string' && v.startsWith('/')),
   'env.timezone': (v) => v === null || isTimeZone(v),
+  'history.keep': bool,
+  'overlay.watermark': bool,
+  'overlay.dayLines': bool,
   'proxy.session': isProxySetting,
   // The Feishu SDK speaks only http(s) proxies.
   'proxy.feishu': (v) => v === null || v === 'none' || (isProxyUrl(v) && /^https?:/.test(v)),

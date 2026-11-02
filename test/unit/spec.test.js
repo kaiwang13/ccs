@@ -13,7 +13,8 @@ const good = () => ({
 test('a valid spec is returned as a normalized copy', () => {
   const s = good();
   const v = validateSessionSpec(s);
-  assert.deepEqual(v, { ...s, termColors: null });
+  assert.deepEqual(v, { ...s, termColors: null, historyDir: null });
+  assert.equal(validateSessionSpec({ ...s, historyDir: '/state/history/k3f9x2ab' }).historyDir, '/state/history/k3f9x2ab');
   assert.notEqual(v.claude.argv, s.claude.argv);
 });
 
@@ -23,6 +24,7 @@ test('resumeArgvFor replaces the {sessionId} token', () => {
 
 for (const [label, mutate, field] of /** @type {Array<[string, (s: any) => void, string]>} */ ([
   ['the schema', (s) => { s.schema = 'ccs.sessionspec/2'; }, 'schema'],
+  ['a history directory that is not absolute', (s) => { s.historyDir = 'history/k3f9x2ab'; }, 'historyDir'],
   ['a ccsId outside [a-z0-9]', (s) => { s.ccsId = 'BAD ID'; }, 'ccsId'],
   ['a name outside [a-z0-9._-]', (s) => { s.name = 'Has Space'; }, 'name'],
   ['a relative runtimeDir', (s) => { s.runtimeDir = 'tmp/x'; }, 'runtimeDir'],

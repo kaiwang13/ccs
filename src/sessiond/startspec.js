@@ -65,6 +65,7 @@ async function buildSessionSpec(ccsId, paths, opts = {}) {
     claude: { argv: launch.argv, resumeArgv: launch.resumeArgv, env: launch.env, cwd: launch.cwd, version: launch.version },
     pty, configFile: paths.configFile, agent: agent.id,
     termColors: (rec.intent && rec.intent.termColors) || null,
+    historyDir: config.history.keep ? path.join(paths.historyDir, ccsId) : null,
   });
 }
 

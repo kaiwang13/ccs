@@ -4,7 +4,7 @@
  * @typedef {{schema: 'ccs.sessionspec/1', ccsId: string, name: string, runtimeDir: string, stateFile: string|null,
  *   claude: {argv: string[], resumeArgv: string[], env: Record<string, string>, cwd: string, version: string},
  *   pty: {cols: number, rows: number}, configFile: string|null, agent: string,
- *   termColors: {fg: string|null, bg: string|null}|null}} SessionSpec
+ *   termColors: {fg: string|null, bg: string|null}|null, historyDir: string|null}} SessionSpec
  */
 
 const { KNOWN_AGENTS } = require('../agents/index.js');
@@ -55,6 +55,7 @@ function validateSessionSpec(obj) {
   if (!runtimeDir.startsWith('/')) throw new SpecError('runtimeDir', 'must be absolute');
   const stateFile = absOrNull(obj.stateFile, 'stateFile');
   const configFile = absOrNull(obj.configFile, 'configFile');
+  const historyDir = absOrNull(obj.historyDir === undefined ? null : obj.historyDir, 'historyDir');
   const agent = obj.agent === undefined || obj.agent === null ? 'claude' : obj.agent;
   if (!KNOWN_AGENTS.includes(agent)) throw new SpecError('agent', `must be one of ${KNOWN_AGENTS.join(', ')}`);
   const c = obj.claude;
@@ -72,7 +73,7 @@ function validateSessionSpec(obj) {
   const rows = int(obj.pty.rows, 'pty.rows', 10, 150);
   return { schema: 'ccs.sessionspec/1', ccsId, name, runtimeDir, stateFile, configFile, agent,
     claude: { argv: [...argv], resumeArgv: [...resumeArgv], env: { ...c.env }, cwd, version }, pty: { cols, rows },
-    termColors: termColorsOf(obj.termColors) };
+    termColors: termColorsOf(obj.termColors), historyDir };
 }
 
 /** @param {SessionSpec} spec @param {string} sessionId @returns {string[]} */

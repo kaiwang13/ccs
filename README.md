@@ -240,6 +240,8 @@ picker of your sessions.
 | `ccs stop NAME\|--all` | Stop cleanly — `/exit` when idle, then SIGTERM. `claude` is never force-killed |
 | `ccs restart NAME` | Stop and start again with `--resume`; clears `FAILED`/`BLOCKED`/`EXITED` |
 | `ccs rm NAME` | Remove a stopped session. **Claude's transcript is kept** |
+| `ccs search PATTERN [NAME…] [--since T] [--until T] [-i] [--json]` | Every line any session printed that matches, ended sessions too: name, time, line number |
+| `ccs view NAME [--at T\|--row N\|--grep RE] [--times]` | A session's whole history in `less`, opened at a time, a line number from `search`, or the first match |
 | `ccs doctor --lite [--accept-config]` | Health checks |
 
 ### Things worth knowing
@@ -403,6 +405,28 @@ zone name in `config.json`:
 the host's zone). A name that is not a known IANA zone, or is in the wrong case (`america/los_angeles`, which the C
 library would silently run as UTC), is reported and the default is used. The setting is read at every start, so a
 running session picks up a change at `ccs restart NAME`.
+
+### History, and the time behind the screen
+
+Every line a session prints is kept, with the time it was printed, in `~/.local/state/ccs/history/<id>/`
+(`CCS_HISTORY_DIR` moves it), and stays after the session ends or is removed, until you delete it. `ccs search`
+looks through all of it, or the sessions named; `ccs view` opens one in `less` with a line where each day begins.
+Times are written as `2026-11-01`, `'2026-11-01 14:00'`, `14:00`, `today`, `yesterday`, or `90m`/`2h`/`3d` ago,
+in the sessions' time zone:
+
+```console
+$ ccs search 'rate limit' --since yesterday
+api  2026-11-01 16:42:07  #18342  ⎿  API Error: rate limit exceeded, retrying in 30s
+$ ccs view api --at '2026-11-01 16:40'
+```
+
+A quiet session also shows the time faintly behind its text, with the date, the time zone and its name, and a line
+in the scrollback marks each new day. Neither is ever part of the session: only empty cells are tinted, and the tint
+is taken away before anything is drawn, so it never reaches your scrollback or the history. To turn these off:
+
+```json
+{ "history": { "keep": false }, "overlay": { "watermark": false, "dayLines": false } }
+```
 
 ### Proxy
 

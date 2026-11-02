@@ -103,8 +103,15 @@ function makeRealEnv(t, { agent = 'claude', extraConfig = {}, bin, usesEnvCreden
     if (k.startsWith('ANTHROPIC_') || k.startsWith('OPENAI_')) env[k] = /** @type {string} */ (process.env[k]);
   }
   const paths = resolvePaths(env);
-  t.after(() => { try { fs.rmSync(root, { recursive: true, force: true }); } catch { /* best effort */ } });
-  return { root, home, work, env, paths, configFile };
+  const e = { root, home, work, env, paths, configFile };
+  t.after(() => {
+    // Whatever the test left running is stopped before its files go: without its registry and sockets, ccs could never reach
+    // the real agent again, and it would run until someone found it.
+    const stopped = runCcs(e, ['stop', '--all']);
+    if (stopped.code !== 0) throw new Error(`could not stop what this test started; it is left in ${root}: ${stopped.out}${stopped.err}`);
+    try { fs.rmSync(root, { recursive: true, force: true }); } catch { /* best effort */ }
+  });
+  return e;
 }
 
 /** @param {{env: Record<string,string>}} e @param {string[]} args */
@@ -183,7 +190,7 @@ maybe('LIVE claude: two terminals attach to one real session and it survives det
   for (const term of terms) await term.exited;
   await waitFor(() => Number(JSON.parse(runCcs(e, ['ls', '--json']).out)[0].clients) === 0, 30000, 'clients to reach 0');
   assert.equal(lifecycleOf(e, id), 'RUNNING', 'a real session must survive every client detaching');
-  runCcs(e, ['stop', 'realmulti']);
+  assert.equal(runCcs(e, ['stop', 'realmulti']).code, 0);
 });
 
 maybe('LIVE claude: a not-logged-in host is hosted rather than refused (the tokenAuth case)', { timeout: 300000 }, async (t) => {
@@ -204,7 +211,7 @@ maybe('LIVE claude: a not-logged-in host is hosted rather than refused (the toke
   assert.equal(made.code, 0, `a token-authenticated host must start: ${made.out}${made.err}`);
   const id = JSON.parse(runCcs(e, ['ls', '--json']).out)[0].id;
   await waitFor(() => lifecycleOf(e, id) === 'RUNNING', 120000, 'the token-authenticated session to reach RUNNING');
-  runCcs(e, ['stop', 'realnocred']);
+  assert.equal(runCcs(e, ['stop', 'realnocred']).code, 0);
 });
 
 maybe('LIVE codex: a real codex session starts, is listed as codex, and stops', { timeout: 300000 }, async (t) => {
@@ -234,7 +241,7 @@ maybe('LIVE codex: two terminals attach to one real codex session', { timeout: 3
   assert.equal(Number(JSON.parse(runCcs(e, ['ls', '--json']).out)[0].clients), 2);
   for (const term of terms) term.write('\x1a');
   for (const term of terms) await term.exited;
-  runCcs(e, ['stop', 'realcxm']);
+  assert.equal(runCcs(e, ['stop', 'realcxm']).code, 0);
 });
 
 /**

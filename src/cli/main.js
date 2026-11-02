@@ -17,6 +17,8 @@ const USAGE = `usage:
   ccs stop NAME|--all
   ccs restart NAME
   ccs rm NAME
+  ccs search PATTERN [NAME…] [--since T] [--until T] [-i] [--json]   in every kept history, ended sessions too
+  ccs view NAME [--at T|--row N|--grep RE] [--times]   a session's history in a pager; T: 2026-11-01 14:00, 14:00, yesterday, 2h
   ccs doctor [--lite] [--accept-config]
   ccs proxy [default|session|feishu|no-proxy|check …]   see and change the proxies (ccs proxy help)
   ccs feishu setup|start|stop|status|disable   optional Feishu add-on (docs/feishu.md)
@@ -69,6 +71,8 @@ async function main(argv, io = {}) {
       case 'stop': return await require('./commands/stop.js').run(rest, ctx);
       case 'restart': return await require('./commands/restart.js').run(rest, ctx);
       case 'rm': return await require('./commands/rm.js').run(rest, ctx);
+      case 'search': return await require('./commands/search.js').run(rest, ctx);
+      case 'view': return await require('./commands/view.js').run(rest, ctx);
       case 'feishu': return await require('./commands/feishu.js').run(rest, ctx);
       case 'proxy': return await require('./commands/proxy.js').run(rest, ctx);
       default:

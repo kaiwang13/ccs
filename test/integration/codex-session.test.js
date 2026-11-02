@@ -114,8 +114,8 @@ test('two terminals attach to one codex session at once and it survives detachin
   }
   for (const term of terms) await term.waitText(/cxmulti/, 30000);
 
-  const withClients = JSON.parse((await runCcs(ctx, ['ls', '--json'])).stdout).find((r) => r.name === 'cxmulti');
-  assert.equal(withClients.clients, 2, 'both codex clients must be counted');
+  const clients = async () => JSON.parse((await runCcs(ctx, ['ls', '--json'])).stdout).find((r) => r.name === 'cxmulti').clients;
+  await waitFor(async () => (await clients()) === 2, 20000, 'both codex clients to be counted');   // the name is on the screen before a join ends
 
   for (const term of terms) term.write('\x1a');
   for (const term of terms) await term.exited;
