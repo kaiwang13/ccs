@@ -131,7 +131,10 @@ test('a below-floor RESIZE followed immediately by an above-floor RESIZE, while 
 test('the holder spec carries sessiondCmd = the argv that started the server, with --recover appended once', { timeout: 60000 }, async (t) => {
   const e = await startTestSession(t);
   const holderSpec = JSON.parse(require('node:fs').readFileSync(e.s.paths.holderSpec('sess01', 1), 'utf8'));
-  assert.deepEqual(holderSpec.sessiondCmd, [process.execPath, require.resolve('nmux/internal/server/run'), '--spec', e.specFile, '--recover']);
+  // NMUX_SERVER_BIN serves the session with another binary, which the holder then restarts the same way
+  const bin = process.env.NMUX_SERVER_BIN;
+  const server = bin ? [bin, '__server'] : [process.execPath, require.resolve('nmux/internal/server/run')];
+  assert.deepEqual(holderSpec.sessiondCmd, [...server, '--spec', e.specFile, '--recover']);
 });
 
 test('DETACH ends the client with BYE USER', { timeout: 60000 }, async (t) => {
