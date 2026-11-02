@@ -176,9 +176,8 @@ maybe('LIVE claude: two terminals attach to one real session and it survives det
 
   const terms = [attachInTerminal(t, e, id, 'realmulti'), attachInTerminal(t, e, id, 'realmulti')];
   for (const term of terms) await term.waitText(/realmulti/, 60000);
-  const peak = Number(JSON.parse(runCcs(e, ['ls', '--json']).out)[0].clients);
-  t.diagnostic(`clients after attaching two real terminals: ${peak}`);
-  assert.equal(peak, 2, 'both real terminals must be counted');
+  const clients = () => Number(JSON.parse(runCcs(e, ['ls', '--json']).out)[0].clients);
+  await waitFor(() => clients() === 2, 10000, 'both real terminals to be counted');  // the name is on the screen before the join has finished
 
   for (const term of terms) term.write('\x1a'); // Ctrl+Z detaches
   for (const term of terms) await term.exited;
