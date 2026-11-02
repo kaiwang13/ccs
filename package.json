@@ -18,7 +18,7 @@
     "nmux:link": "rm -rf node_modules/nmux && ln -s ../../nmux node_modules/nmux"
   },
   "dependencies": {
-    "nmux": "file:vendor/nmux-0.2.2.tgz",
+    "nmux": "file:vendor/nmux-0.3.0.tgz",
     "node-pty": "1.1.0"
   },
   "devDependencies": {

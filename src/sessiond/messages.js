@@ -18,6 +18,7 @@ const CCS_MESSAGES = Object.freeze({
   escHoldExpired: 'Esc was not read by Claude in time; later keys were sent anyway',
   heldKey: "repeated Ctrl+{cls} ignored — use 'ccs stop {name}' to end the session",
   joinBanner: '── ccs · {name} · {lines} lines of history ──',
+  away: '── ccs · {name} · {what} ──',
   skippedOutput: '── ccs · skipped {amount} of output ──',
   lostOutput: '── ccs · lost {amount} of output ──',
 });

@@ -10,7 +10,7 @@ const { UsageError } = require('./args.js');
 const USAGE = `usage:
   ccs                                   picker on a terminal, otherwise ccs ls
   ccs new [NAME] [--cwd DIR] [--no-attach] [--allow-setup] [--resume SESSION_ID] [--name-from-cwd] [--agent AGENT] [--proxy URL|none] [-- --model opus …]
-  ccs attach|a [NAME] [--shrink] [--allow-setup]
+  ccs attach|a [NAME] [--shrink] [--allow-setup] [--full]
   ccs ls [--json]
   ccs clients [NAME] [--json]           the terminals attached to a session
   ccs kick [NAME] CLIENT…|--others      detach those terminals, or all but yours (the session keeps running)

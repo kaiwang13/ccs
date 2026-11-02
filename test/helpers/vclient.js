@@ -11,9 +11,9 @@ const { T, CTL_PROTO, FramedSocket } = require('nmux/internal/wire/proto');
  * @xterm/headless 6.0.0 terminal, answers PING, records every OUTPUT byte. Resolves after the first SNAPSHOT_END
  * (role 'control': after WELCOME); rejects with err.refuse on REFUSE.
  * @param {{sockPath: string, cols: number, rows: number, cursorRow?: number, label?: string, allowSetup?: boolean, shrink?: boolean,
- *   role?: 'attach'|'control', pid?: number, onSnapshotBegin?: (vc: any) => void}} o
+ *   role?: 'attach'|'control', pid?: number, terminal?: string|null, onSnapshotBegin?: (vc: any) => void}} o
  */
-function connectVirtualClient({ sockPath, cols, rows, cursorRow = 1, label = 'vclient', allowSetup = false, shrink = false, role = 'attach', pid = process.pid, onSnapshotBegin }) {
+function connectVirtualClient({ sockPath, cols, rows, cursorRow = 1, label = 'vclient', allowSetup = false, shrink = false, role = 'attach', pid = process.pid, terminal = null, onSnapshotBegin }) {
   return new Promise((resolve, reject) => {
     const sock = net.connect(sockPath);
     const fsock = new FramedSocket(sock);
@@ -42,7 +42,7 @@ function connectVirtualClient({ sockPath, cols, rows, cursorRow = 1, label = 'vc
       },
       /** @param {number} c @param {number} r */
       resize(c, r) { term.resize(c, r); fsock.sendControl({ t: 'RESIZE', cols: c, rows: r }); },
-      detach() { fsock.sendControl({ t: 'DETACH' }); },
+      detach() { fsock.sendControl({ t: 'DETACH', received: vc.recorded.length }); },
       close() { vc.closed = true; fsock.destroy(); },
       async flush() { await writing; await new Promise((r) => term.write('', () => r(undefined))); },
       screenText() {
@@ -127,7 +127,7 @@ function connectVirtualClient({ sockPath, cols, rows, cursorRow = 1, label = 'vc
       }
     });
     sock.once('connect', () => {
-      fsock.sendControl({ t: 'HELLO', proto: CTL_PROTO, role, cols, rows, cursorRow, focus: true, tty: 'vclient', pid, label, termProgram: 'vclient', flags: { shrink, allowSetup } });
+      fsock.sendControl({ t: 'HELLO', proto: CTL_PROTO, role, cols, rows, cursorRow, focus: true, tty: 'vclient', pid, label, termProgram: 'vclient', terminal, flags: { shrink, allowSetup } });
     });
     sock.once('error', (e) => reject(e));
   });

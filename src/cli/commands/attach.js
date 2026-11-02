@@ -1,6 +1,6 @@
 'use strict';
 // @ts-check
-/** `ccs attach|a [NAME] [--shrink] [--allow-setup]` */
+/** `ccs attach|a [NAME] [--shrink] [--allow-setup] [--full]` */
 const { parseArgs } = require('../args.js');
 const { resolveTarget } = require('../resolve.js');
 const { recordName } = require('../../common/registry.js');
@@ -49,7 +49,7 @@ async function ensureRunning({ ctx, rec }) {
 
 /** @param {string[]} argv @param {any} ctx */
 async function run(argv, ctx) {
-  const { flags, positional } = parseArgs(argv, { bool: ['--shrink', '--allow-setup'] });
+  const { flags, positional } = parseArgs(argv, { bool: ['--shrink', '--allow-setup', '--full'] });
   const io = { stdin: ctx.stdin, stdout: ctx.out, stderr: ctx.err, env: ctx.env };
   const refused = attachPrecheck(io);
   if (refused) { ctx.err.write(`${refused.message}\n`); return refused.code; }
@@ -65,7 +65,7 @@ async function run(argv, ctx) {
     rec = all[0];
   }
   if (!(await ensureRunning({ ctx, rec }))) return 1;
-  return attach({ paths: ctx.paths, id: rec.id, name: recordName(rec), flags: { shrink: !!flags['--shrink'], allowSetup: !!flags['--allow-setup'] }, io });
+  return attach({ paths: ctx.paths, id: rec.id, name: recordName(rec), flags: { shrink: !!flags['--shrink'], allowSetup: !!flags['--allow-setup'], full: !!flags['--full'] }, io });
 }
 
 module.exports = { run, ensureRunning, reportStartFailure };
