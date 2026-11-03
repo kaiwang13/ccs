@@ -37,7 +37,10 @@ jobs:
       - name: build the ttyctl native addon
         run: npm run build:native
 
-      # Sessions run on the nmux binary, built from vendor/nmux-rs-*.tar.gz; the runners have cargo.
+      # Sessions run on the nmux binary, built from vendor/nmux-rs-*.tar.gz. Rust is installed here rather than taken from the
+      # runner, which act's images do not have.
+      - uses: dtolnay/rust-toolchain@stable
+
       - name: build nmux
         run: npm run nmux:build
 
