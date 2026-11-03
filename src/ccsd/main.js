@@ -1,6 +1,7 @@
 'use strict';
 // @ts-check
 /** `node src/ccsd/main.js`: one per user, and a second one leaves at once. */
+const fs = require('node:fs');
 const { createLogger } = require('nmux/base/log');
 const { tryLock, isLocked } = require('nmux/platform/locks');
 const { ensureRuntime } = require('nmux/platform/runtime');
@@ -21,6 +22,9 @@ async function main() {
   ensureRuntime(paths);
   const lock = tryLock(lockFile(paths));
   if (!lock) return 0;
+  // Which process holds it, for a person or a test to find on a system where another process's environment cannot be read.
+  fs.ftruncateSync(lock.fd, 0);
+  fs.writeSync(lock.fd, `${process.pid}\n`, 0);
   const log = createLogger({ file: paths.logFile('ccsd', 'ccsd'), comp: 'ccsd' });
   const config = loadConfig(paths.configFile, (key) => log.warn('config.invalid', { key }));
   const registry = createRegistry(paths, { nfsTimeoutMs: config.registry.nfsTimeoutMs });

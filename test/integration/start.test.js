@@ -98,14 +98,25 @@ test('a --start that arrives while the holder lock is genuinely held recovers in
   // wait for a settled lifecycle before signalling, so runSession's SIGTERM handler is installed
   await waitFor(async () => { try { const r = await controlRequest(ctx.paths.ctlSock(rec.id), 'STATUS', {}, { timeoutMs: 1000 }); return r.ok && r.data && r.data.lifecycle === 'RUNNING'; } catch { return false; } }, 15000, 'lifecycle RUNNING');
   assert.equal((await first.exited).code, 0, 'the start process leaves once the session has settled');
+  // The holder starts a server of its own 250 ms after losing one (respawnMs), which would race the second --start for the
+  // session: held still meanwhile, it leaves the second --start to find the holder alive and no server, which is the case here.
+  const holderPid = JSON.parse(fs.readFileSync(ctx.paths.holderJson(rec.id), 'utf8')).pid;
+  process.kill(holderPid, 'SIGSTOP');
+  let held = true;
+  t.after(() => { if (held) process.kill(holderPid, 'SIGCONT'); });
   process.kill(JSON.parse(fs.readFileSync(path.join(ctx.paths.sessionDir(rec.id), 'state.json'), 'utf8')).writer.pid, 'SIGTERM'); // the server goes, leaving holder+claude alive
-  await waitFor(() => isLocked(ctx.paths.holderLock(rec.id)), 5000, 'holder.lock still held with no sessiond');
+  await waitFor(() => !isLocked(ctx.paths.sessiondLock(rec.id)), 5000, 'the server gone');
+  assert.ok(isLocked(ctx.paths.holderLock(rec.id)), 'holder.lock still held with no sessiond');
   const second = spawnSessiond(ctx, ['--start', rec.id]);
+  const sessiondLog = ctx.paths.logFile(rec.id, 'sessiond');
+  await waitFor(() => fs.existsSync(sessiondLog) && fs.readFileSync(sessiondLog, 'utf8').includes('start.holder_alive_recovering'), 20000, 'the second --start recovering');
+  process.kill(holderPid, 'SIGCONT');
+  held = false;
   await waitFor(() => probeSocket(ctx.paths.ctlSock(rec.id), 200), 20000, 'recovered ctl.sock');
   assert.deepEqual(fs.readdirSync(ctx.home).filter((x) => /^echoclaude-\d+\.json$/.test(x)), echoBefore, 'no second claude was spawned');
   await controlRequest(ctx.paths.ctlSock(rec.id), 'STOP', {}, { timeoutMs: 3000 }).catch(() => {});   // it can go as it answers
   // This must be `second`'s own exit code, not merely "some ctl.sock came up": the holder independently
-  // auto-respawns sessiond --recover ~5s after noticing sessiond is gone (src/holder/main.js noConnMs), and
+  // auto-respawns sessiond --recover 250 ms after noticing sessiond is gone (respawnMs; held still above), and
   // separately preflight's SECOND_WRITER guard would also block a naive second claude spawn. Both of those
   // would let the assertions above pass even if this test's actual target -- startspec.js's `if (!recover &&
   // isLocked(holderLock)) recover = true` -- were removed. Asserting `second` itself exits 0 here pins it: with

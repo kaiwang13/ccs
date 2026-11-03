@@ -15,6 +15,7 @@ const { startTestSession } = require('../helpers/session');
 const { createRegistry } = require('../../src/common/registry.js');
 const { closeNfsWorker } = require('../../src/common/nfsworker.js');
 const { listProcesses, readEnviron } = require('../../src/common/procinfo.js');
+const { isRunning, lockFile } = require('../../src/ccsd/main.js');
 const { isLocked } = require('nmux/platform/locks');
 
 test.after(() => closeNfsWorker());
@@ -22,14 +23,12 @@ test.after(() => closeNfsWorker());
 const RUNNING_MS = 20000;
 const BACK_MS = 15000;
 
-/** The ccsd serving this environment, if there is one. @param {any} ctx @returns {number|null} */
+/** The ccsd serving this environment, if there is one: it writes its pid into the lock it holds. @param {any} ctx @returns {number|null} */
 function ccsdPid(ctx) {
-  for (const p of listProcesses()) {
-    if (!p.argv || !p.argv.includes('ccsd/main.js')) continue;
-    const env = readEnviron(p.pid);
-    if (env && env.CCS_RUNTIME_DIR === ctx.env.CCS_RUNTIME_DIR) return p.pid;
-  }
-  return null;
+  if (!isRunning(ctx.paths)) return null;
+  let pid = NaN;
+  try { pid = Number(fs.readFileSync(lockFile(ctx.paths), 'utf8').trim()); } catch { return null; }
+  return Number.isSafeInteger(pid) && pid > 0 ? pid : null;
 }
 
 /** @param {any} ctx @param {string} name */
@@ -99,7 +98,10 @@ test('one ccsd looks after every session, and a second one leaves at once', { ti
   assert.equal((await runCcs(ctx, ['new', 'two', '--no-attach'])).code, 0);
   await waitFor(async () => JSON.parse((await runCcs(ctx, ['ls', '--json'])).stdout).every((/** @type {any} */ r) => r.lifecycle === 'RUNNING'), RUNNING_MS, 'both to run');
   assert.equal(ccsdPid(ctx), first);
-  assert.equal(listProcesses().filter((p) => p.argv && p.argv.includes('ccsd/main.js') && (readEnviron(p.pid) || {}).CCS_RUNTIME_DIR === ctx.env.CCS_RUNTIME_DIR).length, 1);
+  // and no other for this environment, where environments can be read to tell them apart
+  if (readEnviron(process.pid) !== null) {
+    assert.equal(listProcesses().filter((p) => p.argv && p.argv.includes('ccsd/main.js') && (readEnviron(p.pid) || {}).CCS_RUNTIME_DIR === ctx.env.CCS_RUNTIME_DIR).length, 1);
+  }
   assert.equal((await runCcs(ctx, ['stop', '--all'])).code, 0);
 });
 
