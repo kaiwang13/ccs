@@ -198,8 +198,10 @@ build_release() {
 }
 
 # nmux, which sessions run on, is built from the source the release carries. Without cargo the release still works, on the
-# nmux package in node_modules, which gains nothing new: `ccs doctor` says so.
+# nmux package in node_modules, which gains nothing new: `ccs doctor` says so. A release from before there was a binary
+# has nothing to build.
 build_nmux() {
+  [ -f "$1/tools/build-nmux.sh" ] || return 0
   if ! command -v cargo >/dev/null 2>&1 && [ ! -x "$HOME/.cargo/bin/cargo" ]; then
     warn "cargo not found: sessions will run on the older nmux in node_modules. Install Rust (https://rustup.rs) and update again."
     return 0
