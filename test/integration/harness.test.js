@@ -22,7 +22,8 @@ test.after(() => closeNfsWorker());
 
 test('envPids sees a --start sessiond and its helpers, whose argv names no path under the env root', async (t) => {
   const ctx = makeCcsEnv(t);
-  const rec = await createRegistry(ctx.paths).create({ name: 'seen', cwd: ctx.work, claudeArgs: [], env: {} });
+  // the shell it was made from had the test's HOME: without one the stand-in would write to the real one
+  const rec = await createRegistry(ctx.paths).create({ name: 'seen', cwd: ctx.work, claudeArgs: [], env: { HOME: ctx.home } });
   const s = spawnSessiond(ctx, ['--start', rec.id]);
   await waitFor(() => isLocked(ctx.paths.sessiondLock(rec.id)), 10000, 'sessiond to take its lock');
 
