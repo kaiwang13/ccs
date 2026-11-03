@@ -16,10 +16,11 @@ test('CCS_NMUX_BIN names the binary, or, empty, none; the server is started with
   assert.deepEqual(hostEnv({ CCS_NMUX_BIN: '', NMUX_SERVER_BIN: '/elsewhere/nmux', A: '1' }), { CCS_NMUX_BIN: '', A: '1' });
 });
 
-test('the binary is given ccs\'s keys, its configuration, its words and the flags', () => {
-  const spec = attachSpec({ sockPath: '/run/s/ctl.sock', name: 'api', config: { size: { floorCols: 50 } }, flags: { shrink: true } });
+test('the binary is given ccs\'s keys, the configuration the client reads and no more, its words and the flags', () => {
+  const config = { size: { floorCols: 50 }, clients: { rejoinMax: 3 }, input: { escFlushMs: 40 }, overlay: { bar: true }, proxy: { session: 'http://p:3128' }, claude: {} };
+  const spec = attachSpec({ sockPath: '/run/s/ctl.sock', name: 'api', config, flags: { shrink: true } });
   assert.deepEqual(spec, { sock: '/run/s/ctl.sock', name: 'api', flags: { shrink: true, allowSetup: false, full: false },
-    config: { size: { floorCols: 50 }, keys: CCS_KEYS }, words: CCS_WORDS });
+    config: { size: { floorCols: 50 }, clients: { rejoinMax: 3 }, input: { escFlushMs: 40 }, overlay: { bar: true }, keys: CCS_KEYS }, words: CCS_WORDS });
   assert.deepEqual(JSON.parse(JSON.stringify(spec)), spec, 'all of it is data');
 });
 

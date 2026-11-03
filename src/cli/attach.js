@@ -59,12 +59,14 @@ const CCS_TEXT = {
 const attachPrecheck = (io) => host.attachPrecheck(io, CCS_TEXT);
 
 /**
- * What `nmux __attach` is given: the session, the flags, ccs's configuration with its keys, and its words.
+ * What `nmux __attach` is given: the session, the flags, the sections of ccs's configuration the client reads, ccs's keys, and its
+ * words. It goes on a command line, which other accounts may be able to read, so nothing more of the configuration does.
  * @param {{sockPath: string, name: string, config: any, flags: {shrink?: boolean, allowSetup?: boolean, full?: boolean}}} a
  */
 function attachSpec({ sockPath, name, config, flags }) {
+  const { size, clients, input, overlay } = config;
   return { sock: sockPath, name, flags: { shrink: !!flags.shrink, allowSetup: !!flags.allowSetup, full: !!flags.full },
-    config: { ...config, keys: CCS_KEYS }, words: CCS_WORDS };
+    config: { size, clients, input, overlay, keys: CCS_KEYS }, words: CCS_WORDS };
 }
 
 /**
