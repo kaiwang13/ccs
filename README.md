@@ -16,7 +16,8 @@ phone (RC) ─┘     (emulator,        (owns the pty)
 ```
 
 Installing ccs also puts `nmux` on your PATH: the session host ccs runs on, as a command of its own for shells and any other
-program. `nmux help` says what it does.
+program. `nmux help` says what it does. It is one binary, made in Rust, which ccs carries as source in `vendor/` and builds when
+it is installed from source; a release package carries it built.
 
 Unlike `tmux` or `screen`, `ccs` does not own your scrollback. Each client renders into its own terminal,
 so you scroll with your normal mouse wheel, trackpad, and scrollbar — no prefix key, no copy mode.
@@ -42,6 +43,8 @@ the rest of the add-on's live checklist in [`docs/feishu.md`](docs/feishu.md) is
   `node:sqlite`. With nvm: `nvm install 24.14.1 && nvm alias default 24.14.1`
 - **gcc/clang, make, python3** — `node-gyp` builds `node-pty` and the bundled `ttyctl` addon from source
   (on macOS: `xcode-select --install`)
+- **Rust (cargo)**, from [rustup](https://rustup.rs), only to install from source or run from a clone: it builds `nmux`, the
+  binary sessions run on. Without it ccs still works, on the older Node nmux it carries, and `ccs doctor` says so
 - **Claude Code** installed and logged in. `ccs` accepts any credential Claude itself can use, and
   checks for them in this order: the `oauthAccount` record in `~/.claude.json`; the platform
   credential store (the **macOS Keychain**, or `~/.claude/.credentials.json` on Linux);
@@ -109,8 +112,8 @@ ccs doctor --lite             # fix every FAIL before going further
 
 ### From source
 
-Builds the native addons on your machine; needs git, Node 24 (the exact version in `package.json`
-`engines`), npm, make and a C compiler:
+Builds the native addons and `nmux` on your machine; needs git, Node 24 (the exact version in `package.json`
+`engines`), npm, make, a C compiler and cargo:
 
 ```sh
 git clone git@github.com:kaiwang13/ccs.git ~/src/ccs
@@ -194,7 +197,7 @@ publishes them as the release's assets.
 
 ```bash
 git clone https://github.com/kaiwang13/ccs.git ccs && cd ccs
-npm ci && npm test
+npm ci && npm run nmux:build && npm test
 ```
 
 Then point a wrapper at `bin/ccs.js` with an **absolute** node path — sessions outlive your shell, so a
@@ -406,7 +409,7 @@ the host's zone). A name that is not a known IANA zone, or is in the wrong case 
 library would silently run as UTC), is reported and the default is used. The setting is read at every start, so a
 running session picks up a change at `ccs restart NAME`.
 
-### History, and the time behind the screen
+### History, and the bar at the bottom
 
 Every line a session prints is kept, with the time it was printed, in `~/.local/state/ccs/history/<id>/`
 (`CCS_HISTORY_DIR` moves it), and stays after the session ends or is removed, until you delete it. `ccs search`
@@ -420,12 +423,12 @@ api  2026-11-01 16:42:07  #18342  ⎿  API Error: rate limit exceeded, retrying 
 $ ccs view api --at '2026-11-01 16:40'
 ```
 
-A quiet session also shows the time faintly behind its text, with the date, the time zone and its name, and a line
-in the scrollback marks each new day. Neither is ever part of the session: only empty cells are tinted, and the tint
-is taken away before anything is drawn, so it never reaches your scrollback or the history. To turn these off:
+A bar on your terminal's last row says ccs, the session's name, how many terminals are attached, how to detach, and the
+date and time in the sessions' time zone; the session scrolls above it, into your terminal's own scrollback, and the bar
+never reaches the scrollback or the history. A line in the scrollback marks each new day. To turn these off:
 
 ```json
-{ "history": { "keep": false }, "overlay": { "watermark": false, "dayLines": false } }
+{ "history": { "keep": false }, "overlay": { "bar": false, "dayLines": false } }
 ```
 
 ### Proxy

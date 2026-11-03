@@ -2,21 +2,30 @@
 
 ## ccs sits on nmux
 
-The session host is a separate project, `nmux`, in `../nmux`. It knows nothing about agents and must stay that way: a
-feature that needs to know what a session is running belongs here, in `AgentController` (`src/agents/controller.js`). That
-runs in `ccsd` (`src/ccsd/`), one process per user, and reaches a session only through `HostedSession` and the SDK.
+The session host is a separate project, `nmux`. It is made in Rust, in `../nmux-rs`; `../nmux` is the Node implementation it
+was ported from, which stopped at 0.5.0 and which ccs still imports as a library. nmux knows nothing about agents and must stay
+that way: a feature that needs to know what a session is running belongs here, in `AgentController`
+(`src/agents/controller.js`). That runs in `ccsd` (`src/ccsd/`), one process per user, and reaches a session only through
+`HostedSession` and the SDK.
 
 ccs imports `nmux/sdk` and nmux's pure utilities and nothing else; `test/unit/nmux-boundary.test.js` enforces that. Tests may
 use `nmux/internal/*`. What has to happen on every keystroke cannot wait for ccsd, so it is declared in `hostSpec`
 (`src/sessiond/agentsession.js`) and enforced by the host. `ccsd` must stay optional: if it is away, a session keeps running.
 
-ccs depends on the packed release in `vendor/`, so that a clone needs nothing beside it. While working on both, `npm run
-nmux:link` points `node_modules/nmux` at the checkout, so a change there takes effect here. When nmux changes, `npm run
-nmux:vendor` makes a new package, and both test suites have to pass against it.
+Sessions run on, and `ccs attach` attaches with, the nmux binary: `libexec/nmux`, built from the source in
+`vendor/nmux-rs-<version>.tar.gz` by `npm run nmux:build` (the installer and the release packages build it too).
+`src/common/nmuxbin.js` finds it, and `CCS_NMUX_BIN` names another binary, or, set empty, none: then the nmux package in
+`node_modules` serves and attaches, and `ccs doctor` warns. That package, packed in `vendor/` too, is what ccs imports. A clone
+needs nothing beside it but cargo.
 
-ccs's words, file formats and wire fields are its own. The host speaks through tables ccs replaces
-(`src/sessiond/messages.js`, `src/cli/attach.js`), what it publishes appears in `STATUS` and `STATE` beside the host's own
-fields, and `state.json` is written by the controller.
+Work on nmux happens in `../nmux-rs` only. When it changes, bump its version, commit it, and run `npm run nmux:vendor-rs`, which
+packs it and builds `libexec/nmux`; while working on both, `NMUX_RS_DIR=../nmux-rs npm run nmux:build` builds from the checkout.
+Both suites have to pass: `cargo test --workspace` there, and this one, on the new binary. `npm run nmux:vendor` and `npm run
+nmux:link` are for the Node package, which changes only if the SDK has to.
+
+ccs's words, file formats and wire fields are its own. The host speaks through tables ccs replaces, which are data so that
+the binary can take them (`src/sessiond/messages.js`: the server's messages, the client's words, and ccs's keys), what it
+publishes appears in `STATUS` and `STATE` beside the host's own fields, and `state.json` is written by the controller.
 
 ## Platform code lives in one place
 

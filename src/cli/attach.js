@@ -1,31 +1,35 @@
 'use strict';
 // @ts-check
-/** The host's attach client, in ccs's words. */
+/**
+ * The host's attach client, in ccs's words. With the nmux binary (src/common/nmuxbin.js) that is the binary, run as
+ * `nmux __attach` on this terminal with ccs's words, keys and configuration; without it, the nmux package's own client in this
+ * process, given the same words as functions.
+ */
+const { spawn } = require('node:child_process');
 const host = require('nmux/sdk');
 const { hhmm } = host;
 const { loadConfig } = require('../common/config.js');
+const { nmuxBin } = require('../common/nmuxbin.js');
+const { CCS_WORDS, CCS_KEYS, fill } = require('../sessiond/messages.js');
+
+/** @typedef {'detached'|'client-exit'|'kicked'|'ended'|'lost'|'gave-up'} Leaving */
 
 /**
- * @param {{kind: 'detached'|'client-exit'|'kicked'|'ended'|'lost'|'gave-up', name: string, others: number, at: Date, reason?: string}} a
+ * The line a client leaves when it goes, dimmed, CRLF (raw mode).
+ * @param {{kind: Leaving, name: string, others: number, at: Date, reason?: string}} a
  */
 function detachLine({ kind, name, others, at, reason }) {
-  const t = hhmm(at);
-  let text;
-  if (kind === 'detached') {
-    const who = others > 0 ? ` (${others} other client${others === 1 ? '' : 's'})` : '';
-    text = `── ccs · detached from ${name} ${t} · still running${who} · ccs a ${name} ──`;
-  } else if (kind === 'kicked') {
-    text = `── ccs · detached from ${name} ${t} by ${reason || 'ccs kick'} · still running · ccs a ${name} ──`;
-  } else if (kind === 'client-exit') {
-    text = `── ccs · detached from ${name} ${t} · you ran /exit; the session keeps running · ccs a ${name} ──`;
-  } else if (kind === 'ended') {
-    text = `── ccs · ${name} ended ${t}${reason ? ` (${reason})` : ''} · ccs a ${name} ──`;
-  } else if (kind === 'gave-up') {
-    text = `── ccs · disconnected from ${name} ${t}${reason ? ` · ${reason}` : ''} · ccs a ${name} ──`;
-  } else {
-    text = `── ccs · lost connection to ${name} ${t} · ccs a ${name} ──`;
-  }
-  return `\x1b[2m${text}\x1b[0m\r\n`;
+  const w = CCS_WORDS;
+  /** @type {Record<Leaving, string>} */
+  const template = {
+    detached: others === 0 ? w.detached : others === 1 ? w.detachedOne : w.detachedMany,
+    kicked: reason ? w.kickedBy : w.kicked,
+    'client-exit': w.clientExit,
+    ended: reason ? w.endedWhy : w.ended,
+    'gave-up': reason ? w.gaveUpWhy : w.gaveUp,
+    lost: w.lost,
+  };
+  return `\x1b[2m${fill(template[kind], { name, time: hhmm(at), others, reason: reason || '' })}\x1b[0m\r\n`;
 }
 
 /**
@@ -33,49 +37,63 @@ function detachLine({ kind, name, others, at, reason }) {
  * @param {{code: string, cols: number, rows: number, need: {cols?: number, rows?: number}, name: string, shrink: boolean, hardMinCols: number}} a
  */
 function floorMessage({ code, cols, rows, need, name, shrink, hardMinCols }) {
-  const lines = [];
-  if (code === 'TOO_SHORT') {
-    lines.push(`ccs: this terminal is ${cols}x${rows} — below the ${need.rows}-row floor for shared sessions`);
-    lines.push('     (a shorter terminal shrinks Claude for every attached client)');
-    lines.push('     make it taller (I will attach automatically)');
-  } else {
-    lines.push(`ccs: this terminal is ${cols}x${rows} — below the ${need.cols}-column floor for shared sessions`);
-    lines.push('     (a narrower terminal reflows Claude for every attached client)');
-    lines.push(shrink || cols < hardMinCols
-      ? '     widen it (I will attach automatically)'
-      : `     widen it (I will attach automatically) · ccs attach ${name} --shrink (min ${hardMinCols} cols)`);
-  }
-  lines.push(`     · or use the Claude app: '${name}' is available via Remote Control`);
-  lines.push('     (Ctrl+C gives up)');
-  return lines.map((l) => `${l}\r\n`).join('');
+  const w = CCS_WORDS;
+  const [template, n] = code === 'TOO_SHORT' ? [w.tooShort, need.rows]
+    : shrink || cols < hardMinCols ? [w.tooNarrow, need.cols] : [w.tooNarrowShrink, need.cols];
+  return fill(template, { cols, rows, need: n ?? '', name, hardMinCols }).split('\n').map((l) => `${l}\r\n`).join('');
 }
 
 /** @type {import('nmux/sdk').ClientText} */
 const CCS_TEXT = {
-  brand: 'ccs',
-  nestEnv: 'CCS_ID',
-  insideMultiplexer: 'ccs: warning: running inside tmux/screen — its own scrollback handling may hide Claude\'s history\n',
-  refuseNested: (id) => `ccs: refusing to attach from inside a ccs-hosted session (CCS_ID=${id}) — that would nest one session inside another; detach first (Ctrl+Z)`,
+  brand: CCS_WORDS.brand,
+  nestEnv: CCS_WORDS.nestEnv,
+  insideMultiplexer: CCS_WORDS.insideMultiplexer,
+  refuseNested: (id) => fill(CCS_WORDS.refuseNested, { id }),
   detachLine,
   floorMessage,
   help: host.DEFAULT_TEXT.help,
   whoIsAttached: host.DEFAULT_TEXT.whoIsAttached,
 };
 
-/** Agents take every other key, so there is no leader: these two detach at once. */
-const CCS_KEYS = { direct: { 'C-z': 'detach', 'C-\\': 'detach' } };
-
 /** @param {{stdin: any, stdout: any, env: Record<string, string|undefined>}} io */
 const attachPrecheck = (io) => host.attachPrecheck(io, CCS_TEXT);
 
 /**
+ * What `nmux __attach` is given: the session, the flags, ccs's configuration with its keys, and its words.
+ * @param {{sockPath: string, name: string, config: any, flags: {shrink?: boolean, allowSetup?: boolean, full?: boolean}}} a
+ */
+function attachSpec({ sockPath, name, config, flags }) {
+  return { sock: sockPath, name, flags: { shrink: !!flags.shrink, allowSetup: !!flags.allowSetup, full: !!flags.full },
+    config: { ...config, keys: CCS_KEYS }, words: CCS_WORDS };
+}
+
+/**
+ * Runs the nmux binary's client on this terminal until it ends: its exit code. It has the terminal to itself meanwhile, so
+ * nothing here reads it.
+ * @param {string} bin @param {object} spec
+ * @param {{stdin?: any, stdout?: any, stderr?: any, env?: Record<string, string|undefined>}} io
+ * @returns {Promise<number>}
+ */
+function attachWith(bin, spec, io) {
+  return new Promise((resolve) => {
+    const child = spawn(bin, ['__attach', '--json', JSON.stringify(spec)],
+      { stdio: [io.stdin || 'inherit', io.stdout || 'inherit', io.stderr || 'inherit'], env: io.env || process.env });
+    child.on('error', (e) => { (io.stderr || process.stderr).write(`ccs: could not run ${bin}: ${e.message}\n`); resolve(1); });
+    child.on('exit', (code, signal) => resolve(code ?? (signal ? 1 : 0)));
+  });
+}
+
+/**
  * Contract §6.22 (plus the session id, which the socket path needs).
- * @param {{paths: any, id: string, name: string, flags?: {shrink?: boolean, allowSetup?: boolean},
+ * @param {{paths: any, id: string, name: string, flags?: {shrink?: boolean, allowSetup?: boolean, full?: boolean},
  *          io?: {stdin?: any, stdout?: any, stderr?: any, env?: Record<string, string|undefined>}}} a
  * @returns {Promise<number>}
  */
 function attach({ paths, id, name, flags = {}, io = {} }) {
-  return host.attach({ sockPath: paths.ctlSock(id), name, config: loadConfig(paths.configFile), flags, text: CCS_TEXT, keys: CCS_KEYS, io });
+  const config = loadConfig(paths.configFile);
+  const bin = nmuxBin(io.env || process.env);
+  if (bin) return attachWith(bin, attachSpec({ sockPath: paths.ctlSock(id), name, config, flags }), io);
+  return host.attach({ sockPath: paths.ctlSock(id), name, config, flags, text: CCS_TEXT, keys: CCS_KEYS, io });
 }
 
-module.exports = { attach, attachPrecheck, detachLine, floorMessage, CCS_TEXT, CCS_KEYS };
+module.exports = { attach, attachPrecheck, attachSpec, detachLine, floorMessage, CCS_TEXT, CCS_KEYS };

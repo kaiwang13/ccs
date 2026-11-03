@@ -30,6 +30,7 @@ const { isRunning } = require('../ccsd/main.js');
 const { settleRecord } = require('../ccsd/record.js');
 const cp = require('child_process');
 const { getAgent } = require('../agents/index.js');
+const { hostEnv } = require('../common/nmuxbin.js');
 const { LaunchError } = require('../claude/launcher.js');
 
 const ID_RE = /^[0-9a-f]{8}$/;
@@ -106,8 +107,9 @@ async function host(spec, config, paths, { recover, env }) {
   ensureCcsd(paths, env);
   const made = hostSpec(spec, config, loadScreens(spec.claude.version));
   const file = path.join(paths.sessionDir(spec.ccsId), 'session.json');
-  if (recover && fs.existsSync(file)) startServer(file, { recover: true, env: { ...env, UV_THREADPOOL_SIZE: '16' } });
-  else createSession(made, { recover, env: { ...env, UV_THREADPOOL_SIZE: '16' } });
+  const serverEnv = hostEnv({ ...env, UV_THREADPOOL_SIZE: '16' });
+  if (recover && fs.existsSync(file)) startServer(file, { recover: true, env: serverEnv });
+  else createSession(made, { recover, env: serverEnv });
   await serverUp(paths.ctlSock(spec.ccsId));
 }
 

@@ -76,6 +76,7 @@ outside=$(find "$CCS_HOME" -maxdepth 0 2>/dev/null | wc -l)
 say "nmux comes with it"
 [ -x "$CCS_BIN_DIR/nmux" ] && pass "wrapper is executable at \$CCS_BIN_DIR/nmux" || bad "no nmux wrapper"
 "$CCS_BIN_DIR/nmux" --version >/dev/null 2>&1 && pass "nmux runs from the install" || bad "nmux does not run"
+grep -q 'current/libexec/nmux' "$CCS_BIN_DIR/nmux" && pass "nmux is the binary the package carries" || bad "nmux is not the package's binary"
 
 say "the installed ccs runs and is pointed at its own registry"
 if "$WRAPPER" ls >"$PREFIX/ls.log" 2>&1; then pass "ccs ls exits 0"; else bad "ccs ls failed"; tail -5 "$PREFIX/ls.log"; fi

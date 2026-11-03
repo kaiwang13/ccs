@@ -2,14 +2,14 @@
 // @ts-check
 /** A ccs session spec turned into what the host needs to run it. */
 const path = require('node:path');
-const { CCS_MESSAGES } = require('./messages.js');
+const { CCS_MESSAGES, CCS_KEYS } = require('./messages.js');
 
 const CCSD_MAIN = path.join(__dirname, '..', 'ccsd', 'main.js');
 
-/** What the host needs that ccs does not offer as a setting, under the host's names. @param {any} config */
+/** What the host needs that ccs does not offer as a setting, under the host's names: the bar says ccs's keys. @param {any} config */
 function hostConfig(config) {
   return { ...config, notices: { bellOnAttention: config.notices.bellOnNeedsYou }, stream: { repaint: true },
-    overlay: { ...config.overlay, timeZone: config.env.timezone } };
+    overlay: { ...config.overlay, timeZone: config.env.timezone }, keys: CCS_KEYS };
 }
 
 /**

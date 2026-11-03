@@ -3,6 +3,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const { createSession, SessionClient } = require('nmux/sdk');
+const { hostEnv } = require('../../src/common/nmuxbin.js');
 const { realClock } = require('nmux/base/clock');
 const { AgentController } = require('../../src/agents/controller');
 const { HostedSession } = require('../../src/ccsd/hosted');
@@ -42,7 +43,7 @@ async function startTestSession(t, { fakeArgs = [], config = {}, supervisorTimer
   delete host.managed.command;                                                         // this process is the controller
   host.timers = supervisorTimers;
   host.holderTimers = holderTimers ?? { noConnMs: 600000 };
-  const { specFile } = createSession(host, { env: process.env });
+  const { specFile } = createSession(host, { env: hostEnv(process.env) });
   const sockPath = paths.ctlSock(spec.ccsId);
   const controller = new AgentController({ spec, config: conf, clock: realClock, log: LOG, paths, screens, timers: supervisorTimers });
   /** @type {() => void} */

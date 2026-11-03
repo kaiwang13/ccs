@@ -37,6 +37,10 @@ jobs:
       - name: build the ttyctl native addon
         run: npm run build:native
 
+      # Sessions run on the nmux binary, built from vendor/nmux-rs-*.tar.gz; the runners have cargo.
+      - name: build nmux
+        run: npm run nmux:build
+
       - name: unit tests
         run: node --test --test-concurrency=1 "test/unit/**/*.test.js"
 

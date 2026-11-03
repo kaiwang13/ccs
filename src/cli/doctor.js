@@ -13,6 +13,7 @@ const cp = require('child_process');
 const fs = require('fs');
 const path = require('path');
 const { getAgent, KNOWN_AGENTS } = require('../agents/index.js');
+const { nmuxBin } = require('../common/nmuxbin.js');
 const { claudeJsonGuard, checkClaudeJson, backupClaudeJson } = require('../claude/preflight.js');
 const { loadDecoderBaseline } = require('../claude/tested.js');
 const { tildify } = require('./ls.js');
@@ -53,6 +54,25 @@ function checkNative() {
     out.push({ level: 'fail', label: 'node-pty', detail: `did not load (${(/** @type {any} */ (e)).message}) — run: npm ci` });
   }
   return out;
+}
+
+/**
+ * What sessions run on: the nmux binary, built for this version of ccs, or else the nmux package in node_modules, which works but
+ * gains nothing new: nmux is made in Rust now.
+ * @returns {Check}
+ */
+function checkHost() {
+  const bin = nmuxBin(process.env);
+  const build = 'run: npm run nmux:build (needs cargo)';
+  if (!bin) return { level: 'warn', label: 'nmux', detail: `no nmux binary: sessions run on the nmux package in node_modules, which no longer gains features — ${build}` };
+  const r = cp.spawnSync(bin, ['--version'], { encoding: 'utf8', timeout: 5000 });
+  const version = r.status === 0 ? r.stdout.trim() : '';
+  if (!version) return { level: 'fail', label: 'nmux', detail: `${bin} did not run (${r.error ? r.error.message : (r.stderr || '').trim() || `exit ${r.status}`}) — ${build}` };
+  const vendored = fs.readdirSync(path.join(__dirname, '..', '..', 'vendor')).map((f) => /^nmux-rs-(.+)\.tar\.gz$/.exec(f)).find(Boolean);
+  if (process.env.CCS_NMUX_BIN === undefined && vendored && version !== `nmux ${vendored[1]}`) {
+    return { level: 'warn', label: 'nmux', detail: `${version} at ${bin}, but this ccs carries nmux ${vendored[1]} — ${build}` };
+  }
+  return { level: 'ok', label: 'nmux', detail: `${version} at ${bin}` };
 }
 
 /**
@@ -236,7 +256,7 @@ async function runDoctorLite({ paths, config, out, acceptConfig = false, nfsTime
     return 0;
   }
   /** @type {Check[]} */
-  const checks = [checkNode(), ...checkNative(), ...checkPlatform()];
+  const checks = [checkNode(), ...checkNative(), checkHost(), ...checkPlatform()];
   checks.push(checkClaude(paths, config));
   const bin = getAgent('claude').resolveBin(paths, config);
   if (bin) checks.push(checkDecoder(bin, decoderTimeoutMs));

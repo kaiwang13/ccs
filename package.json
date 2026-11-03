@@ -15,10 +15,12 @@
     "test:integration": "node --test \"test/integration/**/*.test.js\"",
     "test:live": "node --test --test-concurrency=1 \"test/live/**/*.test.js\"",
     "nmux:vendor": "sh tools/vendor-nmux.sh",
-    "nmux:link": "rm -rf node_modules/nmux && ln -s ../../nmux node_modules/nmux"
+    "nmux:link": "rm -rf node_modules/nmux && ln -s ../../nmux node_modules/nmux",
+    "nmux:vendor-rs": "sh tools/vendor-nmux-rs.sh",
+    "nmux:build": "sh tools/build-nmux.sh"
   },
   "dependencies": {
-    "nmux": "file:vendor/nmux-0.4.2.tgz",
+    "nmux": "file:vendor/nmux-0.5.0.tgz",
     "node-pty": "1.1.0"
   },
   "devDependencies": {

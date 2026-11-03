@@ -2,6 +2,8 @@ node_modules/
 *.log
 /tmp/
 build/
+# The nmux binary, built from vendor/nmux-rs-*.tar.gz by tools/build-nmux.sh
+/libexec/
 .superpowers/
 
 

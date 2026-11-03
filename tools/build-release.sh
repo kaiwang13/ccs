@@ -8,7 +8,9 @@
 # dependencies with node-pty compiled for that Node, the ttyctl addon, and the Feishu add-on's dependencies. Users
 # install it with the install.sh inside it (or install.sh downloads it); nothing is compiled on their machine.
 #
-# The build machine needs a C/C++ toolchain, make, python3, curl and tar — NOT a Node install: the official Node
+# The package also carries libexec/nmux, the binary sessions run on, built from vendor/nmux-rs-*.tar.gz for this machine.
+#
+# The build machine needs a C/C++ toolchain, make, python3, curl, tar and cargo — NOT a Node install: the official Node
 # binary for this platform is downloaded (checksum-verified) and builds the package itself, so the native addons are
 # compiled against exactly the Node they will run on. Native code is built for the machine running the script: build
 # Linux packages on the oldest glibc you want to support (CI uses manylinux_2_28, the same floor as Node 24 itself).
@@ -80,6 +82,10 @@ say "installing production dependencies (node-pty and ttyctl are built for Node 
 say "installing the Feishu add-on's dependencies"
 ( cd "$STAGE/addons/feishu" && npm ci --omit=dev --no-audit --no-fund --loglevel=error )
 
+say "building nmux"
+rm -f "$STAGE/libexec/nmux"
+sh "$REPO_DIR/tools/build-nmux.sh" "$STAGE/libexec/nmux" || die "could not build nmux"
+
 # ---- prune build leftovers and other platforms' binaries -----------------------------------------------------------
 NMUX="$STAGE/node_modules/nmux"
 TTY="$NMUX/native/ttyctl/build/Release/ttyctl.node"
@@ -123,6 +129,7 @@ say "checking the staged package"
       if (exitCode !== 0 || !out.includes("ccs-pty-ok")) { console.error("pty check failed:", exitCode, JSON.stringify(out)); process.exit(1); }
     });' ) || die "the staged package does not run"
 ( cd "$STAGE" && runtime/bin/node bin/ccs.js help >/dev/null ) || die "ccs help failed in the staged package"
+( cd "$STAGE" && libexec/nmux --version >/dev/null ) || die "nmux does not run in the staged package"
 
 rm -f "$OUT/$ASSET" "$OUT/$ASSET.sha256"
 ( cd "$OUT/stage" && tar -czf "$OUT/$ASSET" "$NAME" )

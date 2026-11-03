@@ -54,9 +54,10 @@ const DEFAULTS = deepFreeze({
   env: { passthrough: [], sshAuthSock: null, timezone: 'America/Los_Angeles' },
   // keep: every line a session prints is kept, with its time, after the session ends; `ccs search` and `ccs view` read it.
   history: { keep: true },
-  // A quiet session shows the time faintly behind its text, in env.timezone, with the date and its name, and each new day
-  // starts with a line saying so. Neither ever reaches the scrollback.
-  overlay: { watermark: true, dayLines: true },
+  // bar: a bar on a terminal's last row says ccs, the session, who is attached, how to detach, and the date and time in
+  // env.timezone; the session scrolls above it, into the terminal's own scrollback. dayLines: each new day starts with a line
+  // saying so. (watermark, the faint picture the bar replaced, is still accepted and does nothing.)
+  overlay: { bar: true, dayLines: true },
   // src/common/proxy.js: a URL, 'none', or null (keep the shell's). `ccs proxy` edits these.
   proxy: { session: null, feishu: null, noProxy: null },
   // Claude's UI does not survive a narrow terminal or a resize storm, and a shared session should not jump about.
@@ -122,6 +123,7 @@ const LEAVES = {
   'env.sshAuthSock': (v) => v === null || (typeof v === 'string' && v.startsWith('/')),
   'env.timezone': (v) => v === null || isTimeZone(v),
   'history.keep': bool,
+  'overlay.bar': bool,
   'overlay.watermark': bool,
   'overlay.dayLines': bool,
   'proxy.session': isProxySetting,

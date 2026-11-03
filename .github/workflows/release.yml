@@ -42,6 +42,8 @@ jobs:
       MACOSX_DEPLOYMENT_TARGET: '13.5'
     steps:
       - uses: actions/checkout@v4
+      # The package carries the nmux binary, built from vendor/nmux-rs-*.tar.gz; the manylinux containers have no Rust.
+      - uses: dtolnay/rust-toolchain@stable
       - name: build the package
         run: sh tools/build-release.sh dist
       - uses: actions/upload-artifact@v4
