@@ -163,7 +163,13 @@ test('four terminals attach to one session at once, all render, all detach, the 
     try { return JSON.parse(fs.readFileSync(ctx.paths.stateFile(rec.id), 'utf8')).lifecycle === 'RUNNING'; } catch { return false; }
   }, 30000, 'the session to reach RUNNING');
 
-  const rows = JSON.parse((await runCcs(ctx, ['ls', '--json'])).stdout);
+  // A listing whose STATUS the server, busy with four joins, did not answer in time falls back to state.json, which counts
+  // no clients: wait for the count, not only for RUNNING.
+  let rows = [];
+  await waitFor(async () => {
+    rows = JSON.parse((await runCcs(ctx, ['ls', '--json'])).stdout);
+    return rows[0] && rows[0].clients === 4;
+  }, 30000, 'the registry to count all four attached clients').catch(() => {});
   assert.equal(rows[0].clients, 4, 'the registry must count all four attached clients');
   assert.equal(rows[0].lifecycle, 'RUNNING');
 
