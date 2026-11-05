@@ -6,6 +6,8 @@ const { loadConfig } = require('../common/config.js');
 const { ensureRuntime } = require('nmux/platform/runtime');
 const { createRegistry } = require('../common/registry.js');
 const { UsageError } = require('./args.js');
+const { spawn } = require('node:child_process');
+const { addonCommand } = require('../addon/host.js');
 
 const USAGE = `usage:
   ccs                                   picker on a terminal, otherwise ccs ls
@@ -22,6 +24,7 @@ const USAGE = `usage:
   ccs doctor [--lite] [--accept-config]
   ccs proxy [default|session|feishu|no-proxy|check …]   see and change the proxies (ccs proxy help)
   ccs feishu setup|start|stop|status|disable   optional Feishu add-on (docs/feishu.md)
+  ccs translate [--to en|zh] [TEXT…]    the translate add-on, when it is on (docs/translate.md)
 keys while attached: Ctrl+Z or Ctrl+\\ detaches (the session keeps running)
 `;
 
@@ -40,6 +43,20 @@ function makeContext({ env, out, err, stdin }) {
   const nfsTimeoutMs = config.registry.nfsTimeoutMs;
   const registry = createRegistry(paths, { nfsTimeoutMs });
   return { env, out, err, stdin, paths, config, registry, nfsTimeoutMs };
+}
+
+/**
+ * Runs an add-on's command until it ends, with this terminal's input, and what it says passed on: its exit code.
+ * @param {string[]} argv @param {any} ctx @returns {Promise<number>}
+ */
+function runAddon(argv, ctx) {
+  return new Promise((resolve) => {
+    const child = spawn(argv[0], argv.slice(1), { stdio: [ctx.stdin && ctx.stdin.fd === 0 ? 'inherit' : 'ignore', 'pipe', 'pipe'], env: ctx.env });
+    child.stdout.pipe(ctx.out, { end: false });
+    child.stderr.pipe(ctx.err, { end: false });
+    child.on('error', (e) => { ctx.err.write(`ccs: could not run ${argv[1]}: ${e.message}\n`); resolve(1); });
+    child.on('close', (code, signal) => resolve(code ?? (signal ? 1 : 0)));
+  });
 }
 
 /**
@@ -75,9 +92,13 @@ async function main(argv, io = {}) {
       case 'view': return await require('./commands/view.js').run(rest, ctx);
       case 'feishu': return await require('./commands/feishu.js').run(rest, ctx);
       case 'proxy': return await require('./commands/proxy.js').run(rest, ctx);
-      default:
+      default: {
+        const addon = addonCommand(ctx.config, cmd, rest);
+        if (addon && 'argv' in addon) return await runAddon(addon.argv, ctx);
+        if (addon) { err.write(`ccs: '${cmd}' comes with the ${addon.off} add-on, which is off: config addons.${addon.off}.enabled\n`); return 2; }
         err.write(`ccs: unknown command '${cmd}'\n${USAGE}`);
         return 2;
+      }
     }
   } catch (e) {
     const x = /** @type {any} */ (e);

@@ -9,6 +9,7 @@
  *   --trust · --slow-session-json MS · --ignore-sigterm · --crash · --stall-stdout MS · --stall-input MS
  * Env: CCS_CLAUDE_HOME (else $HOME/.claude) · XDG_RUNTIME_DIR · FAKECLAUDE_RECORD · FAKECLAUDE_CONTROL (JSON polled every
  *   100 ms: {"status": "...", "waitingFor": "..."|null})
+ * Ctrl+G runs $VISUAL or $EDITOR on the draft, as Claude does.
  * Typed commands (Enter): /exit, /quit · /bigdialog (tall frame, then a full reset) · /reset · /stall MS (blocks the event
  *   loop) · /pause-input MS (stops reading stdin) · /child-cooked MS (a job-control child owns the terminal in cooked mode)
  *   · /cpr (asks ESC[6n; replies are recorded) · /status STATUS [WAITINGFOR…] · !seq N · !lines N WIDTH · anything else is echoed.
@@ -261,6 +262,30 @@ function submit(line) {
   print([`❯ ${t}`, `● echo: ${t}`]);
 }
 
+/**
+ * Ctrl+G, as Claude 2.1.310 has it: the draft goes to a file, $VISUAL or else $EDITOR, split on spaces, runs with it last and
+ * has the terminal, and what the file then holds is the draft, unless the editor failed. Recorded in `editor`.
+ */
+function externalEditor() {
+  const named = process.env.VISUAL || process.env.EDITOR;
+  if (!named) return;
+  const file = path.join(os.tmpdir(), `claude-prompt-${process.pid}-${Date.now()}.md`);
+  fs.writeFileSync(file, draft);
+  const [program, ...args] = named.split(/\s+/).filter(Boolean);
+  process.stdin.pause();
+  try { process.stdin.setRawMode(false); } catch { /* closed */ }
+  const r = require('node:child_process').spawnSync(program, [...args, file], { stdio: 'inherit' });
+  try { process.stdin.setRawMode(true); } catch { /* closed */ }
+  process.stdin.resume();
+  if (r.status === 0) draft = fs.readFileSync(file, 'utf8').replace(/\n+$/, '');
+  fs.rmSync(file, { force: true });
+  record.editor = (record.editor || []).concat([{ program, status: r.status }]);
+  saveRecord();
+  write('\x1b[H\x1b[2J');
+  drawn = 1;
+  drawFrame();
+}
+
 const tokenizer = new InputTokenizer({ clock: realClock, escFlushMs: 50, pasteIdleCloseMs: 2000, onTimerTokens: (toks) => { toks.forEach(onToken); flushDraw(); } });
 const hs = { highSurrogate: '' };
 /** @param {import('nmux/vt/inputtok').InputToken} tok */
@@ -278,6 +303,7 @@ function onToken(tok) {
     const b = tok.bytes;
     if (b.length === 1 && (b[0] === 0x0d || b[0] === 0x0a)) { submit(draft); continue; }
     if (b.length === 1 && (b[0] === 0x7f || b[0] === 0x08)) { draft = [...draft].slice(0, -1).join(''); markDirty(); continue; }
+    if (b.length === 1 && b[0] === 0x07 && phase === 'prompt') { externalEditor(); continue; }
     if (tok.kind === 'seq' && b[0] !== 0x1b && /^[^\x00-\x1f\x7f]$/u.test(tok.seq)) { if (phase === 'prompt') { draft += tok.seq; markDirty(); } }
   }
 }

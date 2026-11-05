@@ -25,7 +25,7 @@ const { sessionLayout, segment } = require('nmux/sdk');
 
 /**
  * @typedef {import('nmux/sdk').Layout & {
- *   hostname: string, settingsFile(id: string): string,
+ *   hostname: string, settingsFile(id: string): string, draftEditorFile(id: string): string,
  *   locksDir: string, startLock: string, registryLock: string, reconcileLock: string,
  *   runDir: string, cliLog: string,
  *   stateDir: string, historyDir: string, hostKey: string, hostsDir: string, hostDir: string, sessionsStateDir: string,
@@ -81,6 +81,7 @@ function resolvePaths(env = process.env) {
     ...layout,
     hostname,
     settingsFile: (id) => path.join(layout.sessionDir(id), 'settings.json'),
+    draftEditorFile: (id) => path.join(layout.sessionDir(id), 'draft-editor'),
     locksDir,
     startLock: path.join(locksDir, 'start.lock'),
     registryLock: path.join(locksDir, 'registry.lock'),

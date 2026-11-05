@@ -445,6 +445,12 @@ gives it to every terminal attached with `all`. `none`, the default, gives it to
 terminal attaches, and your terminal has to allow programs to set the clipboard too. Nothing in a session can read
 your clipboard through ccs.
 
+### Translate
+
+The translate add-on puts Chinese you write into the agent's input in English, by the agent's external-editor key (Ctrl+G in
+Claude Code) or a pad on `Ctrl+]` `e`, and shows the agent's replies in Chinese on `Ctrl+]` `r`, through an OpenAI-compatible API you name. See
+[docs/translate.md](docs/translate.md).
+
 ### Proxy
 
 Without any proxy setting a session keeps the proxy variables of the shell that ran `ccs new`. To choose it

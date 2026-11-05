@@ -10,6 +10,7 @@ const host = require('nmux/sdk');
 const { hhmm } = host;
 const { loadConfig } = require('../common/config.js');
 const { nmuxBin } = require('../common/nmuxbin.js');
+const { attachActions } = require('../addon/host.js');
 const { CCS_WORDS, CCS_KEYS, fill } = require('../sessiond/messages.js');
 
 /** @typedef {'detached'|'client-exit'|'kicked'|'ended'|'lost'|'gave-up'} Leaving */
@@ -60,13 +61,17 @@ const attachPrecheck = (io) => host.attachPrecheck(io, CCS_TEXT);
 
 /**
  * What `nmux __attach` is given: the session, the flags, the sections of ccs's configuration the client reads, ccs's keys, and its
- * words. It goes on a command line, which other accounts may be able to read, so nothing more of the configuration does.
- * @param {{sockPath: string, name: string, config: any, flags: {shrink?: boolean, allowSetup?: boolean, full?: boolean}}} a
+ * words. It goes on a command line, which other accounts may be able to read, so nothing more of the configuration does. The
+ * add-ons that are on add their actions, as the commands nmux runs with the terminal lent, and the keys after the leader.
+ * @param {{sockPath: string, name: string, config: any, flags: {shrink?: boolean, allowSetup?: boolean, full?: boolean}, addonsDir?: string}} a
  */
-function attachSpec({ sockPath, name, config, flags }) {
+function attachSpec({ sockPath, name, config, flags, addonsDir }) {
   const { size, clients, input, overlay } = config;
+  const addons = attachActions(config, addonsDir);
+  const keys = addons.keys ? { ...CCS_KEYS, ...addons.keys } : CCS_KEYS;
   return { sock: sockPath, name, flags: { shrink: !!flags.shrink, allowSetup: !!flags.allowSetup, full: !!flags.full },
-    config: { size, clients, input, overlay, keys: CCS_KEYS }, words: CCS_WORDS };
+    config: { size, clients, input, overlay, keys, ...(Object.keys(addons.actions).length ? { actions: addons.actions } : {}) },
+    words: CCS_WORDS };
 }
 
 /**

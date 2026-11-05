@@ -2,7 +2,7 @@
 // @ts-check
 /**
  * What an agent's transcript says, whichever agent wrote it: `claude.js` and `codex.js` read their records into these,
- * and `tail.js` reads the records as they are written. JSDoc only.
+ * and `tail.js` reads the records as they are written. Add-ons have them through the SDK (src/addon/sdk.js). JSDoc only.
  *
  * @typedef {{kind: 'prompt', key: string, text: string}
  *   | {kind: 'text', key: string, text: string}

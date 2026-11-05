@@ -80,6 +80,10 @@ const DEFAULTS = deepFreeze({
   registry: { nfsTimeoutMs: 10000 },
   notices: { bellOnNeedsYou: true },
   logs: { maxBytes: 5242880, keep: 3 },
+  // Programs beside ccs that it runs and never loads (src/addon/host.js). leader: the key before an add-on's key while
+  // attached (agents take every key, so none is taken without it). Each add-on has a section of its own, by its name,
+  // which the add-on checks: { "translate": { "enabled": true, … } }.
+  addons: { leader: 'C-]' },
 });
 
 /** @typedef {typeof DEFAULTS} Config */
@@ -188,6 +192,7 @@ const LEAVES = {
   'notices.bellOnNeedsYou': bool,
   'logs.maxBytes': int(4096, 1073741824),
   'logs.keep': int(0, 100),
+  'addons.leader': (v) => v === null || (typeof v === 'string' && /^(?:[CM]-)?\S$/.test(v)),
 };
 
 const isPlainObject = (/** @type {unknown} */ v) => typeof v === 'object' && v !== null && !Array.isArray(v);
@@ -236,7 +241,8 @@ function loadConfig(file, onInvalid = () => {}) {
     if (!isPlainObject(value)) { report(key, value); continue; }
     for (const [leaf, leafValue] of Object.entries(value)) {
       const dotted = `${key}.${leaf}`;
-      const check = LEAVES[dotted];
+      // an add-on's own section is checked by the add-on
+      const check = LEAVES[dotted] || (key === 'addons' ? isPlainObject : undefined);
       if (!check || !check(leafValue)) { report(dotted, leafValue); continue; }
       out[key][leaf] = structuredClone(leafValue);
     }

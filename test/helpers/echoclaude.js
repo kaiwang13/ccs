@@ -4,7 +4,9 @@
 // client itself never emits them. It:
 //  - writes $HOME/.claude/sessions/<pid>.json with a real procStart and pidDomain (claudewatch accepts it)
 //  - prints `echoclaude <name> <sessionId>` and `history line 1..N`, then a `❯ ` prompt
-//  - raw mode; echoes printable bytes; on CR prints `RECEIVED: <line>`; exits 0 on the line `/exit`
+//  - raw mode; echoes printable characters, UTF-8 too; on CR prints `RECEIVED: <line>`; exits 0 on the line `/exit`
+//  - Ctrl+G edits the line as Claude does: in $VISUAL or else $EDITOR, split on spaces, with a file holding it last,
+//    which is the line afterwards unless the editor failed; prints `EDITED: <line>`
 //  - records argv/env/cwd to $HOME/echoclaude-<pid>.json
 //  - options from $HOME/echoclaude.json: {"historyLines": 40}
 const fs = require('fs');
@@ -56,19 +58,40 @@ out('❯ ');
 if (process.stdin.isTTY) process.stdin.setRawMode(true);
 setTimeout(() => writeSessionJson('idle'), 100);
 
+/** Ctrl+G. */
+function editLine() {
+  const named = process.env.VISUAL || process.env.EDITOR;
+  if (!named) return;
+  const file = path.join(os.tmpdir(), `claude-prompt-${process.pid}-${Date.now()}.md`);
+  fs.writeFileSync(file, line);
+  const [program, ...args] = named.split(/\s+/).filter(Boolean);
+  process.stdin.pause();
+  if (process.stdin.isTTY) process.stdin.setRawMode(false);
+  const r = require('child_process').spawnSync(program, [...args, file], { stdio: 'inherit' });
+  if (process.stdin.isTTY) process.stdin.setRawMode(true);
+  process.stdin.resume();
+  if (r.status === 0) line = fs.readFileSync(file, 'utf8').replace(/\n+$/, '');
+  fs.rmSync(file, { force: true });
+  out(`\r\nEDITED: ${line}\r\n❯ ${line}`);
+}
+
 let line = '';
-process.stdin.on('data', (buf) => {
-  for (const b of buf) {
-    if (b === 0x0d) {
+const decoder = new (require('string_decoder').StringDecoder)('utf8');
+process.stdin.on('data', (data) => {
+  for (const ch of decoder.write(data)) {
+    const b = /** @type {number} */ (ch.codePointAt(0));
+    if (b === 0x07) {
+      editLine();
+    } else if (b === 0x0d) {
       out(`\r\nRECEIVED: ${line}\r\n`);
       if (line === '/exit') return quit(0);
       line = '';
       out('❯ ');
     } else if (b === 0x7f || b === 0x08) {
-      if (line.length) { line = line.slice(0, -1); out('\b \b'); }
-    } else if (b >= 0x20 && b < 0x7f) {
-      line += String.fromCharCode(b);
-      out(String.fromCharCode(b));
+      if (line.length) { line = [...line].slice(0, -1).join(''); out('\b \b'); }
+    } else if (b >= 0x20 && b !== 0x7f) {
+      line += ch;
+      out(ch);
     } else {
       out(`\r\nKEY: ${b.toString(16).padStart(2, '0')}\r\n❯ ${line}`);
     }

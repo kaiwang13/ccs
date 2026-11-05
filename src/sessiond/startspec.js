@@ -32,12 +32,22 @@ const cp = require('child_process');
 const { getAgent } = require('../agents/index.js');
 const { hostEnv } = require('../common/nmuxbin.js');
 const { LaunchError } = require('../claude/launcher.js');
+const { draftEditor } = require('../addon/host.js');
 
 const ID_RE = /^[0-9a-f]{8}$/;
 const HOLDER_LEAVING_MS = 5000;
 const NO_CONTROLLER_WAIT_MS = 5000;
 const SERVER_UP_WAIT_MS = 15000;
 const SETTLED = new Set(['RUNNING', 'SETUP_GATED', 'SUSPENDED', 'BLOCKED', 'FAILED', 'EXITED', 'STOPPING', 'STOPPED', 'STOP_STUCK']);
+
+/** An executable of this user's only, written whole. @param {string} file @param {string} text */
+function writeScript(file, text) {
+  fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 });
+  const tmp = `${file}.tmp.${process.pid}`;
+  fs.writeFileSync(tmp, text, { mode: 0o700 });
+  fs.chmodSync(tmp, 0o700);
+  fs.renameSync(tmp, file);
+}
 
 /**
  * Contract §6.22 (third argument is an additive optimisation for callers that already hold these).
@@ -57,6 +67,12 @@ async function buildSessionSpec(ccsId, paths, opts = {}) {
   const transcript = await runNfsOp({ kind: 'findTranscript', args: [paths.claudeProjectsDir, sessionId] }, timeoutMs);
   const launch = agent.buildLaunch({ intent: { ...rec.intent, ccsId }, state: rec.state, paths, config, claudeSettings, transcriptExists: transcript !== null, bin });
   agent.writeSettingsFile(launch.settingsFile, launch.theme);
+  const draft = draftEditor(config, launch.env, paths.draftEditorFile(ccsId), paths.configFile);
+  if (draft) {
+    writeScript(draft.file, draft.script);
+    launch.env.VISUAL = draft.file;
+    launch.env.EDITOR = draft.file;
+  }
   const last = rec.state && rec.state.pty;
   const pty = last && last.cols > 0 && last.rows > 0
     ? { cols: Math.min(last.cols, config.size.maxCols), rows: Math.min(last.rows, config.size.maxRows) }
