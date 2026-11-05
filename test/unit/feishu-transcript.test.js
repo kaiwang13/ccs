@@ -5,8 +5,8 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
-const { parseClaudeRecord, findClaudeTranscript } = require('../../addons/feishu/lib/transcript/claude.js');
-const { parseCodexRecord, findCodexRollout } = require('../../addons/feishu/lib/transcript/codex.js');
+const { parseClaudeRecord, findClaudeTranscript } = require('../../src/agents/transcript/claude.js');
+const { parseCodexRecord, findCodexRollout } = require('../../src/agents/transcript/codex.js');
 
 const FIX = path.join(__dirname, '..', 'fixtures', 'feishu');
 /** @param {string} f @param {(r: any) => any[]} parse */

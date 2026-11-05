@@ -5,7 +5,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
-const { TranscriptTail, MAX_READ } = require('../../addons/feishu/lib/transcript/tail.js');
+const { TranscriptTail, MAX_READ } = require('../../src/agents/transcript/tail.js');
 
 /** @param {import('node:test').TestContext} t */
 function tmpFile(t) {

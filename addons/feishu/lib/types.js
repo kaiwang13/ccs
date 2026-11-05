@@ -3,17 +3,8 @@
 /**
  * Types shared across the Feishu add-on. JSDoc only; nothing is exported at runtime.
  *
- * @typedef {{kind: 'prompt', key: string, text: string}
- *   | {kind: 'text', key: string, text: string}
- *   | {kind: 'thinking', key: string, text: string}
- *   | {kind: 'tool', key: string, toolId: string, name: string, input: string}
- *   | {kind: 'tool_result', key: string, toolId: string, text: string, isError: boolean}
- *   | {kind: 'command', key: string, name: string, args: string}
- *   | {kind: 'command_output', key: string, text: string}
- *   | {kind: 'shell', key: string, command: string}
- *   | {kind: 'shell_output', key: string, text: string}
- *   | {kind: 'turn_end', key: string, durationMs: number|null}} TEvent
- *   One normalised transcript event. `key` is unique per event within a session and is used to drop duplicates.
+ * @typedef {import('../../../src/agents/transcript/events').TEvent} TEvent
+ *   One normalised transcript event (src/agents/transcript/events.js).
  *
  * @typedef {{heading?: string, body: string, collapsed?: boolean}} OutSection
  * @typedef {{text: string, style?: 'default'|'primary'|'danger', value?: Record<string, string>, url?: string}} OutButton

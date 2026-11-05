@@ -4,7 +4,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 
-/** @typedef {import('../types').TEvent} TEvent */
+/** @typedef {import('./events').TEvent} TEvent */
 
 const SESSION_ID_RE = /^[0-9a-fA-F-]{8,64}$/;
 
