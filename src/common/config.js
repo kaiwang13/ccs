@@ -64,7 +64,10 @@ const DEFAULTS = deepFreeze({
   size: { ...HOST.size, floorCols: 50, hardMinCols: 40, floorRows: 15, maxCols: 240, maxRows: 150,
     shrinkDebounceMs: 100, shrinkMaxWaitMs: 400, growDebounceMs: 2000, growMinCols: 4, growMinRows: 2 },
   snapshot: { ...HOST.snapshot },
-  clients: { ...HOST.clients, dropMs: 60000 },
+  // osc52: which of an agent's clipboard writes (OSC 52) a terminal is given, read at attach: 'last-typist', those made while
+  // it is the terminal that typed last, 'all', or 'none'. None unless asked for: the nmux package's default says
+  // 'last-typist', and only its binary passes any on.
+  clients: { ...HOST.clients, dropMs: 60000, osc52: 'none' },
   input: { ...HOST.input, exitGuardMarginMs: 1000 },
   restart: {
     onUnplannedExit: true, cleanExitCountdownSec: 5, backoffSec: [2, 10, 30, 60, 120], maxUnplanned: 5, windowMin: 15,

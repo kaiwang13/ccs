@@ -15,6 +15,7 @@ function tmpdir(t) {
 
 test('DEFAULTS equal spec §10.5 plus contract additions and are deep-frozen', () => {
   assert.equal(DEFAULTS.schema, 'ccs.config/1');
+  assert.equal(DEFAULTS.clients.osc52, 'none', 'an agent sets no terminal\'s clipboard unless that is asked for');
   assert.deepEqual(DEFAULTS.claude.testedVersions, ['2.1.267']);
   assert.equal(DEFAULTS.size.floorCols, 50);
   assert.equal(DEFAULTS.size.hardMinCols, 40);

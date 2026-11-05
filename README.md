@@ -431,6 +431,20 @@ never reaches the scrollback or the history. A line in the scrollback marks each
 { "history": { "keep": false }, "overlay": { "bar": false, "dayLines": false } }
 ```
 
+### Clipboard
+
+A program can ask your terminal to put text on your clipboard (OSC 52). ccs passes such a request on only if you turn
+it on:
+
+```json
+{ "clients": { "osc52": "last-typist" } }
+```
+
+`last-typist` gives each request to the terminal that typed last, if that terminal was attached with this setting; `all`
+gives it to every terminal attached with `all`. `none`, the default, gives it to none. The setting is read when a
+terminal attaches, and your terminal has to allow programs to set the clipboard too. Nothing in a session can read
+your clipboard through ccs.
+
 ### Proxy
 
 Without any proxy setting a session keeps the proxy variables of the shell that ran `ccs new`. To choose it
