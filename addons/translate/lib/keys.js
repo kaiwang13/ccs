@@ -2,7 +2,12 @@
 // @ts-check
 /** What comes from a terminal in raw mode, as keys and text, and a draft of lines that keys edit. */
 
-/** @typedef {{key: string}|{text: string}} Input */
+/** @typedef {{key: string}|{text: string}|{mouse: Mouse}} Input */
+/**
+ * A mouse report (SGR, mode 1006): `b` the button and what moved it, as the terminal says (0 left, 32 left moving, 64 and
+ * 65 the wheel, with 4, 8, 16 for Shift, Alt, Ctrl), at column `x` and row `y` from 1, `up` when it was let go.
+ * @typedef {{b: number, x: number, y: number, up: boolean}} Mouse
+ */
 
 const PASTE_START = '\x1b[200~';
 const PASTE_END = '\x1b[201~';
@@ -20,8 +25,8 @@ const CTRL = {
 };
 
 /**
- * Splits what a read gave into keys and text. A lone ESC at the end of a read is the Esc key; an escape sequence it does not
- * know is dropped; a bracketed paste is text, its line ends as they are.
+ * Splits what a read gave into keys, text and mouse reports. A lone ESC at the end of a read is the Esc key; an escape
+ * sequence it does not know is dropped; a bracketed paste is text, its line ends as they are.
  * @param {string} s @param {{inPaste: boolean}} state carried between reads, for a paste that spans them
  * @returns {Input[]}
  */
@@ -47,6 +52,12 @@ function parseInput(s, state) {
     const ch = s[i];
     if (ch === '\x1b') {
       if (i + 1 === s.length) { out.push({ key: 'escape' }); i++; continue; }
+      const mouse = /^\x1b\[<(\d+);(\d+);(\d+)([Mm])/.exec(s.slice(i, i + 32));
+      if (mouse) {
+        out.push({ mouse: { b: Number(mouse[1]), x: Number(mouse[2]), y: Number(mouse[3]), up: mouse[4] === 'm' } });
+        i += mouse[0].length;
+        continue;
+      }
       const seq = Object.keys(SEQ).find((k) => s.startsWith(k, i));
       if (seq) { out.push({ key: SEQ[seq] }); i += seq.length; continue; }
       const m = /^\x1b(?:\[[0-?]*[ -/]*[@-~]|O.|.)/.exec(s.slice(i));

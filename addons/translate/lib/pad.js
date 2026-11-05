@@ -117,6 +117,7 @@ async function compose() {
     const onData = (b) => {
       for (const input of parseInput(b.toString('utf8'), parse)) {
         if ('text' in input) { draft.insert(input.text); continue; }
+        if (!('key' in input)) continue;
         if (draft.edit(input.key)) continue;
         if (input.key === 'escape' || input.key === 'cancel') { leave(); return; }
         if (input.key === 'enter') finish('insert', done);

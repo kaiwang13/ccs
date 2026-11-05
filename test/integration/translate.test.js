@@ -104,36 +104,78 @@ test('Ctrl+G in the agent turns a draft in Chinese into English, gives one in En
   await term.waitText(/EDITED: [^\n]*改不了/, 10000);
 });
 
-test('the reader shows the agent\'s replies from its transcript in Chinese, the original on Tab, and a reply read again at once', { skip, timeout: 90000 }, async (t) => {
+/** Where a text first is on the screen: its column and row, from 1. @param {any} term @param {string} text */
+async function spot(term, text) {
+  const rows = await term.screen();
+  const y = rows.findIndex((/** @type {string} */ r) => r.includes(text));
+  assert.ok(y >= 0, `${text} is on the screen:\n${rows.join('\n')}`);
+  return { x: rows[y].indexOf(text) + 1, y: y + 1 };
+}
+
+/** A left click, or a drag, as a terminal reports one (SGR). @param {{x: number, y: number}} from @param {{x: number, y: number}} [to] */
+const click = (from, to = from) => `\x1b[<0;${from.x};${from.y}M${to === from ? '' : `\x1b[<32;${to.x};${to.y}M`}\x1b[<0;${to.x};${to.y}m`;
+
+test('the reader shows the agent\'s replies as Markdown, with the Chinese of what is clicked, dragged across, or picked by key under it', { skip, timeout: 90000 }, async (t) => {
   const { api, ctx, term } = await setup(t);
   const id = /echoclaude tr ([0-9a-f-]{36})/.exec((await term.lines()).join('\n'));
   assert.ok(id, 'echoclaude says its session id');
   const dir = path.join(ctx.paths.claudeProjectsDir, '-work');
   fs.mkdirSync(dir, { recursive: true });
+  const second = 'Second answer, `code` kept.\n\n- item one\n- item two\n\nThe last paragraph here.';
   const records = [
     { type: 'user', uuid: 'u1', message: { content: 'first question' } },
     { type: 'assistant', uuid: 'a1', message: { content: [{ type: 'text', text: 'First answer.' }] } },
     { type: 'system', uuid: 's1', subtype: 'turn_duration', durationMs: 5 },
     { type: 'user', uuid: 'u2', message: { content: 'second question' } },
-    { type: 'assistant', uuid: 'a2', message: { content: [{ type: 'tool_use', id: 't', name: 'Bash', input: { command: 'ls' } }, { type: 'text', text: 'Second answer, `code` kept.' }] } },
+    { type: 'assistant', uuid: 'a2', message: { content: [{ type: 'tool_use', id: 't', name: 'Bash', input: { command: 'ls' } }, { type: 'text', text: second }] } },
   ];
   fs.writeFileSync(path.join(dir, `${id[1]}.jsonl`), `${records.map((r) => JSON.stringify(r)).join('\n')}\n`);
+  const asked = () => api.requests.map((r) => r.body.messages[r.body.messages.length - 1].content);
 
   term.write('\x1dr');
-  await term.waitText(/reply 2 of 2 · EN → 中/, 10000);
-  await term.waitText(/中\(Second answer, `code` kept\.\)/, 10000);
+  await term.waitText(/reply 2 of 2 *\n─+\n Second answer, code kept\. *\n *\n • item one *\n • item two/, 10000);
+  assert.deepEqual(asked(), [], 'nothing is translated before something is picked');
+
+  // a click on a paragraph puts its Chinese under it, and a click on the Chinese puts it away
+  term.write(click(await spot(term, 'last paragraph')));
+  await term.waitText(/ The last paragraph here\. *\n ┃ 中\(The last paragraph here\.\)/, 10000);
   assert.match(api.requests[0].body.messages[0].content, /into Simplified Chinese/);
-  term.write('[');
-  await term.waitText(/reply 1 of 2[\s\S]*中\(First answer\.\)/, 10000);
+  term.write(click(await spot(term, '┃ 中(The last')));
+  await waitGone(term, /┃ 中\(The last/);
+
+  // a drag across part of one: that part, grown to whole words, under its paragraph
+  const from = await spot(term, 'swer, `code`'.replace(/`/g, ''));
+  term.write(click({ x: from.x + 1, y: from.y }, { x: from.x + 7, y: from.y }));
+  await term.waitText(/ Second answer, code kept\. *\n ┃ “answer, `code`” *\n ┃ 中\(answer, code\)/, 10000);
+  assert.equal(asked()[1], 'answer, `code`');
+
+  // by key: the next paragraph after the pick, translated with Enter
+  await term.waitText(/Esc unpick/, 10000);
+  term.write('n\r');
+  await term.waitText(/ • item one *\n   ┃ 中\(item one\) *\n • item two/, 10000);
+  // Esc puts the pick down and stays; n then picks the first paragraph on the screen
+  term.write('\x1b');
+  await term.waitText(/click\/drag: 中文 · n p paragraph/, 10000);
+  term.write('n\r');
+  await term.waitText(/ Second answer, code kept\. *\n ┃ 中\(Second answer, code kept\.\) *\n ┃ “answer, `code`”/, 10000);
+
+  // Tab: the whole reply in Chinese, as Markdown
   term.write('\t');
-  await term.waitText(/reply 1 of 2 · original[\s\S]* First answer\./, 10000);
+  await term.waitText(/reply 2 of 2 · 中文 *\n─+\n 中\(Second answer, code kept\. *\n *\n • item one/, 10000);
+  term.write('\t[');
+  await term.waitText(/reply 1 of 2 *\n─+\n First answer\./, 10000);
   term.write('q');
   await waitGone(term, /reply 1 of 2/);
 
-  const asked = api.requests.length;
+  // what was translated before is there at once
+  const before = api.requests.length;
   term.write('\x1dr');
-  await term.waitText(/reply 2 of 2 · EN → 中[\s\S]*中\(Second answer/, 10000);
-  assert.equal(api.requests.length, asked, 'read again from what was kept');
+  await term.waitText(/reply 2 of 2/, 10000);
+  term.write(click(await spot(term, 'last paragraph')));
+  await term.waitText(/┃ 中\(The last paragraph here\.\)/, 10000);
+  assert.equal(api.requests.length, before, 'read again from what was kept');
+  term.write('\x1b');
+  await term.waitText(/click\/drag: 中文 · n p paragraph/, 10000);
   term.write('\x1b');
   await waitGone(term, /reply 2 of 2/);
 });

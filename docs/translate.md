@@ -49,10 +49,21 @@ back to the session and keeps what you wrote for the next time you open the pad.
 
 ## Reading in Chinese
 
-`Ctrl+]` then `r` opens the reader on the agent's last reply, translated as it comes. `[` and `]` go to the reply before and
-after, Tab shows the original, ↑ ↓ PgUp PgDn scroll, `y` copies what is shown to your clipboard (where your terminal lets a
-program set it), and `q` or Esc goes back. A reply comes from the agent's transcript, as it wrote it, code kept; one read
-before is shown at once.
+`Ctrl+]` then `r` opens the reader on the agent's last reply, shown as Markdown as the session shows it: headings, emphasis,
+code, lists, quotes and tables. It comes from the agent's transcript, as the agent wrote it, so nothing of the screen is
+guessed at. You pick what to read in Chinese, and its translation, rendered as Markdown too, appears right under it:
+
+- **Click** a paragraph, a list item, a table or a code block: its Chinese appears under it. Click the Chinese to put it away.
+- **Drag** across part of a paragraph, even a few words: that part, grown to whole words, appears under its paragraph,
+  after a line that quotes it.
+- **By key**: `n` and `p` pick the next paragraph and the one before, `N` and `P` add one to the pick, Enter translates the
+  pick (or puts its Chinese away), Esc puts the pick down.
+- **Tab** shows the whole reply in Chinese, and back.
+
+`[` and `]` go to the reply before and after, ↑ ↓ PgUp PgDn and the mouse wheel scroll, `y` copies the pick, or else what is
+shown, to your clipboard (where your terminal lets a program set it), and `q`, or Esc with nothing picked, goes back. While
+the reader is open it has the mouse; most terminals still select their own way with Shift held. Each piece is translated on
+its own, and kept: what was read before is shown at once.
 
 `ccs translate [--to en|zh] [TEXT…]` translates text, or what is piped in: into English if it has Chinese in it, otherwise
 into Chinese.
@@ -60,5 +71,7 @@ into Chinese.
 ## What it leaves out
 
 Nothing is translated while you type, and nothing is written into the agent's screen: a translation is always something you
-ask for, and the session's screen and your scrollback stay the agent's own. The pad and the reader need ccs's nmux binary
-(`ccs doctor` says if a session would attach without it).
+ask for, and the session's screen and your scrollback stay the agent's own. The reader has the agent's replies, not the rest
+of the screen: a tool's output is not in it. The English the pad and Ctrl+G show is shown as it will go into the input, its
+Markdown not rendered. The pad and the reader need ccs's nmux binary (`ccs doctor` says if a session would attach without
+it).

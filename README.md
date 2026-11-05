@@ -448,7 +448,8 @@ your clipboard through ccs.
 ### Translate
 
 The translate add-on puts Chinese you write into the agent's input in English, by the agent's external-editor key (Ctrl+G in
-Claude Code) or a pad on `Ctrl+]` `e`, and shows the agent's replies in Chinese on `Ctrl+]` `r`, through an OpenAI-compatible API you name. See
+Claude Code) or a pad on `Ctrl+]` `e`, and shows the agent's replies as Markdown on `Ctrl+]` `r`, where a click or a drag
+puts the Chinese of a paragraph, or of part of one, under it, through an OpenAI-compatible API you name. See
 [docs/translate.md](docs/translate.md).
 
 ### Proxy

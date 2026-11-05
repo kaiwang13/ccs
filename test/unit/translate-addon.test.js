@@ -1,13 +1,14 @@
 'use strict';
 // @ts-check
-/** The translate add-on's parts that need no terminal and no session: keys, the draft, the screens, the prompts, the API. */
+/** The translate add-on's parts that need no terminal and no session: keys, the draft, Markdown, the screens, the prompts, the API. */
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const { parseInput, Draft } = require('../../addons/translate/lib/keys.js');
 const { charWidth, wrap } = require('../../addons/translate/lib/width.js');
-const { draw, page } = require('../../addons/translate/lib/screen.js');
+const { draw, sheet } = require('../../addons/translate/lib/screen.js');
+const { S, render, sourceAt, leafAt, wholeWords } = require('../../addons/translate/lib/markdown.js');
 const { into, messages, translate } = require('../../addons/translate/lib/translate.js');
 const { providerOf, complete } = require('../../addons/translate/lib/provider.js');
 const { startFakeOpenAI } = require('../helpers/fakeopenai.js');
@@ -64,9 +65,51 @@ test('the screen puts the draft above the English and the cursor where it is in 
   assert.match(lines[5], /─ English ─/);
   assert.deepEqual(lines.slice(6, 8), [' One two three four ', ' five six seven.']);
   assert.ok(s.endsWith('\x1b[4;4H\x1b[?25h'), 'after 十, on the second row of the draft');
-  const p = page({ cols: 20, rows: 6, title: 't', body: 'a\nb\nc\nd\ne', scroll: 9, hints: 'q' });
-  assert.equal(p.maxScroll, 2);
-  assert.deepEqual(plain(p.screen).split('\r\n').slice(2, 5), [' c', ' d', ' e']);
+  const p = sheet({ cols: 20, rows: 6, title: 't', lines: render('a\n\nb\n\nc', 18).rows, scroll: 9, hints: 'q' });
+  assert.deepEqual([p.maxScroll, p.top], [2, 2]);
+  assert.deepEqual(plain(p.screen).split('\r\n').slice(2, 5), [' b', ' ', ' c']);
+});
+
+/** A rendering's rows as text. @param {string} md @param {number} cols */
+const shown = (md, cols) => render(md, cols).rows.map((r) => r.cells.map((c) => c.ch).join(''));
+/** The cells of a rendering that show `ch`, with their styles. @param {string} md @param {string} ch */
+const styleOf = (md, ch) => render(md, 80).rows.flatMap((r) => r.cells).find((c) => c.ch === ch)?.style;
+
+test('Markdown is shown as a terminal shows it: headings, emphasis, code, links, lists, quotes, tables and rules', () => {
+  assert.deepEqual(shown('## Plan\n\nKeep **the flag** and `--limit`; see [docs](https://x.y).', 80),
+    ['Plan', '', 'Keep the flag and --limit; see docs.']);
+  assert.equal(styleOf('## Plan', 'P'), S.BOLD | S.HEAD);
+  assert.equal(styleOf('a **b** c', 'b'), S.BOLD);
+  assert.equal(styleOf('a *b* c', 'b'), S.ITALIC);
+  assert.equal(styleOf('a `b` c', 'b'), S.CODE);
+  assert.equal(styleOf('a [b](u) c', 'b'), S.LINK);
+  assert.equal(styleOf('snake_case_name', 'c'), 0, 'an underscore inside a word is not emphasis');
+  assert.deepEqual(shown('1. one\n   - a\n   - b\n2. two', 80), ['1. one', '   ◦ a', '   ◦ b', '2. two']);
+  assert.deepEqual(shown('- x\n- y', 80), ['• x', '• y']);
+  assert.deepEqual(shown('> said\n> it', 80), ['▎ said it']);
+  assert.deepEqual(shown('```js\nconst a = 1;\n```\n\n---', 20), ['│ const a = 1;', '', '────────────────────']);
+  assert.deepEqual(shown('| A | Bee |\n|---|--:|\n| 中文 | 1 |', 80),
+    ['┌──────┬─────┐', '│ A    │ Bee │', '├──────┼─────┤', '│ 中文 │   1 │', '└──────┴─────┘']);
+  // a paragraph's lines are one, and wrap at words; Chinese lines join with nothing between
+  assert.deepEqual(shown('one two\nthree four five', 12), ['one two ', 'three four ', 'five']);
+  assert.deepEqual(shown('中文\n段落', 80), ['中文段落']);
+});
+
+test('what is picked on the screen is a range of the source, grown to whole words, and each paragraph is a leaf', () => {
+  const md = '# T\n\nFirst `code` here.\n\n- item one\n- item two';
+  const { rows, leaves } = render(md, 80);
+  assert.deepEqual(leaves.map((l) => md.slice(l.start, l.end)), ['T', 'First `code` here.', 'item one', 'item two']);
+  const at = sourceAt(rows[2], 7);
+  assert.equal(md.slice(/** @type {any} */ (at).src, /** @type {any} */ (at).end), 'o', 'the seventh cell of "First code here." is the o of code');
+  assert.equal(md[/** @type {any} */ (sourceAt(rows[4], 0)).src], 'i', 'a bullet is no part of the source: the nearest that is');
+  assert.equal(leafAt(leaves, md.indexOf('two')), 3);
+  const w = wholeWords(md, md.indexOf('ode'), md.indexOf('her') + 1);
+  assert.equal(md.slice(w.a, w.b), '`code` here.');
+  // a table and a code block are picked whole, pipes and fences too, as a translation needs them
+  const blocks = '|  | a |\n|---|---|\n| x | y |\n\n```\nls\n```';
+  assert.deepEqual(render(blocks, 80).leaves.map((l) => blocks.slice(l.start, l.end)), ['|  | a |\n|---|---|\n| x | y |', '```\nls\n```']);
+  const zh = '这是中文';
+  assert.deepEqual(wholeWords(zh, 1, 3), { a: 1, b: 3 }, 'Chinese is picked as it is');
 });
 
 test('the prompts ask for English to the agent and Chinese back, keeping code, with the glossary\'s terms only where they are', () => {

@@ -2,10 +2,11 @@
 // @ts-check
 /**
  * The one screen both ways of writing in Chinese show: the Chinese above, the English below as it comes, and the keys at the
- * foot. Drawn whole each time, on whatever screen the terminal is on: nmux lends it on the alternate screen, and an agent
- * hands its editor the terminal as it is.
+ * foot; and the reader's sheet of Markdown. Drawn whole each time, on whatever screen the terminal is on: nmux lends it on
+ * the alternate screen, and an agent hands its editor the terminal as it is.
  */
-const { width, wrap } = require('./width.js');
+const { charWidth, width, wrap } = require('./width.js');
+const { S } = require('./markdown.js');
 
 const DIM = '\x1b[2m';
 const BOLD = '\x1b[1m';
@@ -75,26 +76,55 @@ function draw(v) {
   return `\x1b[H\x1b[2J${lines.join('\r\n')}${cursor}`;
 }
 
+const SGR = [[S.BOLD, '1'], [S.DIM, '2'], [S.ITALIC, '3'], [S.LINK, '4'], [S.PICK, '7'], [S.STRIKE, '9'], [S.RED, '31'],
+  [S.NOTE, '32'], [S.HEAD, '33'], [S.CODE, '36']];
+
+/** @param {number} style */
+const sgr = (style) => (style ? `\x1b[${SGR.filter(([bit]) => style & bit).map(([, code]) => code).join(';')}m` : '');
+
 /**
- * A text to read, from row `scroll`, under a title and above the keys: the screen, and how far it can scroll.
- * @param {{cols: number, rows: number, title: string, status?: string, body: string, dim?: boolean, scroll: number, hints: string}} v
- * @returns {{screen: string, maxScroll: number}}
+ * A row of cells as the terminal is sent it, cut to `cols` cells, what is in the selection reversed.
+ * @param {import('./markdown').Cell[]} cells @param {number} cols @param {{a: number, b: number}|null} [sel]
  */
-function page(v) {
+function paint(cells, cols, sel) {
+  let out = '';
+  let used = 0;
+  let cur = 0;
+  for (const c of cells) {
+    const w = charWidth(c.ch);
+    if (used + w > cols) break;
+    const style = c.style | (sel && c.src >= sel.a && c.src < sel.b ? S.PICK : 0);
+    if (style !== cur) {
+      out += `${OFF}${sgr(style)}`;
+      cur = style;
+    }
+    out += c.ch;
+    used += w;
+  }
+  return cur ? `${out}${OFF}` : out;
+}
+
+/**
+ * Rows to read, from row `scroll`, under a title and above the keys: the screen, how far it can scroll, and the row it shows
+ * first.
+ * @param {{cols: number, rows: number, title: string, status?: string, lines: import('./markdown').Row[],
+ *          sel?: {a: number, b: number}|null, scroll: number, hints: string}} v
+ * @returns {{screen: string, maxScroll: number, top: number}}
+ */
+function sheet(v) {
   const cols = Math.max(20, v.cols);
   const height = Math.max(3, v.rows - 3);
-  const all = rowsOf(v.body, cols - 2);
-  const maxScroll = Math.max(0, all.length - height);
-  const from = Math.min(Math.max(0, v.scroll), maxScroll);
+  const maxScroll = Math.max(0, v.lines.length - height);
+  const top = Math.min(Math.max(0, v.scroll), maxScroll);
   const status = v.status || '';
-  const more = all.length > height ? `${Math.round(((from + height) / all.length) * 100)}%` : '';
+  const more = v.lines.length > height ? `${Math.round(((top + height) / v.lines.length) * 100)}%` : '';
   const lines = [
     ` ${BOLD}${fit(v.title, cols - 3 - width(status))}${OFF}${' '.repeat(Math.max(1, cols - 1 - width(v.title) - width(status) - 1))}${DIM}${status}${OFF}`,
     `${DIM}${'─'.repeat(cols)}${OFF}`,
-    ...Array.from({ length: height }, (_, i) => ` ${v.dim ? DIM : ''}${all[from + i] || ''}${OFF}`),
+    ...Array.from({ length: height }, (_, i) => ` ${v.lines[top + i] ? paint(v.lines[top + i].cells, cols - 2, v.sel) : ''}`),
     ` ${DIM}${fit(`${v.hints}${more ? ` · ${more}` : ''}`, cols - 2)}${OFF}`,
   ];
-  return { screen: `\x1b[H\x1b[2J\x1b[?25l${lines.join('\r\n')}`, maxScroll };
+  return { screen: `\x1b[H\x1b[2J\x1b[?25l${lines.join('\r\n')}`, maxScroll, top };
 }
 
-module.exports = { draw, page, rowsOf };
+module.exports = { draw, sheet, rowsOf };
