@@ -27,29 +27,33 @@ Also in the section, each optional:
 | `provider.timeoutMs` | 60000 | how long one translation may take |
 | `provider.temperature` | 0.2 | |
 | `proxy` | the environment's | a URL, or `none`; http(s) proxies only |
-| `keys` | `{ "e": "compose", "r": "read" }` | the keys after the leader |
+| `direct` | `{ "M-g": "draft", "M-e": "compose", "M-r": "read" }` | keys that act at once: `M-g` is Alt+G |
+| `keys` | none | keys after the leader, as `{ "e": "compose" }` |
 | `draftEditor` | true | false leaves Ctrl+G to the agent's own editor |
 | `confirm` | true | false puts Ctrl+G's English in without asking |
 | `glossary` | `{}` | `{ "分页": "pagination" }`: terms always translated so |
 
-`addons.leader` is the key before an add-on's key while attached, `Ctrl+]` unless you name another; null takes none. The
-leader twice sends one to the agent.
+Alt+G, Alt+E and Alt+R are ccs's while you are attached: the agent never sees them, and nmux's bar at the foot of the
+terminal names them. A Mac terminal sends them only with Option set to act as Alt (VS Code:
+`"terminal.integrated.macOptionIsMeta": true`). `addons.leader` is the key before a key in `keys`, `Ctrl+]` unless you name
+another; null takes none. The leader twice sends one to the agent.
 
 ## Writing in Chinese
 
 **In the agent's own input.** Type in Chinese as usual, then press the agent's key for an external editor: Ctrl+G in Claude
 Code; Codex has the same command (`open_external_editor` in its keymap), which reads the same variables. The draft is shown with its English as it comes; Enter puts the English in its place, Tab asks again, Esc
-keeps the Chinese. The English is then in the input, to read and change before you send it. A draft with no Chinese in it
+keeps the Chinese. The English is then in the input, to read and change before you send it. **Alt+G** presses the agent's
+key for you, for a terminal that keeps Ctrl+G for itself, as VS Code's does. A draft with no Chinese in it
 opens in your own editor (`$VISUAL`, `$EDITOR`), as the key did before. ccs sets the agents' editor when a session starts, so
 a session running already has this after `ccs restart NAME`.
 
-**In the pad.** `Ctrl+]` then `e` opens a pad over the session. Write, Enter to see it in English, Enter again to put the
+**In the pad.** **Alt+E** opens a pad over the session. Write, Enter to see it in English, Enter again to put the
 English in the agent's input, or Ctrl+S to send it at once. Ctrl+J starts a new line, and a paste keeps its lines. Esc goes
 back to the session and keeps what you wrote for the next time you open the pad. The pad works with any agent.
 
 ## Reading in Chinese
 
-`Ctrl+]` then `r` opens the reader on the agent's last reply, shown as Markdown as the session shows it: headings, emphasis,
+**Alt+R** opens the reader on the agent's last reply, shown as Markdown as the session shows it: headings, emphasis,
 code, lists, quotes and tables. It comes from the agent's transcript, as the agent wrote it, so nothing of the screen is
 guessed at. You pick what to read in Chinese, and its translation, rendered as Markdown too, appears right under it:
 

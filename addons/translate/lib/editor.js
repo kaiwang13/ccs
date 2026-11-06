@@ -9,7 +9,7 @@
  */
 const fs = require('node:fs');
 const cp = require('node:child_process');
-const { addonConfig, useProxy } = require('../../../src/addon/sdk.js');
+const { addonConfig, currentSession, editDraft: openInEditor, useProxy } = require('../../../src/addon/sdk.js');
 const { providerOf } = require('./provider.js');
 const { translate, HAN } = require('./translate.js');
 const { parseInput } = require('./keys.js');
@@ -94,4 +94,19 @@ async function editDraft(args) {
   return code;
 }
 
-module.exports = { editDraft };
+/**
+ * The agent's own key for its editor, pressed from ccs's: for a terminal that keeps that key for itself, as VS Code's does
+ * Ctrl+G. The agent then runs editDraft.
+ * @returns {Promise<number>}
+ */
+async function openDraft() {
+  const session = currentSession();
+  if (!session) {
+    process.stderr.write('translate: the draft opens from a key in a session (addons.translate.keys)\n');
+    return 2;
+  }
+  await openInEditor(session, { label: 'translate' });
+  return 0;
+}
+
+module.exports = { editDraft, openDraft };

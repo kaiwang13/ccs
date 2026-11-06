@@ -65,7 +65,7 @@ async function run(argv, ctx) {
     rec = all[0];
   }
   if (!(await ensureRunning({ ctx, rec }))) return 1;
-  return attach({ paths: ctx.paths, id: rec.id, name: recordName(rec), flags: { shrink: !!flags['--shrink'], allowSetup: !!flags['--allow-setup'], full: !!flags['--full'] }, io });
+  return attach({ paths: ctx.paths, id: rec.id, name: recordName(rec), agent: rec.intent.agent, flags: { shrink: !!flags['--shrink'], allowSetup: !!flags['--allow-setup'], full: !!flags['--full'] }, io });
 }
 
 module.exports = { run, ensureRunning, reportStartFailure };

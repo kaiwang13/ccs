@@ -227,7 +227,7 @@ class Picker {
     const { ensureRunning } = require('./commands/attach.js');
     if (!(await ensureRunning({ ctx: this.ctx, rec }))) { this.resolve(1); return; }
     const { attach } = require('./attach.js');
-    this.resolve(await attach({ paths: this.ctx.paths, id: rec.id, name: recordName(rec), flags: {}, io: { stdin: this.ctx.stdin, stdout: this.ctx.out, stderr: this.ctx.err, env: this.ctx.env } }));
+    this.resolve(await attach({ paths: this.ctx.paths, id: rec.id, name: recordName(rec), agent: rec.intent.agent, flags: {}, io: { stdin: this.ctx.stdin, stdout: this.ctx.out, stderr: this.ctx.err, env: this.ctx.env } }));
   }
 
   /** @param {Record<string,string>} a */

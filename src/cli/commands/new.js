@@ -127,7 +127,7 @@ async function run(argv, ctx) {
     ctx.out.write(`ccs: started '${finalName}' (${rec.id}) in ${tildify(cwd)} · ccs a ${finalName}\n`);
     return 0;
   }
-  return attach({ paths: ctx.paths, id: rec.id, name: finalName, flags: { shrink: false, allowSetup: !!flags['--allow-setup'] || !trusted }, io });
+  return attach({ paths: ctx.paths, id: rec.id, name: finalName, agent: rec.intent.agent, flags: { shrink: false, allowSetup: !!flags['--allow-setup'] || !trusted }, io });
 }
 
 module.exports = { run, nameFromCwdByDefault };

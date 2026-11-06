@@ -7,13 +7,15 @@
  *   { "name": "translate", "api": 1, "main": "main.js",
  *     "actions":     { "compose": "…" },    run with the terminal lent, from a key while attached
  *     "keys":        { "e": "compose" },     the key after ccs's leader (config addons.leader) that runs an action
+ *     "direct":      { "M-e": "compose" },   a key that runs one at once, with no leader: `M-e` is Alt+E
+ *     "tips":        { "compose": "pad" },   the word the bar says beside the key of an action
  *     "commands":    { "translate": "…" },  `ccs translate …`
  *     "draftEditor": "editor" }             the action an agent runs as the editor of a draft (VISUAL, EDITOR)
  *
- * One is on when its section of the configuration says `"enabled": true`; `keys` there take the place of the manifest's, and
- * `"draftEditor": false` keeps the agents' own editor. Each is run as `node <dir>/<main> <action or command> …`. An action is
- * run by the attach client (nmux's `actions`), which tells it the session in NMUX_SESSION and NMUX_SOCK; what else it needs
- * it reads with the SDK (src/addon/sdk.js).
+ * One is on when its section of the configuration says `"enabled": true`; `keys` and `direct` there take the place of the
+ * manifest's, and `"draftEditor": false` keeps the agents' own editor. Each is run as `node <dir>/<main> <action or command>
+ * …`. An action is run by the attach client (nmux's `actions`), which tells it the session in NMUX_SESSION and NMUX_SOCK;
+ * what else it needs it reads with the SDK (src/addon/sdk.js).
  */
 const fs = require('node:fs');
 const path = require('node:path');
@@ -22,7 +24,8 @@ const ADDONS_DIR = path.join(__dirname, '..', '..', 'addons');
 const API = 1;
 
 /** @typedef {{name: string, api: number, main: string, actions?: Record<string, string>, keys?: Record<string, string>,
- *            commands?: Record<string, string>, draftEditor?: string, dir: string}} Manifest */
+ *            direct?: Record<string, string>, tips?: Record<string, string>, commands?: Record<string, string>,
+ *            draftEditor?: string, dir: string}} Manifest */
 
 const isPlainObject = (/** @type {unknown} */ v) => typeof v === 'object' && v !== null && !Array.isArray(v);
 /** @param {unknown} v */
@@ -31,8 +34,10 @@ const texts = (v) => v === undefined || (isPlainObject(v) && Object.values(/** @
 /** @param {any} m @param {string} name */
 function valid(m, name) {
   return isPlainObject(m) && m.name === name && /^[a-z][a-z0-9-]*$/.test(name) && m.api === API
-    && typeof m.main === 'string' && !m.main.includes('..') && texts(m.actions) && texts(m.keys) && texts(m.commands)
-    && Object.values(m.keys || {}).every((a) => Object.hasOwn(m.actions || {}, a))
+    && typeof m.main === 'string' && !m.main.includes('..') && texts(m.actions) && texts(m.keys) && texts(m.direct)
+    && texts(m.tips) && texts(m.commands)
+    && [m.keys, m.direct].every((t) => Object.values(t || {}).every((a) => Object.hasOwn(m.actions || {}, a)))
+    && Object.keys(m.tips || {}).every((a) => Object.hasOwn(m.actions || {}, a))
     && (m.draftEditor === undefined || Object.hasOwn(m.actions || {}, m.draftEditor));
 }
 
@@ -63,28 +68,40 @@ const argvOf = (m, verb, args = []) => [process.execPath, path.join(m.dir, m.mai
 
 /**
  * What a terminal attaching is given: the actions of the add-ons that are on, named `<add-on>.<action>`, as commands nmux
- * runs with the terminal lent, and the keys after the leader that run them; no keys without a leader. An agent's editor for
- * a draft is the agent's to run, and no key's.
+ * runs with the terminal lent, the keys after the leader that run them (none without a leader), the keys that run them at
+ * once, and the words the bar says beside the keys. An agent's editor for a draft is the agent's to run, and no key's.
  * @param {any} config @param {string} [dir]
- * @returns {{actions: Record<string, string[]>, keys: {leader: string, bindings: Record<string, string>}|null}}
+ * @returns {{actions: Record<string, string[]>, keys: {leader?: string, bindings?: Record<string, string>,
+ *            direct?: Record<string, string>, tips?: Record<string, string>}|null}}
  */
 function attachActions(config, dir) {
   /** @type {Record<string, string[]>} */
   const actions = {};
   /** @type {Record<string, string>} */
   const bindings = {};
+  /** @type {Record<string, string>} */
+  const direct = {};
+  /** @type {Record<string, string>} */
+  const tips = {};
   for (const m of enabledAddons(config, dir)) {
     for (const action of Object.keys(m.actions || {})) {
       if (action !== m.draftEditor) actions[`${m.name}.${action}`] = argvOf(m, action);
     }
-    const own = sectionOf(config, m.name).keys;
-    const keys = isPlainObject(own) ? own : (m.keys || {});
-    for (const [key, action] of Object.entries(keys)) {
-      if (typeof action === 'string' && Object.hasOwn(m.actions || {}, action)) bindings[key] = `${m.name}.${action}`;
+    const section = sectionOf(config, m.name);
+    for (const [table, into] of /** @type {const} */ ([['keys', bindings], ['direct', direct]])) {
+      const own = section[table];
+      for (const [key, action] of Object.entries(isPlainObject(own) ? own : (m[table] || {}))) {
+        if (typeof action === 'string' && Object.hasOwn(actions, `${m.name}.${action}`)) into[key] = `${m.name}.${action}`;
+      }
+    }
+    for (const [action, word] of Object.entries(m.tips || {})) {
+      if (Object.hasOwn(actions, `${m.name}.${action}`)) tips[`${m.name}.${action}`] = word;
     }
   }
   const leader = config.addons && config.addons.leader;
-  return { actions, keys: leader && Object.keys(bindings).length ? { leader, bindings } : null };
+  const keys = { ...(leader && Object.keys(bindings).length ? { leader, bindings } : {}),
+    ...(Object.keys(direct).length ? { direct } : {}), ...(Object.keys(tips).length ? { tips } : {}) };
+  return { actions, keys: keys.bindings || keys.direct ? keys : null };
 }
 
 /**

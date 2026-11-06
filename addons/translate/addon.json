@@ -5,9 +5,11 @@
   "actions": {
     "compose": "write in Chinese, put it in the agent's input in English",
     "read": "read the agent's replies in Chinese",
+    "draft": "what is in the agent's input, written in Chinese, put in English, as the agent's Ctrl+G does",
     "editor": "the agent's editor for a draft: a draft in Chinese comes back in English"
   },
-  "keys": { "e": "compose", "r": "read" },
+  "direct": { "M-g": "draft", "M-e": "compose", "M-r": "read" },
+  "tips": { "draft": "to English", "compose": "pad", "read": "read" },
   "commands": { "translate": "translate text between Chinese and English" },
   "draftEditor": "editor"
 }

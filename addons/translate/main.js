@@ -5,12 +5,14 @@
  * `node main.js <verb> …` (src/addon/host.js):
  *   compose    the pad a key opens over a session
  *   read       the reader a key opens over a session: the agent's replies in Chinese
+ *   draft      the key that opens the agent's input in its editor, which is this add-on: for a terminal that keeps Ctrl+G
  *   editor     an agent's editor for a draft (VISUAL): a draft in Chinese comes back in English
  *   translate  `ccs translate`
  */
 const VERBS = {
   compose: () => require('./lib/pad.js').compose(),
   read: () => require('./lib/reader.js').read(),
+  draft: () => require('./lib/editor.js').openDraft(),
   editor: (/** @type {string[]} */ args) => require('./lib/editor.js').editDraft(args),
   translate: (/** @type {string[]} */ args) => require('./lib/cli.js').cli(args),
 };

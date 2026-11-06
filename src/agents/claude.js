@@ -22,6 +22,7 @@ const capabilities = {
   nameInArgv: true,           // claude receives -n NAME: visible to every account when /proc lacks hidepid
   remoteControl: 'per-session',
   trustGate: true,            // an untrusted cwd shows Claude's own trust dialog in ~/.claude.json
+  emptyLastRow: true,         // its cursor is parked on an empty row below its prompt, which nmux's bar can go over
 };
 
 /** @type {Agent} */
@@ -29,6 +30,8 @@ module.exports = {
   id: 'claude',
   label: 'claude',
   capabilities,
+  /** The key that opens what is in Claude's input in an editor (VISUAL, else EDITOR): Ctrl+G. */
+  draftKey: '\x07',
   resolveBin: (paths, config) => resolveClaudeBin(paths, config),
   extraArgsAllow: (config) => config.claude.extraArgsAllow,
   buildLaunch: (ctx) => buildLaunch(ctx),

@@ -58,8 +58,20 @@ const CCS_WORDS = Object.freeze({
     '     widen it (I will attach automatically) · ccs attach {name} --shrink (min {hardMinCols} cols)', APP, '     (Ctrl+C gives up)'].join('\n'),
 });
 
-/** Agents take every other key, so there is no leader: these two detach at once. */
-const CCS_KEYS = Object.freeze({ leader: null, bindings: Object.freeze({}), direct: Object.freeze({ 'C-z': 'detach', 'C-\\': 'detach' }) });
+/** Agents take every other key, so there is no leader: these two detach at once, which the bar says. */
+const CCS_KEYS = Object.freeze({ leader: null, bindings: Object.freeze({}), direct: Object.freeze({ 'C-z': 'detach', 'C-\\': 'detach' }),
+  tips: Object.freeze({ detach: 'detach' }) });
+
+/**
+ * ccs's keys with those of the add-ons that are on (src/addon/host.js's attachActions): their leader and the keys after it,
+ * and their keys that act at once and words for the bar beside ccs's own.
+ * @param {{leader?: string, bindings?: Record<string, string>, direct?: Record<string, string>, tips?: Record<string, string>}|null} addons
+ */
+function keysWith(addons) {
+  if (!addons) return CCS_KEYS;
+  return { ...CCS_KEYS, ...(addons.leader ? { leader: addons.leader, bindings: addons.bindings || {} } : {}),
+    direct: { ...CCS_KEYS.direct, ...addons.direct }, tips: { ...CCS_KEYS.tips, ...addons.tips } };
+}
 
 /**
  * `template` with each `{hole}` that `holes` has filled in, once, as nmux fills its words.
@@ -67,4 +79,4 @@ const CCS_KEYS = Object.freeze({ leader: null, bindings: Object.freeze({}), dire
  */
 const fill = (template, holes) => template.replace(/\{(\w+)\}/g, (hole, k) => (Object.hasOwn(holes, k) ? String(holes[k]) : hole));
 
-module.exports = { CCS_MESSAGES, CCS_WORDS, CCS_KEYS, fill };
+module.exports = { CCS_MESSAGES, CCS_WORDS, CCS_KEYS, keysWith, fill };

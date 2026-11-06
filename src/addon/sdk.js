@@ -14,6 +14,7 @@ const { sectionOf } = require('./host.js');
 const { createRegistry } = require('../common/registry.js');
 const { parseClaudeRecord, findClaudeTranscript } = require('../agents/transcript/claude.js');
 const { parseCodexRecord, findCodexRollout } = require('../agents/transcript/codex.js');
+const { getAgent } = require('../agents/index.js');
 const { controlRequest } = require('nmux/sdk');
 
 /** How much of the end of a transcript is read for its turns. */
@@ -55,6 +56,22 @@ async function insert(session, text, { submit = false, label = 'addon' } = {}) {
   if (!r.ok) throw new Error(`the session did not take it (${r.error})`);
 }
 
+/** The registry's record of a session, by its socket's directory. @param {{sock: string}} session @param {any} paths */
+const recordOf = (session, paths) => createRegistry(paths, { nfsTimeoutMs: loadConfig(paths.configFile).registry.nfsTimeoutMs })
+  .get(path.basename(path.dirname(session.sock)));
+
+/**
+ * Opens what is in the agent's input in its editor for a draft, as the agent's own key for that does (VISUAL, which ccs
+ * points at an add-on's draftEditor while one is on).
+ * @param {{sock: string}} session @param {{label?: string, env?: Record<string, string|undefined>}} [o]
+ */
+async function editDraft(session, { label = 'addon', env = process.env } = {}) {
+  const rec = await recordOf(session, resolvePaths(env));
+  if (!rec) throw new Error('the session is not one of ccs\'s');
+  const r = await controlRequest(session.sock, 'SEND', { text: getAgent(rec.intent.agent).draftKey, enter: false }, { label });
+  if (!r.ok) throw new Error(`the session did not take it (${r.error})`);
+}
+
 /**
  * The turns of a session's agent, from its transcript, the newest last: each the prompt that began it and what the agent
  * wrote in answer, its tools and thinking left out. Only those in the last few MiB of the transcript, and none before the
@@ -64,7 +81,7 @@ async function insert(session, text, { submit = false, label = 'addon' } = {}) {
  */
 async function turns(session, { last = 50, env = process.env } = {}) {
   const paths = resolvePaths(env);
-  const rec = await createRegistry(paths, { nfsTimeoutMs: loadConfig(paths.configFile).registry.nfsTimeoutMs }).get(path.basename(path.dirname(session.sock)));
+  const rec = await recordOf(session, paths);
   if (!rec) return [];
   const codex = rec.intent.agent === 'codex';
   const id = (rec.state && rec.state.lastSessionId) || rec.intent.initialSessionId;
@@ -113,4 +130,4 @@ function useProxy(setting) {
   try { http.setGlobalProxyFromEnv(); } catch { /* a value Node cannot read leaves fetch going direct */ }
 }
 
-module.exports = { addonConfig, stateDir, currentSession, insert, turns, useProxy };
+module.exports = { addonConfig, stateDir, currentSession, insert, editDraft, turns, useProxy };

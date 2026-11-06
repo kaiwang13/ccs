@@ -33,9 +33,9 @@ An add-on (`addons/<name>/`, with an `addon.json`) is a program ccs runs and nev
 fails on core code that requires one. `src/addon/host.js` reads the manifests and turns what the add-ons that are on declare
 into the actions and keys an attaching terminal is given (nmux runs them with the terminal lent), commands (`ccs <cmd>`),
 and an agent's editor for a draft. An add-on reaches ccs through `src/addon/sdk.js` only: its section of the configuration,
-the session it was run from, inserting text, and the agent's turns from its transcript (`src/agents/transcript/`). What a
-feature needs of an agent goes in the SDK, agent-neutral, and not in one add-on. Feishu predates the SDK and still imports
-ccs's internals.
+the session it was run from, inserting text, opening the agent's input in its editor for a draft, and the agent's turns
+from its transcript (`src/agents/transcript/`). What a feature needs of an agent goes in the SDK, agent-neutral, and not in
+one add-on. Feishu predates the SDK and still imports ccs's internals.
 
 ## Platform code lives in one place
 

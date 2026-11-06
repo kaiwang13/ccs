@@ -2,8 +2,8 @@
 // @ts-check
 /**
  * The translate add-on in a real session, end to end: a terminal running `ccs new`, ccs's binary attach client lending it
- * to the add-on's pad on Ctrl+] e, the agent (echoclaude) running the add-on as its editor for a draft on Ctrl+G, and an
- * OpenAI-compatible API on 127.0.0.1 that never sees the agent.
+ * to the add-on's pad on Alt+E and its reader on Alt+R, the agent (echoclaude) running the add-on as its editor for a draft
+ * on Ctrl+G (or Alt+G, which presses it), and an OpenAI-compatible API on 127.0.0.1 that never sees the agent.
  */
 const test = require('node:test');
 const assert = require('node:assert/strict');
@@ -47,7 +47,7 @@ async function waitGone(term, re, timeoutMs = 10000) {
 
 test('the pad puts the English in the agent\'s input, sends it with Ctrl+S, and keeps a draft left with Esc', { skip, timeout: 90000 }, async (t) => {
   const { api, term } = await setup(t);
-  term.write('\x1de');
+  term.write('\x1be');
   await term.waitText(/ccs · tr · 中 → EN/, 10000);
   term.write('把分页改成按时间');
   term.write('\r');
@@ -60,23 +60,23 @@ test('the pad puts the English in the agent\'s input, sends it with Ctrl+S, and 
   assert.equal(api.requests[0].auth, 'Bearer k1');
   assert.match(api.requests[0].body.messages[0].content, /from Chinese into English/);
 
-  term.write('\x1de');
+  term.write('\x1be');
   await term.waitText(/Enter translate · Ctrl\+J new line/, 10000);
   term.write('你好\x13');
   await term.waitText(/RECEIVED: EN\(你好\)/, 10000);
 
-  term.write('\x1de');
+  term.write('\x1be');
   await term.waitText(/Enter translate · Ctrl\+J new line/, 10000);
   term.write('留着的草稿');
   await term.waitText(/ 留着的草稿/, 10000);
   term.write('\x1b');
   await waitGone(term, /中 → EN/);
-  term.write('\x1de');
+  term.write('\x1be');
   await term.waitText(/ 留着的草稿/, 10000);
   term.write('\x1b');
 });
 
-test('Ctrl+G in the agent turns a draft in Chinese into English, gives one in English to the agent\'s own editor, and leaves a draft as it was when the API fails', { skip, timeout: 90000 }, async (t) => {
+test('Ctrl+G in the agent, or Alt+G, turns a draft in Chinese into English, gives one in English to the agent\'s own editor, and leaves a draft as it was when the API fails', { skip, timeout: 90000 }, async (t) => {
   const root = fs.mkdtempSync('/tmp/ccst-ed-');
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));
   const own = path.join(root, 'own-editor');
@@ -92,6 +92,16 @@ test('Ctrl+G in the agent turns a draft in Chinese into English, gives one in En
   await term.waitText(/EDITED: Paginate by time\./, 10000);
   term.write('\r');
   await term.waitText(/RECEIVED: Paginate by time\./, 10000);
+
+  // ccs's key presses the agent's, for a terminal that keeps Ctrl+G for itself
+  term.write('按时间排序');
+  await term.waitText(/❯ 按时间排序/, 10000);
+  term.write('\x1bg');
+  await term.waitText(/EN\(按时间排序\)/, 10000);
+  term.write('\r');
+  await term.waitText(/EDITED: EN\(按时间排序\)/, 10000);
+  term.write('\r');
+  await term.waitText(/RECEIVED: EN\(按时间排序\)/, 10000);
 
   term.write('hello\x07');
   await term.waitText(/EDITED: own editor/, 10000);
@@ -132,7 +142,7 @@ test('the reader shows the agent\'s replies as Markdown, with the Chinese of wha
   fs.writeFileSync(path.join(dir, `${id[1]}.jsonl`), `${records.map((r) => JSON.stringify(r)).join('\n')}\n`);
   const asked = () => api.requests.map((r) => r.body.messages[r.body.messages.length - 1].content);
 
-  term.write('\x1dr');
+  term.write('\x1br');
   await term.waitText(/reply 2 of 2 *\n─+\n Second answer, code kept\. *\n *\n • item one *\n • item two/, 10000);
   assert.deepEqual(asked(), [], 'nothing is translated before something is picked');
 
@@ -169,7 +179,7 @@ test('the reader shows the agent\'s replies as Markdown, with the Chinese of wha
 
   // what was translated before is there at once
   const before = api.requests.length;
-  term.write('\x1dr');
+  term.write('\x1br');
   await term.waitText(/reply 2 of 2/, 10000);
   term.write(click(await spot(term, 'last paragraph')));
   await term.waitText(/┃ 中\(The last paragraph here\.\)/, 10000);

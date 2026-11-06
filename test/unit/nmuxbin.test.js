@@ -18,10 +18,13 @@ test('CCS_NMUX_BIN names the binary, or, empty, none; the server is started with
 
 test('the binary is given ccs\'s keys, the configuration the client reads and no more, its words and the flags', () => {
   const config = { size: { floorCols: 50 }, clients: { rejoinMax: 3 }, input: { escFlushMs: 40 }, overlay: { bar: true }, proxy: { session: 'http://p:3128' }, claude: {} };
-  const spec = attachSpec({ sockPath: '/run/s/ctl.sock', name: 'api', config, flags: { shrink: true } });
+  const spec = attachSpec({ sockPath: '/run/s/ctl.sock', name: 'api', config, flags: { shrink: true }, agent: 'claude' });
   assert.deepEqual(spec, { sock: '/run/s/ctl.sock', name: 'api', flags: { shrink: true, allowSetup: false, full: false },
-    config: { size: { floorCols: 50 }, clients: { rejoinMax: 3 }, input: { escFlushMs: 40 }, overlay: { bar: true }, keys: CCS_KEYS }, words: CCS_WORDS });
+    config: { size: { floorCols: 50 }, clients: { rejoinMax: 3 }, input: { escFlushMs: 40 }, overlay: { bar: true, barRow: 'last' }, keys: CCS_KEYS }, words: CCS_WORDS });
   assert.deepEqual(JSON.parse(JSON.stringify(spec)), spec, 'all of it is data');
+  assert.equal(attachSpec({ sockPath: '/s', name: 'api', config, flags: {} }).config.overlay.barRow, 'last', 'a record from before agents is Claude\'s');
+  assert.equal(attachSpec({ sockPath: '/s', name: 'api', config, flags: {}, agent: 'codex' }).config.overlay.barRow, 'below',
+    'the bar goes over the last row only of an agent that leaves it empty');
 });
 
 test('a hole is filled once, and the words the package\'s client is given come from the same templates', () => {

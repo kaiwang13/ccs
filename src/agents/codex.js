@@ -29,6 +29,7 @@ const capabilities = {
   nameInArgv: false,          // no -n NAME: the ccs name stays local to the registry
   remoteControl: 'daemon',    // `codex remote-control start` is a daemon, not a per-session flag (spec §9)
   trustGate: false,           // no Claude trust record to preflight; runtime setup is detected below
+  emptyLastRow: false,        // its prompt's footer can be on the last row: nmux's bar goes below the session
 };
 
 /**
@@ -73,6 +74,8 @@ module.exports = {
   id: 'codex',
   label: 'codex',
   capabilities,
+  /** The key that opens what is in Codex's input in an editor (VISUAL, else EDITOR): Ctrl+G, open_external_editor. */
+  draftKey: '\x07',
   resolveBin: (paths, config) => resolveCodexBin(paths, config),
   extraArgsAllow: (config) => config.codex.extraArgsAllow,
   buildLaunch,

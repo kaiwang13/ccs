@@ -7,7 +7,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { manifests, attachActions, addonCommand, draftEditor } = require('../../src/addon/host.js');
 const { attachSpec } = require('../../src/cli/attach.js');
-const { CCS_KEYS } = require('../../src/sessiond/messages.js');
+const { CCS_KEYS, keysWith } = require('../../src/sessiond/messages.js');
 
 /** A directory of add-ons with these manifests. @param {import('node:test').TestContext} t @param {Record<string, any>} all */
 function addons(t, all) {
@@ -48,6 +48,18 @@ test('a terminal attaching is given the actions and keys of the add-ons that are
   const plain = attachSpec({ sockPath: '/s', name: 'api', config: { addons: { leader: 'C-]' } }, flags: {}, addonsDir: dir });
   assert.equal(plain.config.keys, CCS_KEYS);
   assert.equal('actions' in plain.config, false);
+});
+
+test('an add-on\'s keys that act at once go beside ccs\'s, with the words the bar says, and the configuration can name others', (t) => {
+  const dir = addons(t, { notes: { ...NOTES, direct: { 'M-n': 'open' }, tips: { open: 'notes' } } });
+  const on = attachActions({ addons: { leader: 'C-]', notes: { enabled: true } } }, dir);
+  assert.deepEqual(on.keys, { leader: 'C-]', bindings: { n: 'notes.open' }, direct: { 'M-n': 'notes.open' }, tips: { 'notes.open': 'notes' } });
+  const keys = keysWith(on.keys);
+  assert.deepEqual(keys.direct, { ...CCS_KEYS.direct, 'M-n': 'notes.open' }, 'ccs\'s detach keys stay');
+  assert.deepEqual(Object.keys(keys.tips), ['detach', 'notes.open'], 'how to detach comes first');
+  const own = attachActions({ addons: { leader: null, notes: { enabled: true, direct: { 'M-o': 'open', 'M-z': 'nothing' } } } }, dir);
+  assert.deepEqual(own.keys, { direct: { 'M-o': 'notes.open' }, tips: { 'notes.open': 'notes' } }, 'no leader, and still keys');
+  assert.equal(manifests(addons(t, { bad: { ...NOTES, name: 'bad', direct: { 'M-b': 'missing' } } })).length, 0, 'a key for no action');
 });
 
 test('a command of an add-on that is on runs it; of one that is off says which; of none is nobody\'s', (t) => {

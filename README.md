@@ -423,9 +423,11 @@ api  2026-11-01 16:42:07  #18342  ⎿  API Error: rate limit exceeded, retrying 
 $ ccs view api --at '2026-11-01 16:40'
 ```
 
-A bar on your terminal's last row says ccs, the session's name, how many terminals are attached, how to detach, and the
-date and time in the sessions' time zone; the session scrolls above it, into your terminal's own scrollback, and the bar
-never reaches the scrollback or the history. A line in the scrollback marks each new day. To turn these off:
+A bar on your terminal's last row says ccs, the session's name, how many terminals are attached, how to detach, the keys of
+the add-ons that are on, and the date and time in the sessions' time zone; the session scrolls above it, into your
+terminal's own scrollback, and the bar never reaches the scrollback or the history. Claude keeps its last row empty, so in a
+Claude session the bar is on that row, and Claude has every row of the terminal; it steps aside while Claude has something
+there. A line in the scrollback marks each new day. To turn these off:
 
 ```json
 { "history": { "keep": false }, "overlay": { "bar": false, "dayLines": false } }
@@ -448,7 +450,7 @@ your clipboard through ccs.
 ### Translate
 
 The translate add-on puts Chinese you write into the agent's input in English, by the agent's external-editor key (Ctrl+G in
-Claude Code) or a pad on `Ctrl+]` `e`, and shows the agent's replies as Markdown on `Ctrl+]` `r`, where a click or a drag
+Claude Code) or Alt+G, or a pad on Alt+E, and shows the agent's replies as Markdown on Alt+R, where a click or a drag
 puts the Chinese of a paragraph, or of part of one, under it, through an OpenAI-compatible API you name. See
 [docs/translate.md](docs/translate.md).
 

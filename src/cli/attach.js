@@ -11,7 +11,8 @@ const { hhmm } = host;
 const { loadConfig } = require('../common/config.js');
 const { nmuxBin } = require('../common/nmuxbin.js');
 const { attachActions } = require('../addon/host.js');
-const { CCS_WORDS, CCS_KEYS, fill } = require('../sessiond/messages.js');
+const { getAgent } = require('../agents/index.js');
+const { CCS_WORDS, CCS_KEYS, keysWith, fill } = require('../sessiond/messages.js');
 
 /** @typedef {'detached'|'client-exit'|'kicked'|'ended'|'lost'|'gave-up'} Leaving */
 
@@ -62,15 +63,17 @@ const attachPrecheck = (io) => host.attachPrecheck(io, CCS_TEXT);
 /**
  * What `nmux __attach` is given: the session, the flags, the sections of ccs's configuration the client reads, ccs's keys, and its
  * words. It goes on a command line, which other accounts may be able to read, so nothing more of the configuration does. The
- * add-ons that are on add their actions, as the commands nmux runs with the terminal lent, and the keys after the leader.
- * @param {{sockPath: string, name: string, config: any, flags: {shrink?: boolean, allowSetup?: boolean, full?: boolean}, addonsDir?: string}} a
+ * add-ons that are on add their actions, as the commands nmux runs with the terminal lent, and their keys. nmux's bar goes over
+ * the session's own last row for an agent that leaves it empty, and below the session for any other.
+ * @param {{sockPath: string, name: string, config: any, flags: {shrink?: boolean, allowSetup?: boolean, full?: boolean},
+ *          agent?: string, addonsDir?: string}} a
  */
-function attachSpec({ sockPath, name, config, flags, addonsDir }) {
-  const { size, clients, input, overlay } = config;
+function attachSpec({ sockPath, name, config, flags, agent, addonsDir }) {
+  const { size, clients, input } = config;
+  const overlay = config.overlay && { ...config.overlay, barRow: getAgent(agent).capabilities.emptyLastRow ? 'last' : 'below' };
   const addons = attachActions(config, addonsDir);
-  const keys = addons.keys ? { ...CCS_KEYS, ...addons.keys } : CCS_KEYS;
   return { sock: sockPath, name, flags: { shrink: !!flags.shrink, allowSetup: !!flags.allowSetup, full: !!flags.full },
-    config: { size, clients, input, overlay, keys, ...(Object.keys(addons.actions).length ? { actions: addons.actions } : {}) },
+    config: { size, clients, input, overlay, keys: keysWith(addons.keys), ...(Object.keys(addons.actions).length ? { actions: addons.actions } : {}) },
     words: CCS_WORDS };
 }
 
@@ -91,15 +94,15 @@ function attachWith(bin, spec, io) {
 }
 
 /**
- * Contract §6.22 (plus the session id, which the socket path needs).
- * @param {{paths: any, id: string, name: string, flags?: {shrink?: boolean, allowSetup?: boolean, full?: boolean},
+ * Contract §6.22 (plus the session id, which the socket path needs, and its agent).
+ * @param {{paths: any, id: string, name: string, agent?: string, flags?: {shrink?: boolean, allowSetup?: boolean, full?: boolean},
  *          io?: {stdin?: any, stdout?: any, stderr?: any, env?: Record<string, string|undefined>}}} a
  * @returns {Promise<number>}
  */
-function attach({ paths, id, name, flags = {}, io = {} }) {
+function attach({ paths, id, name, agent, flags = {}, io = {} }) {
   const config = loadConfig(paths.configFile);
   const bin = nmuxBin(io.env || process.env);
-  if (bin) return attachWith(bin, attachSpec({ sockPath: paths.ctlSock(id), name, config, flags }), io);
+  if (bin) return attachWith(bin, attachSpec({ sockPath: paths.ctlSock(id), name, config, flags, agent }), io);
   return host.attach({ sockPath: paths.ctlSock(id), name, config, flags, text: CCS_TEXT, keys: CCS_KEYS, io });
 }
 
