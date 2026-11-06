@@ -24,7 +24,7 @@ test('WELCOME, STATE, SNAPSHOT_BEGIN → OUTPUT → SNAPSHOT_END, then live inpu
   const e = await startTestSession(t);
   const a = await e.attach({ label: 'A' });
   assert.deepEqual(Object.keys(a.welcome).sort(), ['ccsId', 'clientId', 'id', 'lifecycle', 'name', 'ping', 'policy', 'proto', 'pty', 't'].sort());
-  assert.deepEqual(a.welcome.policy, { floorCols: 50, floorRows: 15, hardMinCols: 40 });
+  assert.deepEqual(a.welcome.policy, { floorCols: 50, floorRows: 8, hardMinCols: 40 });
   assert.equal(a.snapshots, 1);
   assert.ok(a.states.length >= 1);
   await a.waitForText(/── ccs · fake · \d+ lines of history ──/, 3000);
@@ -36,10 +36,11 @@ test('REFUSE: PROTO, BELOW_FLOOR (with need), --shrink floor 40, TOO_SHORT, NEST
   const e = await startTestSession(t);
   assert.equal((await hello(e.sockPath, { proto: 2 })).code, 'PROTO');
   const bf = await hello(e.sockPath, { cols: 45 });
-  assert.deepEqual([bf.t, bf.code, bf.need], ['REFUSE', 'BELOW_FLOOR', { cols: 50, rows: 15 }]);
+  assert.deepEqual([bf.t, bf.code, bf.need], ['REFUSE', 'BELOW_FLOOR', { cols: 50, rows: 8 }]);
   assert.equal((await hello(e.sockPath, { cols: 39, flags: { shrink: true } })).code, 'BELOW_FLOOR');
   assert.equal((await hello(e.sockPath, { cols: 45, flags: { shrink: true } })).t, 'WELCOME');
-  assert.equal((await hello(e.sockPath, { rows: 10 })).code, 'TOO_SHORT');
+  assert.equal((await hello(e.sockPath, { rows: 10 })).t, 'WELCOME', 'a phone with its keyboard up');
+  assert.equal((await hello(e.sockPath, { rows: 7 })).code, 'TOO_SHORT');
   // NESTED needs the attaching process's environment, which macOS does not expose (handoff brief
   // §5a). The guard is documented as unavailable there and reported by `ccs doctor`, so the
   // assertion is made only where it can actually run -- it is not deleted, because the Linux

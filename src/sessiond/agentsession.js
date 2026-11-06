@@ -9,10 +9,12 @@ const CCSD_MAIN = path.join(__dirname, '..', 'ccsd', 'main.js');
 
 /**
  * What the host needs that ccs does not offer as a setting, under the host's names: the bar says ccs's keys, and those of the
- * add-ons that were on when the session started. @param {any} config
+ * add-ons that were on when the session started. The emulator follows the pty's size (nmux's default), so the host knows
+ * which of a terminal's rows each of the agent's is: an agent draws its prompt by moves relative to its cursor, which after
+ * a resize an emulator of a fixed size would place on other rows than the terminals do. @param {any} config
  */
 function hostConfig(config) {
-  return { ...config, notices: { bellOnAttention: config.notices.bellOnNeedsYou }, stream: { repaint: true },
+  return { ...config, notices: { bellOnAttention: config.notices.bellOnNeedsYou },
     overlay: { ...config.overlay, timeZone: config.env.timezone }, keys: keysWith(attachActions(config).keys) };
 }
 

@@ -127,7 +127,7 @@ ccs new myproject --agent codex --resume <thread-id>      # resume an existing C
 ## 5. Documented behaviour
 
 - Every width change leaves about 3 duplicate lines and every rows grow about 10, in **every** client.
-- A client below 50 columns (40 with `ccs a NAME --shrink`) or 15 rows is refused with a message and
+- A client below 50 columns (40 with `ccs a NAME --shrink`) or 8 rows is refused with a message and
   attaches automatically once the terminal is large enough.
 - Ctrl+G and a resumed suspend reprint the whole transcript.
 - `/model` and `/theme` change user-wide defaults (they write `~/.claude/settings.json`, as in plain claude).

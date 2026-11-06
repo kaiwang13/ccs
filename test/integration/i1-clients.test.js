@@ -35,5 +35,8 @@ test('I1: three clients (120×40, 100×30, 160×50) see the same conversation; d
   await waitFor(() => (e.s.session.pty || {}).cols === 120 && (e.s.session.pty || {}).rows === 40, { timeoutMs: 5000, what: 'grow to 120×40 after 2 s' });
   const b2 = await e.attach({ cols: 100, rows: 30, label: 'B2' });
   await b2.waitForText(/echo: hello from b/, 5000);
-  assert.deepEqual(seqRegion(b2.allText(), 40), regions[0], 'the rejoin snapshot carries the conversation into native scrollback');
+  // The session grew while B was away: the emulator follows the pty as a terminal does, and a terminal growing under a
+  // program that repaints shows some lines again, as A's own scrollback does. The rejoin has every line, in order.
+  const rejoined = seqRegion(b2.allText(), 40) || [];
+  assert.deepEqual(rejoined.filter((l, i) => rejoined.indexOf(l) === i), regions[0], 'the rejoin snapshot carries the conversation into native scrollback');
 });

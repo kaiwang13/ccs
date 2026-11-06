@@ -386,7 +386,7 @@ Optional, at `~/.config/ccs/config.json` (override with `CCS_CONFIG`):
   "defaultAgent": "claude",
   "claude": { "extraArgsAllow": ["--model", "--permission-mode", "--add-dir"] },
   "codex":  { "extraArgsAllow": ["--model", "--sandbox", "--ask-for-approval", "--add-dir", "--profile", "--search"] },
-  "size":   { "floorCols": 50, "floorRows": 15 },
+  "size":   { "floorCols": 50, "floorRows": 8 },
   "env":    { "passthrough": ["MY_VAR"] }
 }
 ```

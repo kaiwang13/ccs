@@ -19,7 +19,7 @@ test('DEFAULTS equal spec §10.5 plus contract additions and are deep-frozen', (
   assert.deepEqual(DEFAULTS.claude.testedVersions, ['2.1.267']);
   assert.equal(DEFAULTS.size.floorCols, 50);
   assert.equal(DEFAULTS.size.hardMinCols, 40);
-  assert.equal(DEFAULTS.size.floorRows, 15);
+  assert.equal(DEFAULTS.size.floorRows, 8, 'a phone with its keyboard up');
   assert.equal(DEFAULTS.size.defaultCols, 120);
   assert.equal(DEFAULTS.size.defaultRows, 40);
   assert.equal(DEFAULTS.clients.queueCapBytes, 1048576);
@@ -76,7 +76,7 @@ test('valid leaves override, invalid leaves fall back per leaf and are reported'
   const seen = [];
   const cfg = loadConfig(f, (k, v) => seen.push([k, v]));
   assert.equal(cfg.size.floorCols, 60);
-  assert.equal(cfg.size.floorRows, 15);
+  assert.equal(cfg.size.floorRows, 8);
   assert.equal(cfg.size.growMinCols, 4);
   assert.equal(cfg.input.escFlushMs, 30);
   assert.equal(cfg.input.pasteIdleCloseMs, 1500);

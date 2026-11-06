@@ -60,8 +60,9 @@ const DEFAULTS = deepFreeze({
   overlay: { bar: true, dayLines: true },
   // src/common/proxy.js: a URL, 'none', or null (keep the shell's). `ccs proxy` edits these.
   proxy: { session: null, feishu: null, noProxy: null },
-  // Claude's UI does not survive a narrow terminal or a resize storm, and a shared session should not jump about.
-  size: { ...HOST.size, floorCols: 50, hardMinCols: 40, floorRows: 15, maxCols: 240, maxRows: 150,
+  // Claude's UI does not survive a narrow terminal or a resize storm, and a shared session should not jump about. A
+  // phone's keyboard leaves its terminal a dozen rows or fewer, where Claude's prompt still fits: 8 rows are enough.
+  size: { ...HOST.size, floorCols: 50, hardMinCols: 40, floorRows: 8, maxCols: 240, maxRows: 150,
     shrinkDebounceMs: 100, shrinkMaxWaitMs: 400, growDebounceMs: 2000, growMinCols: 4, growMinRows: 2 },
   snapshot: { ...HOST.snapshot },
   // osc52: which of an agent's clipboard writes (OSC 52) a terminal is given, read at attach: 'last-typist', those made while
