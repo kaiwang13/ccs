@@ -27,13 +27,13 @@ Also in the section, each optional:
 | `provider.timeoutMs` | 60000 | how long one translation may take |
 | `provider.temperature` | 0.2 | |
 | `proxy` | the environment's | a URL, or `none`; http(s) proxies only |
-| `direct` | `{ "M-g": "draft", "M-e": "compose", "M-r": "read" }` | keys that act at once: `M-g` is Alt+G |
+| `direct` | `{ "M-g": "draft", "M-e": "compose", "M-r": "read", "M-a": "whole" }` | keys that act at once: `M-g` is Alt+G |
 | `keys` | none | keys after the leader, as `{ "e": "compose" }` |
 | `draftEditor` | true | false leaves Ctrl+G to the agent's own editor |
 | `confirm` | true | false puts Ctrl+G's English in without asking |
 | `glossary` | `{}` | `{ "分页": "pagination" }`: terms always translated so |
 
-Alt+G, Alt+E and Alt+R are ccs's while you are attached: the agent never sees them, and nmux's bar at the foot of the
+Alt+G, Alt+E, Alt+R and Alt+A are ccs's while you are attached: the agent never sees them, and nmux's bar at the foot of the
 terminal names them. A Mac terminal sends them only with Option set to act as Alt (VS Code:
 `"terminal.integrated.macOptionIsMeta": true`). `addons.leader` is the key before a key in `keys`, `Ctrl+]` unless you name
 another; null takes none. The leader twice sends one to the agent.
@@ -62,7 +62,8 @@ guessed at. You pick what to read in Chinese, and its translation, rendered as M
   after a line that quotes it.
 - **By key**: `n` and `p` pick the next paragraph and the one before, `N` and `P` add one to the pick, Enter translates the
   pick (or puts its Chinese away), Esc puts the pick down.
-- **Tab** shows the whole reply in Chinese, and back.
+- **Tab** shows the whole reply in Chinese, and back. **Alt+A**, from the session, opens the reader on the last reply with
+  all of it in Chinese.
 
 `[` and `]` go to the reply before and after, ↑ ↓ PgUp PgDn and the mouse wheel scroll, `y` copies the pick, or else what is
 shown, to your clipboard (where your terminal lets a program set it), and `q`, or Esc with nothing picked, goes back. While

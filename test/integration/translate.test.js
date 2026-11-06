@@ -188,4 +188,10 @@ test('the reader shows the agent\'s replies as Markdown, with the Chinese of wha
   await term.waitText(/click\/drag: 中文 · n p paragraph/, 10000);
   term.write('\x1b');
   await waitGone(term, /reply 2 of 2/);
+
+  // Alt+A: the last reply, all of it in Chinese, at once
+  term.write('\x1ba');
+  await term.waitText(/reply 2 of 2 · 中文 *\n─+\n 中\(Second answer, code kept\. *\n *\n • item one/, 10000);
+  term.write('q');
+  await waitGone(term, /reply 2 of 2/);
 });

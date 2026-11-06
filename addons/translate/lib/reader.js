@@ -2,7 +2,8 @@
 // @ts-check
 /**
  * The reader, which a key opens over a session (nmux lends it the terminal): the agent's replies, from its transcript, as
- * Markdown, with what you pick of them in Chinese. It opens on the newest reply as the agent wrote it. A click on a
+ * Markdown, with what you pick of them in Chinese. It opens on the newest reply as the agent wrote it, or, from its own key
+ * (`all`), all of that reply in Chinese. A click on a
  * paragraph puts its Chinese under it, a drag across part of one puts that part's there, and a click on a translation puts
  * it away. n and p pick the next paragraph and the one before, N and P add one to the pick, and Enter translates the pick,
  * or puts its translation away. Tab shows the whole reply in Chinese. [ and ] go to the reply before and after, ↑ ↓ PgUp
@@ -31,8 +32,8 @@ const MOUSE_OFF = '\x1b[?1006l\x1b[?1002l\x1b[?1000l';
 /** A text's rows as the rendering of what is not the reply: nothing in them can be picked. @param {Row[]} rows @param {number} [style] */
 const apart = (rows, style = 0) => rows.map((r) => ({ cells: r.cells.map((c) => ({ ...c, src: -1, style: c.style | style })), leaf: -1 }));
 
-/** @returns {Promise<number>} */
-async function read() {
+/** @param {{all?: boolean}} [o] @returns {Promise<number>} */
+async function read({ all = false } = {}) {
   const session = currentSession();
   if (!session || !process.stdin.isTTY) {
     process.stderr.write('translate: the reader opens from a key in a session (addons.translate.keys)\n');
@@ -279,6 +280,10 @@ async function read() {
     process.stdin.resume();
     out.on('resize', draw);
     out.write(MOUSE_ON);
+    if (all && reply()) {
+      v.chinese = true;
+      wholeReply();
+    }
     draw();
   });
 }
