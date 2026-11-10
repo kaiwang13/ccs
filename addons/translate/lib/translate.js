@@ -32,18 +32,56 @@ function messages(text, to, glossary = {}) {
   return [{ role: 'system', content: SYSTEM[to] + terms }, { role: 'user', content: text }];
 }
 
+const OPEN = '<think>';
+const CLOSE = '</think>';
+
 /**
- * Translates `text` into `to`, handing each piece to `onText` as it comes: the whole translation, its ends trimmed.
+ * The answer in what a model writes, piece by piece: not the blank space it may begin with, nor the reasoning that a model
+ * served with no reasoning parser writes first in the answer itself, `<think>…</think>`. `tags` false: the text translated
+ * has such tags of its own, and the answer keeps them.
+ * @param {AsyncIterable<string>} pieces @param {boolean} tags @returns {AsyncGenerator<string>}
+ */
+async function* answerOf(pieces, tags) {
+  let head = ''; // what came before the answer began
+  let thinking = false;
+  let begun = false;
+  for await (const piece of pieces) {
+    if (begun) { yield piece; continue; }
+    head += piece;
+    for (;;) {
+      if (thinking) {
+        const end = head.indexOf(CLOSE);
+        if (end < 0) break;
+        head = head.slice(end + CLOSE.length);
+        thinking = false;
+      }
+      const t = head.trimStart();
+      if (!t || (tags && OPEN.startsWith(t))) break; // nothing yet, or perhaps a tag still to come
+      if (tags && t.startsWith(OPEN)) { head = t.slice(OPEN.length); thinking = true; continue; }
+      begun = true;
+      yield t;
+      break;
+    }
+  }
+  if (!begun && !thinking && head.trim()) yield head.trimStart();
+}
+
+/**
+ * Translates `text` into `to`, handing each piece of the answer to `onText` as it comes. The whole translation, its ends
+ * trimmed; a model that writes its reasoning first with only `</think>` after it shows it as it comes, and this leaves it
+ * out.
  * @param {import('./provider').Provider} provider @param {string} text @param {'en'|'zh'} to
  * @param {{glossary?: Record<string, string>, onText?: (piece: string) => void, signal?: AbortSignal}} [o]
  */
 async function translate(provider, text, to, { glossary, onText, signal } = {}) {
+  const tags = !text.includes(OPEN) && !text.includes(CLOSE);
   let out = '';
-  for await (const piece of complete(provider, messages(text, to, glossary), { signal })) {
+  for await (const piece of answerOf(complete(provider, messages(text, to, glossary), { signal }), tags)) {
     out += piece;
     if (onText) onText(piece);
   }
-  return out.trim();
+  const end = tags ? out.lastIndexOf(CLOSE) : -1;
+  return (end < 0 ? out : out.slice(end + CLOSE.length)).trim();
 }
 
-module.exports = { into, messages, translate, HAN };
+module.exports = { into, messages, answerOf, translate, HAN };

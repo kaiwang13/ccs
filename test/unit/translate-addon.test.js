@@ -9,7 +9,7 @@ const { parseInput, Draft } = require('../../addons/translate/lib/keys.js');
 const { charWidth, wrap } = require('../../addons/translate/lib/width.js');
 const { draw, sheet } = require('../../addons/translate/lib/screen.js');
 const { S, render, sourceAt, leafAt, wholeWords } = require('../../addons/translate/lib/markdown.js');
-const { into, messages, translate } = require('../../addons/translate/lib/translate.js');
+const { into, messages, answerOf, translate } = require('../../addons/translate/lib/translate.js');
 const { providerOf, complete } = require('../../addons/translate/lib/provider.js');
 const { startFakeOpenAI } = require('../helpers/fakeopenai.js');
 
@@ -137,7 +137,7 @@ test('a provider needs a URL and a model, and a key file only its owner can read
   assert.throws(() => providerOf({ provider: { baseUrl: 'https://x/v1', model: 'm', apiKeyFile: key } }), /chmod 600/);
   fs.chmodSync(key, 0o600);
   assert.deepEqual(providerOf({ provider: { baseUrl: 'https://x/v1/', model: 'm', apiKeyFile: key } }, {}),
-    { baseUrl: 'https://x/v1', model: 'm', key: 'from-file', timeoutMs: 60000, temperature: 0.2 });
+    { baseUrl: 'https://x/v1', model: 'm', key: 'from-file', timeoutMs: 60000, temperature: 0.2, body: {}, headers: {} });
   assert.equal(providerOf({ provider: { baseUrl: 'https://x/v1', model: 'm', apiKeyEnv: 'K' } }, { K: 'v' }).key, 'v');
   assert.equal(providerOf({ provider: { baseUrl: 'https://x/v1', model: 'm' } }, { CCS_TRANSLATE_API_KEY: 'd' }).key, 'd');
   assert.equal(providerOf({ provider: { baseUrl: 'http://127.0.0.1/v1', model: 'm' } }, {}).key, null);
@@ -146,6 +146,56 @@ test('a provider needs a URL and a model, and a key file only its owner can read
   assert.equal(providerOf({ provider: { baseUrl: 'http://10.0.0.3:18010', model: 'm' } }, {}).baseUrl, 'http://10.0.0.3:18010/v1');
   assert.equal(providerOf({ provider: { baseUrl: 'http://10.0.0.3:18010/', model: 'm' } }, {}).baseUrl, 'http://10.0.0.3:18010/v1');
   assert.equal(providerOf({ provider: { baseUrl: 'https://x/api/', model: 'm' } }, {}).baseUrl, 'https://x/api');
+});
+
+test('the answer is what a model writes after the blank space and reasoning it may begin with, however it is cut', async () => {
+  const of = async (/** @type {string[]} */ pieces, tags = true) => {
+    const out = [];
+    for await (const p of answerOf((async function* () { yield* pieces; })(), tags)) out.push(p);
+    return out.join('');
+  };
+  assert.equal(await of(['\n\nHel', 'lo']), 'Hello');
+  assert.equal(await of(['<thi', 'nk>\nthe user wants', ' English</th', 'ink>', '\n\n', 'Hello', '.']), 'Hello.');
+  assert.equal(await of(['  <think>a</think><think>b</think> Hi']), 'Hi', 'one block after another');
+  assert.equal(await of(['<thi']), '<thi', 'a text that only looked like a tag');
+  assert.equal(await of(['<think>never closed']), '', 'reasoning cut off is no answer');
+  assert.equal(await of(['<think>kept</think> too'], false), '<think>kept</think> too', 'a text with tags of its own keeps them');
+});
+
+test('any OpenAI-compatible server: reasoning beside the answer or in it, a model with its own temperature, and what one server alone takes', async (t) => {
+  const api = await startFakeOpenAI({ reply: () => '<think>\nThe user wants English.\n</think>\n\nPaginate by time.', piece: 2, reasoning: 'thinking aloud' });
+  t.after(() => api.close());
+  const p = providerOf({ provider: { baseUrl: api.baseUrl, model: 'm', apiKeyEnv: 'K',
+    body: { chat_template_kwargs: { enable_thinking: false } }, headers: { 'api-key': 'az' } } }, { K: 'k' });
+  const shown = [];
+  assert.equal(await translate(p, '按时间分页', 'en', { onText: (s) => shown.push(s) }), 'Paginate by time.');
+  assert.equal(shown.join(''), 'Paginate by time.', 'none of the reasoning is shown, beside the answer or in it');
+  const sent = api.requests[0];
+  assert.deepEqual([sent.body.chat_template_kwargs, sent.headers['api-key'], sent.auth], [{ enable_thinking: false }, 'az', 'Bearer k']);
+
+  api.state.reply = () => 'Reasoning first, with no tag before it.</think>\n\nPaginate by time.';
+  assert.equal(await translate(p, '按时间分页', 'en'), 'Paginate by time.', 'only the closing tag');
+  api.state.reply = (text) => `EN(${text})`;
+  assert.equal(await translate(p, 'explain <think> tags', 'zh'), 'EN(explain <think> tags)', 'a text with tags of its own');
+
+  api.state.ownTemperature = true;
+  api.requests.length = 0;
+  assert.equal(await translate(p, 'x', 'zh'), 'EN(x)');
+  assert.deepEqual(api.requests.map((r) => r.body.temperature), [0.2, undefined], 'asked again with no temperature');
+  api.requests.length = 0;
+  const none = providerOf({ provider: { baseUrl: api.baseUrl, model: 'm', temperature: null } }, {});
+  assert.equal(await translate(none, 'x', 'zh'), 'EN(x)');
+  assert.deepEqual(api.requests.map((r) => 'temperature' in r.body), [false], 'null: never one');
+  assert.throws(() => providerOf({ provider: { baseUrl: api.baseUrl, model: 'm', body: 'x' } }, {}), /body must be an object/);
+  assert.throws(() => providerOf({ provider: { baseUrl: api.baseUrl, model: 'm', headers: { a: 1 } } }, {}), /headers must be/);
+});
+
+test('a server that cannot be reached or does not answer in time says where', async () => {
+  const api = await startFakeOpenAI({ delayMs: 400, piece: 1 });
+  const url = api.baseUrl;
+  await api.close();
+  const p = { baseUrl: url, model: 'm', key: null, timeoutMs: 5000, temperature: null, body: {}, headers: {} };
+  await assert.rejects(translate(p, 'x', 'zh'), (e) => e.message.startsWith(`could not reach ${url}/chat/completions: `) && /ECONNREFUSED/.test(e.message));
 });
 
 test('an answer comes streamed in pieces, or whole, and a failure says what the API said', async (t) => {
@@ -159,6 +209,11 @@ test('an answer comes streamed in pieces, or whole, and a failure says what the 
   assert.deepEqual([api.requests[0].body.model, api.requests[0].body.stream, api.requests[0].body.temperature], ['m', true, 0]);
   api.state.stream = false;
   assert.equal(await translate(p, 'x', 'zh'), '按时间分页，并补上测试。');
+  api.state.stream = true;
+  api.state.reply = () => '\n\nPaginate by time.';
+  const after = [];
+  assert.equal(await translate(p, 'x', 'en', { onText: (s) => after.push(s) }), 'Paginate by time.');
+  assert.deepEqual(after, ['P', 'agi', 'nat', 'e b', 'y t', 'ime', '.'], 'a model that reasons first begins with blank lines, which are not shown');
   api.state.fail = { status: 429, message: 'slow down' };
   await assert.rejects(translate(p, 'x', 'zh'), /the API answered 429: slow down/);
   await assert.rejects(async () => { for await (const _ of complete({ ...p, baseUrl: `${api.baseUrl}/nowhere` }, [])) { /* none */ } }, /404/);

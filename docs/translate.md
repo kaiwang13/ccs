@@ -25,13 +25,21 @@ Also in the section, each optional:
 | Key | Default | |
 |---|---|---|
 | `provider.timeoutMs` | 60000 | how long one translation may take |
-| `provider.temperature` | 0.2 | |
+| `provider.temperature` | 0.2 | null sends none |
+| `provider.body` | `{}` | fields added to each request, for what one server alone takes |
+| `provider.headers` | `{}` | headers added to each request, such as Azure's `api-key` |
 | `proxy` | the environment's | a URL, or `none`; http(s) proxies only |
 | `direct` | `{ "M-g": "draft", "M-e": "compose", "M-r": "read", "M-a": "whole" }` | keys that act at once: `M-g` is Alt+G |
 | `keys` | none | keys after the leader, as `{ "e": "compose" }` |
 | `draftEditor` | true | false leaves Ctrl+G to the agent's own editor |
 | `confirm` | true | false puts Ctrl+G's English in without asking |
 | `glossary` | `{}` | `{ "分页": "pagination" }`: terms always translated so |
+
+Any OpenAI-compatible chat completions API serves: OpenAI's, DeepSeek's, a vLLM, SGLang or Ollama server, and the like. A
+model that reasons first, as DeepSeek-R1 and Qwen3 do, has its reasoning left out, whether the server sends it beside the
+answer or in it as `<think>…</think>`, and so are the blank lines such a model begins with; one that takes no temperature
+but its own is asked again without one. Reasoning makes a translation slower and no better, and a server may let you turn
+it off: for Qwen3 on vLLM, `"body": { "chat_template_kwargs": { "enable_thinking": false } }`.
 
 Alt+G, Alt+E, Alt+R and Alt+A are ccs's while you are attached: the agent never sees them, and nmux's bar at the foot of the
 terminal names them. A Mac terminal sends them only with Option set to act as Alt (VS Code:
