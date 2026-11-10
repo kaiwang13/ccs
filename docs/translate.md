@@ -42,9 +42,12 @@ but its own is asked again without one. Reasoning makes a translation slower and
 it off: for Qwen3 on vLLM, `"body": { "chat_template_kwargs": { "enable_thinking": false } }`.
 
 Alt+G, Alt+E, Alt+R and Alt+A are ccs's while you are attached: the agent never sees them, and nmux's bar at the foot of the
-terminal names them. A Mac terminal sends them only with Option set to act as Alt (VS Code:
-`"terminal.integrated.macOptionIsMeta": true`). `addons.leader` is the key before a key in `keys`, `Ctrl+]` unless you name
-another; null takes none. The leader twice sends one to the agent.
+terminal names them. On a Mac, Alt is Option: Option+G, Option+R and Option+A work as they are. The terminal sends them as
+`©`, `®` and `å`, and ccs takes those as the keys, so while you are attached they are not typed into the agent. Option+E
+begins an accent on a Mac's keyboard and sends nothing by itself: press Option+E and then Space. A terminal set to send
+Option as Alt sends every one as it is (VS Code: `"terminal.integrated.macOptionIsMeta": true`; Terminal: Use Option as Meta
+key; iTerm2: Left Option key Esc+). `addons.leader` is the key before a key in `keys`, `Ctrl+]` unless you name another; null
+takes none. The leader twice sends one to the agent.
 
 ## Writing in Chinese
 

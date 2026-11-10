@@ -65,7 +65,8 @@ test('the pad puts the English in the agent\'s input, sends it with Ctrl+S, and 
   term.write('你好\x13');
   await term.waitText(/RECEIVED: EN\(你好\)/, 10000);
 
-  term.write('\x1be');
+  // a Mac's Option+E and then Space, as its terminal sends it unless told to send Option as Alt
+  term.write('´');
   await term.waitText(/Enter translate · Ctrl\+J new line/, 10000);
   term.write('留着的草稿');
   await term.waitText(/ 留着的草稿/, 10000);
@@ -102,6 +103,15 @@ test('Ctrl+G in the agent, or Alt+G, turns a draft in Chinese into English, give
   await term.waitText(/EDITED: EN\(按时间排序\)/, 10000);
   term.write('\r');
   await term.waitText(/RECEIVED: EN\(按时间排序\)/, 10000);
+
+  // and Option+G, as a Mac's terminal sends it unless told to send Option as Alt
+  term.write('按页码');
+  await term.waitText(/❯ 按页码/, 10000);
+  term.write('©');
+  await term.waitText(/─ English ─+\n EN\(按页码\)/, 10000);
+  term.write('\r');
+  await term.waitText(/EDITED: EN\(按页码\)/, 10000);
+  term.write('\x15\r');
 
   term.write('hello\x07');
   await term.waitText(/EDITED: own editor/, 10000);
@@ -192,6 +202,16 @@ test('the reader shows the agent\'s replies as Markdown, with the Chinese of wha
   // Alt+A: the last reply, all of it in Chinese, at once
   term.write('\x1ba');
   await term.waitText(/reply 2 of 2 · 中文 *\n─+\n 中\(Second answer, code kept\. *\n *\n • item one/, 10000);
+  term.write('q');
+  await waitGone(term, /reply 2 of 2/);
+
+  // and as a Mac types them, Option+R and Option+A
+  term.write('®');
+  await term.waitText(/reply 2 of 2 *\n─+\n Second answer, code kept\./, 10000);
+  term.write('q');
+  await waitGone(term, /reply 2 of 2/);
+  term.write('å');
+  await term.waitText(/reply 2 of 2 · 中文/, 10000);
   term.write('q');
   await waitGone(term, /reply 2 of 2/);
 });
