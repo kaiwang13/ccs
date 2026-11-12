@@ -22,14 +22,16 @@ it is installed from source; a release package carries it built.
 Unlike `tmux` or `screen`, `ccs` does not own your scrollback. Each client renders into its own terminal,
 so you scroll with your normal mouse wheel, trackpad, and scrollbar — no prefix key, no copy mode.
 
-**Status: v0.5.1.** Installs from a **prebuilt package** per platform (Linux x64/arm64, macOS arm64/x64) — no
-Node, npm or compiler needed (see [Install](#install)). v0.5.0 added an optional **Feishu (Lark) add-on**: every session is a topic in one `ccs` Feishu
+**Status: v0.6.0.** Installs from a **prebuilt package** per platform (Linux x64/arm64, macOS arm64/x64) — no
+Node, npm or compiler needed (see [Install](#install)). v0.6.0 runs sessions on nmux, the session host made in Rust that
+installs beside `ccs`, and adds add-ons, among them [translate](docs/translate.md): write to the agent in Chinese and read
+its replies in Chinese, through a model you name. v0.5.0 added an optional **Feishu (Lark) add-on**: every session is a topic in one `ccs` Feishu
 group (or gets its own group, if you prefer), where you read the conversation as cards, send prompts, answer
 Claude's permission prompts and questions with a tap, interrupt, and wake a stopped session — from the phone or
 desktop app, in sync with the terminal ([`docs/feishu.md`](docs/feishu.md)). It is off unless you run
 `ccs feishu setup`, and being off changes nothing. Runs on **Linux and macOS** from one codebase, with every OS
 difference behind one platform seam (see [`CLAUDE.md`](CLAUDE.md)); hosts Claude Code and Codex CLI on the same
-terms. The automated suite (700 unit, 135 integration, 92 golden) passes in CI on both Linux and macOS. Against a real
+terms. The automated suite (473 unit, 156 integration, 92 golden) passes in CI on both Linux and macOS. Against a real
 Feishu app, connecting, linking sessions, the topic layout and phone-to-terminal input are verified;
 the rest of the add-on's live checklist in [`docs/feishu.md`](docs/feishu.md) is not yet run. See
 [Limitations](#limitations) for what is not built yet.
@@ -96,8 +98,8 @@ curl -fsSL https://raw.githubusercontent.com/kaiwang13/ccs/main/install.sh | sh
 ```
 
 That downloads the package for this machine, checks its SHA-256, unpacks it as a release under
-`~/.local/share/ccs/releases/`, points `~/.local/share/ccs/current` at it, and puts a `ccs` wrapper in
-`~/.local/bin`. `CCS_VERSION=v0.5.1` pins a release instead of the latest. Offline, or to inspect it first:
+`~/.local/share/ccs/releases/`, points `~/.local/share/ccs/current` at it, and puts `ccs` and `nmux` in
+`~/.local/bin`. `CCS_VERSION=v0.6.0` pins a release instead of the latest. Offline, or to inspect it first:
 
 ```sh
 tar -xzf ccs-linux-x64.tar.gz          # unpacks to ccs-<version>-linux-x64/

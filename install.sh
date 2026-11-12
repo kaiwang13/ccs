@@ -31,7 +31,7 @@ set -eu
 
 REPO="${CCS_REPO:-https://github.com/kaiwang13/ccs.git}"
 REF="${CCS_REF:-main}"
-# Release packages: CCS_VERSION picks a tag (e.g. v0.5.1); the default is the latest release.
+# Release packages: CCS_VERSION picks a tag (e.g. v0.6.0); the default is the latest release.
 RELEASES="${CCS_RELEASES_URL:-https://github.com/kaiwang13/ccs/releases}"
 VERSION="${CCS_VERSION:-latest}"
 PACKAGE="${CCS_PACKAGE:-}"
