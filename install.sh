@@ -38,6 +38,9 @@ PACKAGE="${CCS_PACKAGE:-}"
 ROOT="${CCS_HOME:-$HOME/.local/share/ccs}"
 BIN="${CCS_BIN_DIR:-$HOME/.local/bin}"
 STATE="${CCS_STATE_DIR:-$HOME/.local/state/ccs}"
+# The configuration ccs reads (src/common/paths.js): the file CCS_CONFIG names, or ~/.config/ccs, which holds config.json
+# and the files it names, such as translate's key. `uninstall --purge` deletes this and no other configuration.
+CONFIG="${CCS_CONFIG:-$HOME/.config/ccs}"
 WRAPPER="$BIN/ccs"
 NMUX_WRAPPER="$BIN/nmux"
 
@@ -321,12 +324,12 @@ cmd_uninstall() {
   rm -rf "$ROOT"
   say "removed $ROOT and $WRAPPER"
   if [ "$_purge" = "--purge" ]; then
-    rm -rf "$STATE" "${XDG_CONFIG_HOME:-$HOME/.config}/ccs"
+    rm -rf "$STATE" "$CONFIG"
     say "purged session records and config"
     warn "Claude's own transcripts in ~/.claude/projects were NOT deleted"
   else
     # Not "$0 uninstall --purge": the installed copy of this script was just removed with the install.
-    say "session records kept in $STATE (delete them and the config with: rm -rf '$STATE' '${XDG_CONFIG_HOME:-$HOME/.config}/ccs')"
+    say "session records kept in $STATE (delete them and the config with: rm -rf '$STATE' '$CONFIG')"
   fi
 }
 
@@ -344,7 +347,7 @@ usage: install.sh [install|update|uninstall [--purge]]
 
 release package: CCS_VERSION (tag, default latest) CCS_PACKAGE (file or URL) CCS_RELEASES_URL
 from source:     CCS_REPO (a clone or git URL; setting it selects the source build) CCS_REF
-everywhere:      CCS_HOME CCS_BIN_DIR CCS_STATE_DIR
+everywhere:      CCS_HOME CCS_BIN_DIR CCS_STATE_DIR CCS_RUNTIME_DIR CCS_CONFIG
 EOF
     ;;
   *) die "unknown command '$1' (try: install, update, uninstall)" ;;

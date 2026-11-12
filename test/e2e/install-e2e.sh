@@ -126,6 +126,23 @@ else
   bad "uninstall destroyed or altered a session record without --purge"
 fi
 
+# --purge deletes the configuration this install uses and no other: with CCS_CONFIG set, that file and not ~/.config/ccs.
+# HOME and XDG_CONFIG_HOME are stand-ins, so a purge that took the wrong one would delete only a planted copy.
+say "uninstall --purge deletes this install's records and configuration, and no others"
+FAKE_HOME="$PREFIX/home"
+mkdir -p "$FAKE_HOME/.config/ccs" "$PREFIX/config" "$PREFIX/xdg/ccs"
+printf '{}\n' > "$FAKE_HOME/.config/ccs/config.json"
+printf '{}\n' > "$PREFIX/config/config.json"
+if HOME="$FAKE_HOME" XDG_CONFIG_HOME="$PREFIX/xdg" CCS_CONFIG="$PREFIX/config/config.json" sh "$INSTALLER" uninstall --purge >"$PREFIX/purge.log" 2>&1
+then pass "uninstall --purge exited 0"; else bad "uninstall --purge failed"; tail -15 "$PREFIX/purge.log"; fi
+[ ! -e "$CCS_STATE_DIR" ] && pass "session records purged" || bad "session records still present after --purge"
+[ ! -e "$PREFIX/config/config.json" ] && pass "the config file CCS_CONFIG names purged" || bad "the config file CCS_CONFIG names still present"
+[ -f "$FAKE_HOME/.config/ccs/config.json" ] && pass "~/.config/ccs left alone when CCS_CONFIG names another file" || bad "--purge deleted ~/.config/ccs although CCS_CONFIG names another file"
+mkdir -p "$CCS_STATE_DIR"
+if (unset CCS_CONFIG; HOME="$FAKE_HOME" XDG_CONFIG_HOME="$PREFIX/xdg" sh "$INSTALLER" uninstall --purge) >"$PREFIX/purge2.log" 2>&1 \
+   && [ ! -e "$FAKE_HOME/.config/ccs" ] && [ -d "$PREFIX/xdg/ccs" ]; then pass "without CCS_CONFIG, --purge deletes ~/.config/ccs, which ccs reads, and nothing under XDG_CONFIG_HOME"
+else bad "without CCS_CONFIG, --purge did not delete exactly ~/.config/ccs"; tail -15 "$PREFIX/purge2.log"; fi
+
 say "THE STANDING RULE: your real session records are untouched"
 AFTER=$(fingerprint)
 if [ "$BEFORE" = "$AFTER" ]; then pass "real session records unchanged: same record set, every intent.json byte-identical"
