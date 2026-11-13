@@ -22,7 +22,7 @@ it is installed from source; a release package carries it built.
 Unlike `tmux` or `screen`, `ccs` does not own your scrollback. Each client renders into its own terminal,
 so you scroll with your normal mouse wheel, trackpad, and scrollbar — no prefix key, no copy mode.
 
-**Status: v0.6.1.** Installs from a **prebuilt package** per platform (Linux x64/arm64, macOS arm64/x64) — no
+**Status: v0.6.2.** Installs from a **prebuilt package** per platform (Linux x64/arm64, macOS arm64/x64) — no
 Node, npm or compiler needed (see [Install](#install)). v0.6.0 runs sessions on nmux, the session host made in Rust that
 installs beside `ccs`, and adds add-ons, among them [translate](docs/translate.md): write to the agent in Chinese and read
 its replies in Chinese, through a model you name. v0.5.0 added an optional **Feishu (Lark) add-on**: every session is a topic in one `ccs` Feishu
